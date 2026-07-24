@@ -97,10 +97,10 @@
             android:layout_width="40dp"
             android:layout_height="34dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"
+            android:contentDescription="Menu (home)"
             android:padding="2dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_toolbar_back" />
+            android:src="@drawable/ic_menu" />
 
         <View android:layout_width="6dp" android:layout_height="1dp" />
 
@@ -198,12 +198,12 @@
 
         <ImageButton
             android:id="@+id/flightResyncButton"
-            android:layout_width="38dp"
+            android:layout_width="40dp"
             android:layout_height="34dp"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Video re-sync"
-            android:padding="3dp"
+            android:padding="0dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_resync" />
 
@@ -220,6 +220,7 @@
             android:layout_width="74dp"
             android:layout_height="34dp"
             android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop recording to SD (not wired yet)" />
 
