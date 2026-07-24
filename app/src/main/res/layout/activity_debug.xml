@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#0E0E10"
+    android:padding="20dp"
+    android:baselineAligned="false">
+
+    <!-- LEFT: options column -->
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:paddingEnd="20dp"
+        android:scrollbars="none"
+        android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Debug Log"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="6dp" />
+
+        <LinearLayout style="@style/homeCard">
+            <TextView style="@style/homeCardTitle" android:text="Options" />
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="6dp">
+                <CheckBox android:id="@+id/debugLoggingToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Logging enabled" android:textColor="#DDDDDD" android:textSize="15sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <CheckBox android:id="@+id/debugVerboseToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Detailed (all app functions)" android:textColor="#DDDDDD" android:textSize="15sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/debugExportButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Export Log"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#2E7D32" />
+            <Button
+                android:id="@+id/debugClearButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Clear Log"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#37474F" />
+            <Button
+                android:id="@+id/debugDeleteButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Delete Log"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#B71C1C" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/debugLogMeta"
+            style="@style/homeCardSub"
+            android:layout_marginTop="10dp"
+            android:text="" />
+
+        <TextView
+            style="@style/homeCardSub"
+            android:layout_marginTop="4dp"
+            android:text="Also archived to Downloads/TAKPilot2 Logs" />
+
+    </LinearLayout>
+    </ScrollView>
+
+    <!-- RIGHT: live-scrolling log view -->
+    <ScrollView
+        android:id="@+id/debugLogScroll"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="2.4"
+        android:background="#1A1B1E"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/debugLogText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="#CCFFCC"
+            android:textSize="12sp"
+            android:textIsSelectable="true"
+            android:text="" />
+    </ScrollView>
+</LinearLayout>

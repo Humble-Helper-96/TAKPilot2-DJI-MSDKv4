@@ -1,0 +1,375 @@
+package com.dji.sdk.sample.takpilot2
+
+import android.content.Context
+import android.graphics.Matrix
+import android.graphics.RectF
+import android.graphics.SurfaceTexture
+import android.media.MediaCodec
+import android.media.MediaFormat
+import android.util.AttributeSet
+import com.dji.sdk.sample.tak.IdrRequesterHolder
+import com.taklite.util.AppLog
+import android.view.Surface
+import android.view.TextureView
+import dji.sdk.camera.VideoFeeder
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Live FPV view decoding the DJI primary video feed with OUR OWN low-latency MediaCodec
+ * pipeline, replacing DJI's DJICodecManager rendering entirely (see
+ * TAKPILOT2_V4_PORT_PLAN.md "Video debugging journal" for the full root-cause history).
+ *
+ * Two things DJICodecManager doesn't handle that this does:
+ *  - The Mini 2 emits NO SPS/PPS/IDR in steady state — it sends a keyframe only when asked.
+ *    A dormant, off-screen DJICodecManager is kept solely as that "ask for a keyframe" lever
+ *    ([IdrRequesterHolder]; it never renders anything itself). That holder is a process-wide
+ *    singleton, NOT owned per-surface here — DJI's native video engine doesn't tolerate being
+ *    destroyed/recreated on every surface cycle (screen lock/unlock, screen navigation); see
+ *    the holder's doc for the in-flight black-FPV incident that fix addressed.
+ *  - VideoFeeder.onReceive() bytes are transport-sized chunks (~2 KB), NOT NAL-aligned. An
+ *    assembler splits the Annex-B stream (3- or 4-byte start codes) into whole NALs, queues
+ *    them boundedly (dumping + resyncing at the next SPS on overflow, so latency can never
+ *    accumulate), and a decode thread renders only the newest ready frame each pass.
+ */
+class FpvTextureView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
+
+    private var videoListener: VideoFeeder.VideoDataListener? = null
+    private var decoder: DecoderThread? = null
+    @Volatile private var sawFirstFrame = false
+
+    /** Invoked (on the DJI callback thread) the first time raw video bytes arrive. */
+    var onFirstFrame: (() -> Unit)? = null
+
+    init {
+        surfaceTextureListener = this
+    }
+
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        // Keyframe-request lever is a process-wide singleton (IdrRequesterHolder) — DJI's
+        // native video engine doesn't tolerate being destroyed/recreated on every surface
+        // cycle (screen lock/unlock, screen navigation); see that class's doc for the
+        // in-flight incident this fixed.
+        IdrRequesterHolder.ensureStarted(context)
+
+        val d = DecoderThread(Surface(surface))
+        d.onSyncNeeded = { IdrRequesterHolder.requestKeyframe() }
+        d.onHardResyncNeeded = { IdrRequesterHolder.forceResync() }
+        d.onVideoSize = { w, h -> post { applyAspect(w, h) } }
+        d.start()
+        decoder = d
+
+        val feed = VideoFeeder.getInstance()?.primaryVideoFeed
+        if (feed != null && videoListener == null) {
+            val l = VideoFeeder.VideoDataListener { data, size ->
+                if (!sawFirstFrame) {
+                    sawFirstFrame = true
+                    onFirstFrame?.invoke()
+                }
+                try {
+                    decoder?.feed(data, size)
+                } catch (t: Throwable) {
+                    // Surface any assembler bug loudly — an exception thrown into DJI's
+                    // callback thread otherwise kills the feed silently.
+                    AppLog.e(TAG, "FPV: feed() threw", t)
+                }
+            }
+            feed.addVideoDataListener(l)
+            videoListener = l
+            AppLog.i(TAG, "FPV: decoder started (${width}x$height), listener registered")
+        } else if (feed == null) {
+            AppLog.w(TAG, "FPV: no primary video feed available yet")
+        }
+    }
+
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+        val (w, h) = videoSize
+        if (w > 0 && h > 0) applyAspect(w, h)
+    }
+
+    // ---- Aspect-ratio handling ----
+    @Volatile private var videoSize = 0 to 0
+
+    /**
+     * Letterbox/pillarbox the decoded video (fit-left). A TextureView stretches its content
+     * to the view bounds by default, which distorted the 16:9 feed on the wider flight-screen
+     * view; setTransform corrects it using the real video size reported by the decoder.
+     * Pillarbox space is pinned to the right edge (pivot x=0) rather than split evenly on both
+     * sides, so the video hugs the left edge and leaves one contiguous blank strip on the right
+     * for HUD content — vertical letterboxing (rare on this landscape screen) still centers.
+     */
+    private fun applyAspect(videoW: Int, videoH: Int) {
+        videoSize = videoW to videoH
+        val vw = width.toFloat()
+        val vh = height.toFloat()
+        if (vw <= 0f || vh <= 0f || videoW <= 0 || videoH <= 0) return
+        val viewAspect = vw / vh
+        val videoAspect = videoW.toFloat() / videoH.toFloat()
+        val m = Matrix()
+        if (videoAspect > viewAspect) {
+            // Video wider than view: full width, shrink height (letterbox top/bottom).
+            m.setScale(1f, viewAspect / videoAspect, 0f, vh / 2f)
+            val h = vh * (viewAspect / videoAspect)
+            videoRect.set(0f, vh / 2f - h / 2f, vw, vh / 2f + h / 2f)
+        } else {
+            // Video taller than view: full height, shrink width — pivot at the left edge so
+            // the blank strip lands entirely on the right instead of split both sides.
+            m.setScale(videoAspect / viewAspect, 1f, 0f, vh / 2f)
+            videoRect.set(0f, 0f, vw * (videoAspect / viewAspect), vh)
+        }
+        setTransform(m)
+        onVideoRectChanged?.invoke(videoRect)
+    }
+
+    // ---- Video content rect, for the sibling CrosshairView ----
+    // TextureView.onDraw()/draw() are both final in this SDK (it owns SurfaceTexture
+    // rendering), so the crosshair can't be drawn inside this view — instead we just track and
+    // publish the actual video content bounds (not the screen's — the video is left-
+    // pillarboxed, so its center isn't the view's center) for a sibling overlay view to use.
+    private val videoRect = RectF()
+
+    /** Invoked whenever the video content's on-screen bounds change (aspect/size updates). */
+    var onVideoRectChanged: ((RectF) -> Unit)? = null
+
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        videoListener?.let { VideoFeeder.getInstance()?.primaryVideoFeed?.removeVideoDataListener(it) }
+        videoListener = null
+        decoder?.shutdown()
+        decoder = null
+        // IdrRequesterHolder is intentionally NOT torn down here — it's a process-wide
+        // singleton that outlives this View's surface lifecycle (see FpvTextureView's
+        // onSurfaceTextureAvailable / IdrRequesterHolder's doc).
+        sawFirstFrame = false
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+
+    /**
+     * Owns the MediaCodec: assembles NALs from raw chunks, decodes, and renders newest-only.
+     */
+    private class DecoderThread(private val surface: Surface) : Thread("FpvDecoder") {
+
+        private val running = AtomicBoolean(true)
+        private val nalQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+        @Volatile private var waitForSync = true // drop everything until an SPS arrives
+
+        /** Invoked (rate-limited) while unsynced — asks the aircraft for a fresh keyframe. */
+        @Volatile var onSyncNeeded: (() -> Unit)? = null
+        private var lastSyncReq = 0L
+        private var lastPeriodicRefresh = 0L
+
+        /** Invoked (rate-limited) when [onSyncNeeded]'s lightweight nudge hasn't produced a
+         *  fresh SPS within [HARD_RESYNC_AFTER_MS] — see IdrRequesterHolder.forceResync doc
+         *  for why this exists as a distinct, heavier escalation. */
+        @Volatile var onHardResyncNeeded: (() -> Unit)? = null
+        private var unsyncedSince = 0L
+        private var lastHardResync = 0L
+
+        /** Invoked with the real decoded video dimensions (from INFO_OUTPUT_FORMAT_CHANGED). */
+        @Volatile var onVideoSize: ((Int, Int) -> Unit)? = null
+
+        // ---- Annex-B assembler state (called on the DJI feed thread) ----
+        private var pending = ByteArray(0)
+
+        fun feed(data: ByteArray, size: Int) {
+            // Append the new chunk to any leftover bytes.
+            val buf = ByteArray(pending.size + size)
+            System.arraycopy(pending, 0, buf, 0, pending.size)
+            System.arraycopy(data, 0, buf, pending.size, size)
+
+            // Split on Annex-B start codes — BOTH 3-byte (00 00 01) and 4-byte
+            // (00 00 00 01) forms occur in real streams (slices commonly use 3-byte).
+            var nalStart = -1
+            var i = 0
+            while (i + 2 < buf.size) {
+                if (buf[i].toInt() == 0 && buf[i + 1].toInt() == 0 && buf[i + 2].toInt() == 1) {
+                    // Start-code begins one byte earlier if a third zero precedes it.
+                    val s = if (i > 0 && buf[i - 1].toInt() == 0) i - 1 else i
+                    if (nalStart >= 0) emitNal(buf, nalStart, s)
+                    nalStart = s
+                    i += 3
+                } else {
+                    i++
+                }
+            }
+            // Keep the (possibly incomplete) tail — from the last start code, or just the
+            // last few bytes (a start code could straddle the chunk boundary).
+            pending = if (nalStart >= 0) buf.copyOfRange(nalStart, buf.size)
+                      else buf.copyOfRange(maxOf(0, buf.size - 4), buf.size)
+        }
+
+        private fun emitNal(buf: ByteArray, from: Int, to: Int) {
+            val nal = buf.copyOfRange(from, to)
+            // Header byte follows the 3- or 4-byte start code.
+            val hdr = when {
+                nal.size > 4 && nal[2].toInt() == 0 -> 4 // 00 00 00 01
+                nal.size > 3 -> 3                        // 00 00 01
+                else -> return
+            }
+            val type = nal[hdr].toInt() and 0x1F
+            if (waitForSync) {
+                if (type == 7) {
+                    waitForSync = false
+                    AppLog.i(TAG, "FPV: SPS received — decoder syncing")
+                } else return // drop until the requested keyframe burst arrives
+            } else if (type == 5) {
+                // IDR arriving while already synced — should only happen right after a
+                // periodic-refresh or hard-resync request. Logged (rare, request-only) to
+                // verify from the field whether those requests are actually landing, since
+                // resetKeyFrame() has shown itself unreliable beyond a session's first use
+                // (see IdrRequesterHolder doc) — if this line never appears during a long
+                // static hover, the periodic anti-artifact refresh isn't working either.
+                AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
+            }
+            if (!nalQueue.offer(nal)) {
+                // Backlog: dump everything and resync at the next SPS. This is the
+                // latency-can-never-grow guarantee.
+                nalQueue.clear()
+                waitForSync = true
+                AppLog.w(TAG, "FPV: queue overflow — dropped backlog, waiting for SPS")
+            }
+        }
+
+        // ---- Decode loop (this thread) ----
+        override fun run() {
+            var codec: MediaCodec? = null
+            try {
+                codec = MediaCodec.createDecoderByType(MIME).apply {
+                    val fmt = MediaFormat.createVideoFormat(MIME, 1280, 720)
+                    fmt.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = realtime
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                    }
+                    configure(fmt, surface, null, 0)
+                    start()
+                }
+                val info = MediaCodec.BufferInfo()
+                var pts = 0L
+
+                while (running.get()) {
+                    // The aircraft sends keyframes ONLY on request: while unsynced, keep
+                    // asking (rate-limited) until the SPS/PPS/IDR burst arrives.
+                    val now = System.currentTimeMillis()
+                    if (waitForSync) {
+                        if (unsyncedSince == 0L) unsyncedSince = now
+                        if (now - lastSyncReq > 500) {
+                            lastSyncReq = now
+                            onSyncNeeded?.invoke()
+                        }
+                        // Escalation: the lightweight keyframe nudge above has been observed
+                        // to reliably work only for the FIRST decode session in a process —
+                        // a second FpvTextureView instance (e.g. after Home->Flight
+                        // navigation) can call it forever without ever getting a fresh SPS.
+                        // If we've been stuck this long, force a harder resync instead of
+                        // waiting on a nudge that apparently isn't landing. Retries at the
+                        // same interval if still stuck after that.
+                        if (now - unsyncedSince > HARD_RESYNC_AFTER_MS && now - lastHardResync > HARD_RESYNC_AFTER_MS) {
+                            lastHardResync = now
+                            AppLog.w(TAG, "FPV: still unsynced after ${now - unsyncedSince}ms, forcing hard resync")
+                            onHardResyncNeeded?.invoke()
+                        }
+                    } else {
+                        unsyncedSince = 0L
+                        if (now - lastPeriodicRefresh > PERIODIC_REFRESH_MS) {
+                            // Bound decode-error accumulation even while fully synced: with the
+                            // gimbal still, the long-GOP P-frame stream never gets a fresh IDR on
+                            // its own, so a single dropped/corrupted NAL propagates as growing
+                            // macroblock corruption over a static scene.
+                            //
+                            // Field-confirmed 2026-07-23 (two rounds): neither resetKeyFrame()
+                            // NOR resetDecoder() reliably produces a fresh IDR when called while
+                            // we're already synced — 90+ seconds of resetDecoder() calls every
+                            // 5s produced zero "IDR received post-sync" hits. Every successful
+                            // refresh in that same log was preceded by OUR OWN queue-overflow ->
+                            // unsynced -> hard-resync sequence (4/4). Conclusion: these DJI SDK
+                            // calls are gated by DJI's OWN internal decode-health tracking, not
+                            // an unconditional "resend now" — since their dormant decoder is
+                            // quietly decoding the same healthy stream fine, it sees no reason to
+                            // act on the request. So instead of asking nicely, we deliberately
+                            // put OUR OWN decoder into the exact state that's reliably recovered
+                            // every time: drop the queue, mark unsynced, and go straight to the
+                            // hard-resync call (skipping the normal 3s detection wait — we
+                            // already know we need it). This trades a brief (~0.6-3s, per
+                            // observed recovery times) visible resync flash for guaranteed
+                            // periodic error correction, instead of a "seamless" refresh that
+                            // wasn't actually happening.
+                            lastPeriodicRefresh = now
+                            nalQueue.clear()
+                            waitForSync = true
+                            lastHardResync = now
+                            AppLog.i(TAG, "FPV: periodic refresh — self-inflicting resync (proven path)")
+                            onHardResyncNeeded?.invoke()
+                        }
+                    }
+
+                    // Feed one NAL if the codec has room (SPS/PPS ride in-band).
+                    val nal = nalQueue.poll(10, TimeUnit.MILLISECONDS)
+                    if (nal != null) {
+                        val inIdx = codec.dequeueInputBuffer(10_000)
+                        if (inIdx >= 0) {
+                            codec.getInputBuffer(inIdx)?.apply { clear(); put(nal) }
+                            codec.queueInputBuffer(inIdx, 0, nal.size, pts, 0)
+                            pts += 33_333
+                        }
+                        // else: codec stalled this instant; NAL is dropped rather than queued —
+                        // the resync logic recovers us at the next SPS if decode hiccups.
+                    }
+
+                    // Drain: render ONLY the newest ready frame, discard older ones.
+                    var outIdx = codec.dequeueOutputBuffer(info, 0)
+                    var lastIdx = -1
+                    while (outIdx >= 0 || outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            val f = codec.outputFormat
+                            // Prefer the crop rect — it gives the true visible size.
+                            val w = if (f.containsKey("crop-right"))
+                                f.getInteger("crop-right") - f.getInteger("crop-left") + 1
+                            else f.getInteger(MediaFormat.KEY_WIDTH)
+                            val h = if (f.containsKey("crop-bottom"))
+                                f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+                            else f.getInteger(MediaFormat.KEY_HEIGHT)
+                            onVideoSize?.invoke(w, h)
+                        } else {
+                            if (lastIdx >= 0) codec.releaseOutputBuffer(lastIdx, false)
+                            lastIdx = outIdx
+                        }
+                        outIdx = codec.dequeueOutputBuffer(info, 0)
+                    }
+                    if (lastIdx >= 0) codec.releaseOutputBuffer(lastIdx, true)
+                }
+            } catch (t: Throwable) {
+                AppLog.e(TAG, "FPV decoder died: ${t.message}", t)
+            } finally {
+                try { codec?.stop() } catch (_: Throwable) {}
+                try { codec?.release() } catch (_: Throwable) {}
+                try { surface.release() } catch (_: Throwable) {}
+            }
+        }
+
+        fun shutdown() {
+            running.set(false)
+            interrupt()
+            join(1000)
+        }
+
+        companion object {
+            private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
+            private const val QUEUE_CAP = 60 // ~2s at 30fps before we dump + resync
+            // Now a deliberate, brief resync flash (see periodic-refresh comment above), not a
+            // seamless background nudge — 15s balances error-correction frequency against how
+            // often the pilot sees a short freeze. Tune if artifacting rebuilds faster than
+            // this, or if the flashes feel too frequent.
+            private const val PERIODIC_REFRESH_MS = 15000L
+            private const val HARD_RESYNC_AFTER_MS = 3000L // escalate if still unsynced this long
+        }
+    }
+
+    companion object {
+        private const val TAG = "FpvTextureView"
+    }
+}

@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Simplified TAK shield silhouette (no eagle/wordmark detail) — solid badge shape,
+         paired with a separate connection-status dot overlaid at its lower-left corner. -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,2L4,5v6c0,5 3.5,9 8,11c4.5,-2 8,-6 8,-11v-6z" />
+</vector>
