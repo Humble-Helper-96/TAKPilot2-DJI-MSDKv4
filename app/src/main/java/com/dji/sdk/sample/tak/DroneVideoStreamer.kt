@@ -1,27 +1,39 @@
 package com.dji.sdk.sample.tak
 
 import android.content.Context
+import android.media.MediaCodec
+import com.taklite.util.AppLog
+import com.pedro.rtsp.rtsp.Protocol
+import com.pedro.rtsp.rtsp.RtspClient
+import com.pedro.rtsp.utils.ConnectCheckerRtsp
+import dji.sdk.camera.VideoFeeder
+import java.nio.ByteBuffer
 
 /**
- * PHASE 5 PLACEHOLDER.
+ * DroneVideoStreamer — Phase 5: RTSP push of the Mini 2's live camera feed, passthrough mode
+ * (no re-encode — the aircraft's already-encoded H.264 bytes go straight to the RTSP client).
  *
- * The real DroneVideoStreamer (ported from the V5 app) pushes the drone's live camera feed
- * out as RTSP via RootEncoder. On V5 it fed the camera stream in via
- * ICameraStreamManager.putCameraStreamSurface (a Surface sink); on V4 the equivalent raw
- * feed comes from VideoFeeder.getPrimaryVideoFeed().addVideoDataListener() delivering raw
- * H264 bytes, which is actually a cleaner integration point for RootEncoder than the V5
- * Surface workaround (see TAKPILOT2_V4_PORT_PLAN.md, Phase 5).
+ * Architecture ported from the Autel sibling app's `AutelVideoStreamer` (same
+ * com.pedro.rtsp client — see NOTICE.txt for why it's vendored source here instead of a
+ * Gradle dependency), which was itself a port of this app's own V5 `DroneVideoStreamer`.
+ * V4's `VideoFeeder` hands us raw encoded H.264 bytes exactly like Autel's SDK does — V5's
+ * decode-surface re-encode workaround is not needed here.
  *
- * [VideoConfig] itself has zero DJI dependency (just URL-building logic) and is copied
- * unchanged from the V5 app. Only start()/stop() are stubbed here — they report failure
- * via [onStatus] instead of actually streaming — so TakConnectActivity's video-config UI
- * (Phase 2) is fully testable before the real capture pipeline is wired in.
+ * The one real DJI-V4-specific delta: VideoFeeder delivers ~2KB transport chunks, NOT
+ * NAL-aligned frames (Autel's SDK handed over whole frames) — [AnnexBNalAssembler] (a
+ * deliberate standalone duplicate of [FpvTextureView]'s proven reassembly logic — see that
+ * class's doc) turns the raw stream into whole NALs before anything here inspects them.
+ *
+ * Registers its OWN [VideoFeeder.VideoDataListener] on the primary feed — VideoFeeder
+ * supports multiple simultaneous listeners, so the on-screen FPV display
+ * ([FpvTextureView]) is completely untouched by this running or not.
  */
 class DroneVideoStreamer(
     private val context: Context,
     private val config: VideoConfig,
     private val onStatus: (Boolean, String) -> Unit,
-) {
+) : ConnectCheckerRtsp {
+
     data class VideoConfig(
         val host: String,
         val port: Int,
@@ -29,11 +41,6 @@ class DroneVideoStreamer(
         val password: String,
         val streamId: String,
         val tcp: Boolean,
-        val width: Int = 1280,
-        val height: Int = 720,
-        val fps: Int = 30,
-        val bitrateBps: Int = 4_000_000,
-        val rotation: Int = 90, // clockwise degrees to correct the DJI feed orientation
     ) {
         private fun path(): String = streamId.trim('/')
         fun pushUrl(): String = "rtsp://$host:$port/${path()}"
@@ -51,19 +58,161 @@ class DroneVideoStreamer(
             java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     }
 
-    @Volatile var isStreaming = false
-        private set
+    private val client = RtspClient(this)
+    private val assembler = AnnexBNalAssembler { nal, type -> onNal(nal, type) }
+    private var videoListener: VideoFeeder.VideoDataListener? = null
+
+    @Volatile private var streaming = false
+    @Volatile private var paramsSet = false
+    @Volatile private var stopped = false
+    private var startNs = 0L
+    private var frameCount = 0
+    private var frameBytesSinceLog = 0L
+
+    // Sniffed parameter sets (kept WITH their 4-byte start code; RootEncoder strips them).
+    private var sps: ByteArray? = null
+    private var pps: ByteArray? = null
+
+    // Bootstrap: request a keyframe on start so SPS/PPS/IDR arrive promptly (the Mini 2 sends
+    // none unprompted — same quirk FpvTextureView works around). Escalates to a hard resync
+    // if params haven't shown up after a few seconds, same proven pattern as the FPV pipeline.
+    private val bootstrapHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var bootstrapStartMs = 0L
+    private val bootstrapRunnable = object : Runnable {
+        override fun run() {
+            if (stopped || paramsSet) return
+            val elapsed = System.currentTimeMillis() - bootstrapStartMs
+            if (elapsed > 3000) {
+                AppLog.w(TAG, "no SPS/PPS after ${elapsed}ms, forcing hard resync")
+                IdrRequesterHolder.forceResync()
+            } else {
+                IdrRequesterHolder.requestKeyframe()
+            }
+            bootstrapHandler.postDelayed(this, 500)
+        }
+    }
+
+    val isStreaming: Boolean get() = streaming
 
     fun start() {
-        com.taklite.util.AppLog.w(
-            "DroneVideoStreamer",
-            "STUB: not streaming to ${config.urlSafe()} — Phase 5 not implemented yet",
-        )
-        onStatus(false, "Video push not implemented yet (Phase 5) — config saved.")
+        val feed = VideoFeeder.getInstance()?.primaryVideoFeed
+        if (feed == null) {
+            onStatus(false, "Aircraft not connected (no video source)")
+            return
+        }
+        stopped = false
+        paramsSet = false
+        assembler.reset()
+        startNs = System.nanoTime()
+
+        client.setLogs(false)
+        client.setProtocol(if (config.tcp) Protocol.TCP else Protocol.UDP)
+        if (config.username.isNotEmpty()) client.setAuthorization(config.username, config.password)
+        client.setOnlyVideo(true)
+        client.setReTries(10)
+
+        val l = VideoFeeder.VideoDataListener { data, size ->
+            if (!stopped) {
+                try {
+                    assembler.feed(data, size)
+                } catch (t: Throwable) {
+                    AppLog.w(TAG, "assembler feed failed: ${t.message}")
+                }
+            }
+        }
+        feed.addVideoDataListener(l)
+        videoListener = l
+
+        // Prime the keyframe request lever and start bootstrapping — connect() is deferred
+        // until setVideoInfo() actually happens (see onNal), so RootEncoder's internal
+        // "wait up to 5s for video info" never has anything to wait on the wrong thing for.
+        IdrRequesterHolder.ensureStarted(context)
+        bootstrapStartMs = System.currentTimeMillis()
+        bootstrapHandler.removeCallbacks(bootstrapRunnable)
+        bootstrapHandler.post(bootstrapRunnable)
+
+        AppLog.i(TAG, "push=${config.pushUrl()}  advertise=${config.urlSafe()}")
+        onStatus(true, "Waiting for keyframe → ${config.urlSafe()}")
     }
 
     fun stop() {
-        isStreaming = false
+        stopped = true
+        bootstrapHandler.removeCallbacks(bootstrapRunnable)
+        videoListener?.let {
+            runCatching { VideoFeeder.getInstance()?.primaryVideoFeed?.removeVideoDataListener(it) }
+        }
+        videoListener = null
+        try { client.disconnect() } catch (t: Throwable) { AppLog.w(TAG, "disconnect: ${t.message}") }
+        streaming = false
+        paramsSet = false
+        sps = null; pps = null
+    }
+
+    // ---- Frame path ----
+
+    private fun onNal(nal: ByteArray, type: Int) {
+        if (stopped) return
+        try {
+            when (type) {
+                7 -> sps = nal
+                8 -> pps = nal
+            }
+            if (!paramsSet) {
+                val s = sps; val p = pps
+                if (s != null && p != null) {
+                    paramsSet = true
+                    bootstrapHandler.removeCallbacks(bootstrapRunnable)
+                    client.setVideoInfo(ByteBuffer.wrap(s), ByteBuffer.wrap(p), null)
+                    AppLog.i(TAG, "parameter sets found; sps=${s.size}B pps=${p.size}B — connecting")
+                    client.connect(config.pushUrl())
+                } else {
+                    return // keep waiting for both SPS and PPS
+                }
+            }
+
+            // Don't forward the parameter-set NALs themselves as video frames.
+            if (type == 7 || type == 8) return
+
+            val info = MediaCodec.BufferInfo()
+            val ptsUs = (System.nanoTime() - startNs) / 1000
+            info.set(0, nal.size, ptsUs, if (type == 5) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
+            client.sendVideo(ByteBuffer.wrap(nal), info)
+
+            frameCount++
+            frameBytesSinceLog += nal.size
+            if (frameCount % 150 == 0) {
+                AppLog.v(TAG, "video: $frameCount frames pushed, ${frameBytesSinceLog / 1024}KB in last 150")
+                frameBytesSinceLog = 0
+            }
+        } catch (t: Throwable) {
+            AppLog.w(TAG, "frame push failed: ${t.message}")
+        }
+    }
+
+    // ---- ConnectCheckerRtsp ----
+
+    override fun onConnectionStartedRtsp(rtspUrl: String) { AppLog.i(TAG, "connecting ${config.urlSafe()}") }
+    override fun onConnectionSuccessRtsp() {
+        streaming = true
+        AppLog.i(TAG, "RTSP push connected")
+        onStatus(true, "Streaming → ${config.urlSafe()}")
+    }
+    override fun onConnectionFailedRtsp(reason: String) {
+        AppLog.w(TAG, "connection failed: $reason")
+        if (!stopped && client.shouldRetry(reason)) {
+            client.reConnect(2000)
+        } else {
+            streaming = false
+            onStatus(false, "Stream failed: $reason")
+        }
+    }
+    override fun onDisconnectRtsp() { streaming = false; AppLog.i(TAG, "disconnected") }
+    override fun onAuthErrorRtsp() { streaming = false; onStatus(false, "Stream auth error (check user/pass)") }
+    override fun onAuthSuccessRtsp() { AppLog.i(TAG, "auth ok") }
+    override fun onNewBitrateRtsp(bitrate: Long) {}
+
+    companion object {
+        private const val TAG = "DroneVideoStreamer"
     }
 }
 
