@@ -10,10 +10,11 @@ import android.util.AttributeSet
 import android.view.View
 
 /**
- * Live-stream badge — a "LIVE" pill with a fixed icon knob on the right, styled after typical
- * live-broadcast badges. Not a sliding switch: the pill just swaps between two static looks —
- * black/gray + pause icon when off, red/white + play icon when live — like the reference badge
- * images, so "LIVE" always stays fully readable instead of being covered by a moving knob.
+ * Live-stream badge — a "LIVE" pill with a fixed icon knob on the LEFT (matching
+ * [RecordToggleView] so both badges read as "toggled left = off/paused"). Not a sliding switch:
+ * the pill just swaps between two static looks — black/gray + pause icon when off, red/white +
+ * play icon when live — like the reference badge images, so "LIVE" always stays fully readable
+ * instead of being covered by a moving knob.
  */
 class LiveToggleView @JvmOverloads constructor(
     context: Context,
@@ -54,16 +55,17 @@ class LiveToggleView @JvmOverloads constructor(
         trackPaint.color = if (isLive) COLOR_LIVE_TRACK else COLOR_OFF_TRACK
         canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
 
-        // Knob sits fixed at the right end in both states — only its icon/color changes.
+        // Knob sits fixed at the LEFT end in both states — matching RecordToggleView so both
+        // badges read as "toggled left = off/paused" consistently; only its icon/color changes.
         val knobInset = h * 0.08f
         val knobRadius = radius - knobInset
         val knobCy = h / 2f
-        val knobCx = w - radius
+        val knobCx = radius
         canvas.drawCircle(knobCx, knobCy, knobRadius, knobPaint)
 
-        // "LIVE" is centered in the region left of the knob, so the knob never covers it.
-        val textAreaEnd = knobCx - knobRadius
-        val textCenterX = textAreaEnd / 2f
+        // "LIVE" is centered in the region right of the knob, so the knob never covers it.
+        val textAreaStart = knobCx + knobRadius
+        val textCenterX = (textAreaStart + w) / 2f
         val textY = h / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
         canvas.drawText("LIVE", textCenterX, textY, textPaint)
 
