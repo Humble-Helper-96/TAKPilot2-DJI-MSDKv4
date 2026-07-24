@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.dji.sdk.sample">
+
+    <!-- SDK permission requirement -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.usb.accessory"
+        android:required="true"/>
+
+
+    <!-- SDK requirement permission end -->
+    <application
+        android:name=".internal.controller.DJISampleApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/sample_app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:extractNativeLibs="true"
+        android:requestLegacyExternalStorage="true"
+        tools:replace="label"
+        tools:ignore="AllowBackup,GoogleAppIndexingWarning">
+
+        <uses-library android:name="org.apache.http.legacy" android:required="false" />
+
+        <!-- Debug log export share-sheet (Debug screen → Export Log). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        <!--
+            ADD API_KEY HERE and make sure you
+            are connected to the Internet before
+            the app is launched
+        -->
+        <!-- personal key -->
+        <meta-data
+            android:name="com.dji.sdk.API_KEY"
+            android:value="a4ba511f9e353083fa5672e3"/>
+        <!-- Required for receiving accessory attachment events.
+            This is necessary for product when connecting over USB. -->
+
+        <!-- Kept reachable for fallback/debug (adb: `am start -n
+             com.dji.sdk.sample/.internal.controller.MainActivity`) — the stock DJI
+             registration screen this app was built on top of. No longer the launcher; see
+             TAKPilot2GoHomeActivity, which now registers with the DJI SDK and starts the
+             product connection itself on launch (DJI/TAKPILOT2_V4_PORT_PLAN.md). -->
+        <activity
+            android:name="com.dji.sdk.sample.internal.controller.MainActivity"
+            android:label="@string/sample_app_name"
+            android:screenOrientation="landscape"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:theme="@style/AppTheme"
+            android:exported="true">
+        </activity>
+
+        <activity
+            android:name="com.dji.sdk.sample.demo.payload.PayloadActivity"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="landscape"/>
+
+        <activity
+            android:name="com.dji.sdk.sample.demo.payload.PayloadSendGetDataActivity"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="landscape"/>
+
+        <activity
+            android:name="com.dji.sdk.sample.demo.payload.PayloadWidgetActivity"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="landscape"/>
+
+        <activity android:name=".demo.utmiss.UTMISSActivity" />
+
+        <!-- TAKPilot2 Go / Phase 2: TAK server enrollment, connect, and video-push config -->
+        <activity
+            android:name="com.dji.sdk.sample.tak.TakConnectActivity"
+            android:label="TAK Setup"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+
+        <!-- TAKPilot2 Go / Phase 2: Data Sync (TAK Mission API) feed list -->
+        <activity
+            android:name="com.dji.sdk.sample.DataSyncActivity"
+            android:label="Data Sync"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+
+        <!-- Debug screen: view/export/clear the AppLog file sink. -->
+        <activity
+            android:name="com.dji.sdk.sample.tak.DebugActivity"
+            android:label="Debug Log"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+
+        <!-- TAKPilot2 Go / Phase 2: keeps the TAK connection alive while backgrounded -->
+        <service
+            android:name="com.dji.sdk.sample.tak.TakForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- TAKPilot2 Go / Phase 3: custom home + flight screens.
+             TAKPilot2GoHomeActivity is now the app's launcher (moved from MainActivity, see
+             above) — it registers with the DJI SDK and starts the product connection itself
+             on launch (DjiSdkBridge), so no separate DJI SDK app screen needs to be visited
+             first. -->
+        <activity
+            android:name="com.dji.sdk.sample.takpilot2.TAKPilot2GoHomeActivity"
+            android:label="TAKPilot2 Go"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/accessory_filter"/>
+        </activity>
+        <activity
+            android:name="com.dji.sdk.sample.takpilot2.TAKPilot2GoFlightActivity"
+            android:label="TAKPilot2 Go"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+    </application>
+
+</manifest>

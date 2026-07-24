@@ -1,0 +1,355 @@
+package com.dji.sdk.sample.tak
+
+import android.os.Handler
+import android.os.Looper
+import com.taklite.util.AppLog
+import com.dji.sdk.sample.internal.controller.DJISampleApplication
+import com.taklite.client.tak.TakManager
+import dji.common.airlink.SignalQualityCallback
+import dji.common.battery.BatteryState
+import dji.common.camera.ExposureSettings
+import dji.common.camera.SystemState
+import dji.common.flightcontroller.FlightControllerState
+import dji.common.gimbal.GimbalState
+import kotlin.math.sqrt
+
+/**
+ * DroneTakBridge — V4 SDK telemetry -> TAK air-track PLI (Phase 4).
+ *
+ * V5's version read everything through KeyManager.listen/getValue. V4 has no Key-value
+ * abstraction for this data; instead each component (FlightController/Gimbal/Battery)
+ * pushes its own state object through a setStateCallback(...) at its own cadence. We
+ * cache the latest of each and build/send a PLI on our own timer tick — same shape as
+ * V5's cached-listener + timer pattern, just against V4's callback objects instead of Keys.
+ */
+class DroneTakBridge(
+    private val fallbackUid: String,
+    private val droneCallsign: String,
+    private val intervalMs: Long = 2000L,
+) {
+    private val tak = TakManager.getInstance()
+    private val handler = Handler(Looper.getMainLooper())
+    private var running = false
+
+    // Prefer the real aircraft serial (matches DJI UAS tool, stable per-aircraft so ATAK
+    // associates the sensor cone correctly). Fetched async on start(); falls back to the
+    // provided uid until it resolves.
+    @Volatile private var droneUid: String = fallbackUid
+
+    /** Optional RTSP/stream url to advertise in the drone CoT (wired in Phase 5). */
+    @Volatile
+    var videoUrl: String? = null
+
+    /** When true, also push the camera slant point (sensor point of interest). */
+    @Volatile
+    var cameraPointEnabled: Boolean = false
+
+    private val spiUid: String get() = "$droneUid-SPI"
+
+    // Sensor FOV cone state, refreshed when camera-point is enabled; embedded in the
+    // drone PLI so ATAK/taklite draw the cone natively. -1 = omit.
+    @Volatile private var sensorFov = -1.0
+    @Volatile private var sensorVfov = -1.0
+    @Volatile private var sensorAzimuth = -1.0
+    @Volatile private var sensorElevation = 0.0
+    @Volatile private var sensorRange = -1.0
+
+    // Latest pushed state from each component's callback (V4 has no synchronous "get fresh
+    // value now" — every field arrives via its own push callback at its own rate).
+    @Volatile private var lastState: FlightControllerState? = null
+    @Volatile private var lastGimbal: GimbalState? = null
+    @Volatile private var lastBattery: BatteryState? = null
+    // RC-to-aircraft link quality, 0-100, from AirLink's uplink callback — the "controller
+    // signal strength" a pilot cares about (distinct from downlink/video quality).
+    @Volatile private var lastUplinkQuality: Int? = null
+    @Volatile private var lastCameraState: SystemState? = null
+    // Live exposure the camera actually chose (auto-ISO result under shutter-priority) — for
+    // the on-screen ISO/shutter readout.
+    @Volatile private var lastExposure: ExposureSettings? = null
+    // One-shot guard so we push the auto-exposure setup exactly once per bridge run, the first
+    // time the camera reports state (a reliable "camera is connected" signal — more so than
+    // start(), where the camera component may not be up yet).
+    @Volatile private var exposureApplied = false
+    // Same one-shot pattern as exposureApplied, but for the pilot-configured flight-safety
+    // limits (Pre-Flight Setup screen) — triggered off the first FlightControllerState report
+    // instead of camera state, since these are FlightController settings, not camera ones.
+    @Volatile private var limitsApplied = false
+
+    private val flightStateCallback = FlightControllerState.Callback {
+        lastState = it
+        if (!limitsApplied) {
+            limitsApplied = true
+            DJISampleApplication.getAircraftInstance()?.flightController?.let { fc ->
+                FlightLimitsController.applyDefaults(DJISampleApplication.getInstance(), fc)
+            }
+        }
+    }
+    private val gimbalStateCallback = GimbalState.Callback { lastGimbal = it }
+    private val batteryStateCallback = BatteryState.Callback { lastBattery = it }
+    private val uplinkQualityCallback = SignalQualityCallback { lastUplinkQuality = it }
+    private val cameraStateCallback = SystemState.Callback {
+        lastCameraState = it
+        if (!exposureApplied) {
+            exposureApplied = true
+            DJISampleApplication.getAircraftInstance()?.camera?.let { cam ->
+                ExposureController.applyDefaults(DJISampleApplication.getInstance(), cam)
+            }
+        }
+    }
+    // Caches the camera's actual live exposure for the on-screen ISO/shutter readout. (No
+    // per-change logging — that was a temporary diagnostic for the frozen-exposure issue,
+    // resolved by switching to PROGRAM auto-exposure; it fired too often to keep in flight.)
+    private val exposureSettingsCallback = ExposureSettings.Callback { lastExposure = it }
+
+    private val tick = object : Runnable {
+        override fun run() {
+            try {
+                pushOnce()
+            } catch (t: Throwable) {
+                AppLog.w(TAG, "telemetry push failed: ${t.message}")
+            }
+            if (running) handler.postDelayed(this, intervalMs)
+        }
+    }
+
+    fun start() {
+        if (running) return
+        running = true
+
+        val aircraft = DJISampleApplication.getAircraftInstance()
+        if (aircraft == null) {
+            AppLog.w(TAG, "start(): no aircraft connected yet, telemetry will be empty until it is")
+        } else {
+            aircraft.flightController?.setStateCallback(flightStateCallback)
+            aircraft.gimbals?.firstOrNull()?.setStateCallback(gimbalStateCallback)
+            aircraft.battery?.setStateCallback(batteryStateCallback)
+            aircraft.airLink?.setUplinkSignalQualityCallback(uplinkQualityCallback)
+            aircraft.camera?.setSystemStateCallback(cameraStateCallback)
+            aircraft.camera?.setExposureSettingsCallback(exposureSettingsCallback)
+            // TODO: resolve the real aircraft serial (BaseProduct.getSerialNumber) as a
+            // stable per-aircraft uid, matching V5's approach. Deferred — droneUid falls
+            // back to the caller-provided session uid, which is enough for a live PLI.
+        }
+
+        handler.post(tick)
+        AppLog.i(TAG, "DroneTakBridge started ($droneCallsign / $droneUid, every ${intervalMs}ms)")
+    }
+
+    fun stop() {
+        running = false
+        handler.removeCallbacks(tick)
+        val aircraft = DJISampleApplication.getAircraftInstance()
+        try { aircraft?.flightController?.setStateCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.battery?.setStateCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.airLink?.setUplinkSignalQualityCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.camera?.setSystemStateCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.camera?.setExposureSettingsCallback(null) } catch (_: Throwable) {}
+        lastState = null
+        lastGimbal = null
+        lastBattery = null
+        lastUplinkQuality = null
+        lastCameraState = null
+        lastExposure = null
+        exposureApplied = false
+        limitsApplied = false
+        AppLog.i(TAG, "DroneTakBridge stopped")
+    }
+
+    private fun pushOnce() {
+        val state = lastState ?: run {
+            AppLog.d(TAG, "tick: no FlightControllerState pushed yet")
+            return
+        }
+
+        val loc = state.aircraftLocation
+        val lat = loc?.latitude ?: Double.NaN
+        val lon = loc?.longitude ?: Double.NaN
+        if (!isValidLat(lat) || !isValidLon(lon)) {
+            // No GPS fix yet — skip this tick rather than send a bogus 0,0 marker.
+            AppLog.d(TAG, "tick: no valid GPS fix yet (lat=$lat lon=$lon)")
+            return
+        }
+        val hae = loc?.altitude?.toDouble() ?: 0.0
+
+        // Horizontal ground speed from NED-ish velocity components, m/s.
+        val speed = sqrt(
+            (state.velocityX * state.velocityX + state.velocityY * state.velocityY).toDouble()
+        )
+
+        // True heading (deg). aircraftHeadDirection can be -180..180; normalize to 0..360.
+        val heading = ((state.aircraftHeadDirection % 360.0) + 360.0) % 360.0
+
+        val batt = lastBattery
+        val battery = batt?.chargeRemainingInPercent ?: 0
+        val batteryMaxMah = batt?.fullChargeCapacity ?: 0
+        val batteryRemainMah = batt?.chargeRemaining ?: 0
+        val voltage = (batt?.voltage ?: 0) / 1000.0
+
+        val isFlying = state.isFlying
+        val flightTimeSec = state.flightTimeInSeconds
+
+        val gimbal = lastGimbal
+        val gimbalPitch = gimbal?.attitudeInDegrees?.pitch?.toDouble() ?: 0.0
+        val gimbalYaw = gimbal?.attitudeInDegrees?.yaw?.toDouble() ?: 0.0
+
+        // Compute the camera look-point + sensor FOV BEFORE the PLI, so the PLI can carry
+        // the <sensor> element (ATAK/taklite draw the FOV cone from it).
+        if (cameraPointEnabled) {
+            pushCameraPoint(lat, lon, hae, heading)
+        } else {
+            sensorFov = -1.0; sensorVfov = -1.0; sensorAzimuth = -1.0
+            sensorElevation = 0.0; sensorRange = -1.0
+        }
+
+        AppLog.d(TAG, "tick: lat=$lat lon=$lon hae=$hae hdg=${"%.0f".format(heading)} " +
+            "spd=${"%.1f".format(speed)} batt=$battery% flying=$isFlying tak.connected=${tak.isConnected}")
+
+        // TakManager.sendDronePLI() is a no-op internally when not connected, so this call is
+        // safe regardless — the log line above is what lets us verify telemetry end-to-end
+        // without a live TAK server.
+        // north reference = 0: the <sensor azimuth> is an ABSOLUTE true-north bearing (same
+        // convention V5 settled on after ATAK testing — see BEARING_OFFSET_DEG note below).
+        tak.sendDronePLI(droneUid, droneCallsign, lat, lon, hae, heading, speed, battery,
+            videoUrl, spiUid,
+            sensorFov, sensorVfov, sensorAzimuth, sensorElevation, sensorRange, 0.0,
+            0.0, gimbalPitch, gimbalYaw,
+            isFlying, flightTimeSec,
+            batteryMaxMah, batteryRemainMah, voltage)
+    }
+
+    /**
+     * True geographic bearing the camera points along. Prefers GimbalState's
+     * yawRelativeToAircraftHeading (heading-stable — V5 found the raw gimbal yaw alone
+     * doesn't track true north reliably), falling back to rawYaw + a fixed offset.
+     */
+    private fun cameraBearing(rawYaw: Double, aircraftHeading: Double): Double {
+        val relYaw = lastGimbal?.yawRelativeToAircraftHeading?.toDouble()
+        return if (relYaw != null && relYaw.isFinite())
+            CameraSlantPoint.norm360(aircraftHeading + relYaw)
+        else
+            CameraSlantPoint.norm360(rawYaw + BEARING_OFFSET_DEG)
+    }
+
+    private fun pushCameraPoint(lat: Double, lon: Double, aglMeters: Double, aircraftHeading: Double) {
+        val gimbal = lastGimbal
+        if (gimbal == null) {
+            AppLog.d(TAG, "SPI skip: gimbal attitude not yet received")
+            return
+        }
+        val pitch = gimbal.attitudeInDegrees.pitch.toDouble()
+        val yaw = gimbal.attitudeInDegrees.yaw.toDouble()
+        val bearing = cameraBearing(yaw, aircraftHeading)
+
+        // Slant-range calibration bias — see PITCH_OFFSET_DEG note below.
+        val pitchAdj = pitch + PITCH_OFFSET_DEG
+
+        val gp = CameraSlantPoint.compute(lat, lon, aglMeters, bearing, pitchAdj, ::elevationLookup)
+        tak.sendCameraPoint(spiUid, droneUid, "$droneCallsign-SPI", gp.lat, gp.lon, gp.rangeMeters)
+
+        // FOV cone: ATAK/taklite draw it natively from the drone PLI's <sensor> element.
+        // Mini 2 has one fixed-FOV camera (no lens switching, no live-tracked zoom yet).
+        sensorFov = MINI2_HFOV
+        sensorVfov = MINI2_VFOV
+        sensorAzimuth = bearing
+        sensorElevation = pitch
+        sensorRange = gp.rangeMeters
+        AppLog.d(TAG, "SPI: pitch=$pitch yaw=$yaw heading=${"%.0f".format(aircraftHeading)} " +
+            "az=${"%.0f".format(bearing)} alt=$aglMeters range=${Math.round(gp.rangeMeters)}m")
+    }
+
+    private fun isValidLat(v: Double) = v.isFinite() && v != 0.0 && v >= -90.0 && v <= 90.0
+    private fun isValidLon(v: Double) = v.isFinite() && v != 0.0 && v >= -180.0 && v <= 180.0
+
+    /** Snapshot of cached telemetry for the on-screen HUD (Phase 4 addendum). Same shape as
+     *  the Autel port's AutelTakBridge.Hud — reads the same fields pushOnce() already uses,
+     *  just without gating on the 2s CoT-push tick. */
+    data class Hud(
+        val lat: Double, val lon: Double, val alt: Double,
+        val speedMs: Double, val headingDeg: Double, val batteryPct: Int,
+        val satCount: Int, val gimbalPitch: Double?, val hasFix: Boolean,
+        val homeLat: Double, val homeLon: Double, val homeSet: Boolean,
+        val flightTimeSec: Int, val uplinkSignalPct: Int?, val isGoingHome: Boolean,
+        val isRecording: Boolean, val liveIso: Int?, val liveShutter: String?,
+    )
+
+    fun hud(): Hud {
+        val state = lastState
+        val loc = state?.aircraftLocation
+        val lat = loc?.latitude ?: Double.NaN
+        val lon = loc?.longitude ?: Double.NaN
+        val hasFix = isValidLat(lat) && isValidLon(lon)
+        val speed = state?.let {
+            sqrt((it.velocityX * it.velocityX + it.velocityY * it.velocityY).toDouble())
+        } ?: 0.0
+        val heading = state?.let { ((it.aircraftHeadDirection % 360.0) + 360.0) % 360.0 } ?: 0.0
+        val home = state?.homeLocation
+        return Hud(
+            lat, lon, loc?.altitude?.toDouble() ?: 0.0, speed, heading,
+            lastBattery?.chargeRemainingInPercent ?: 0,
+            state?.satelliteCount ?: 0,
+            lastGimbal?.attitudeInDegrees?.pitch?.toDouble(), hasFix,
+            home?.latitude ?: Double.NaN, home?.longitude ?: Double.NaN,
+            state?.isHomeLocationSet ?: false,
+            state?.flightTimeInSeconds ?: 0, lastUplinkQuality,
+            state?.isGoingHome ?: false,
+            lastCameraState?.isRecording ?: false,
+            lastExposure?.iso?.takeIf { it > 0 },
+            lastExposure?.shutterSpeed?.let { ExposureController.shutterLabel(it) },
+        )
+    }
+
+    /**
+     * One-shot ground point the camera is currently aimed at (for the "drop marker at
+     * look-point" hot key, Phase 7). Returns (lat, lon, alt) or null if GPS/gimbal state
+     * hasn't arrived yet.
+     */
+    fun lookPoint(): Triple<Double, Double, Double>? {
+        val gimbal = lastGimbal ?: return null
+        val state = lastState ?: return null
+        val loc = state.aircraftLocation ?: return null
+        if (!isValidLat(loc.latitude) || !isValidLon(loc.longitude)) return null
+        val hae = loc.altitude.toDouble()
+        val heading = ((state.aircraftHeadDirection % 360.0) + 360.0) % 360.0
+        val pitch = gimbal.attitudeInDegrees.pitch.toDouble()
+        val yaw = gimbal.attitudeInDegrees.yaw.toDouble()
+        val bearing = cameraBearing(yaw, heading)
+        val gp = CameraSlantPoint.compute(
+            loc.latitude, loc.longitude, hae, bearing, pitch + PITCH_OFFSET_DEG, ::elevationLookup,
+        )
+        return Triple(gp.lat, gp.lon, 0.0)
+    }
+
+    /** DTED-backed elevation lookup for [CameraSlantPoint], or null if no tile covers the
+     *  point (that's the normal case until the pilot uploads coverage for the area — the
+     *  math falls back to the flat-ground estimate). */
+    private fun elevationLookup(lat: Double, lon: Double): Double? {
+        val context = DJISampleApplication.getInstance() ?: return null
+        return DtedIndex.elevationAt(context, lat, lon)
+    }
+
+    companion object {
+        private const val TAG = "DroneTakBridge"
+
+        // NOT YET FIELD-CALIBRATED for the Mini 2. V5's BEARING_OFFSET_DEG=105.0 was tuned
+        // against the M30T's specific gimbal-to-airframe mounting by comparing the FOV cone
+        // against two known camera directions in a live TAK client — that calibration does
+        // not carry over to a different aircraft. Only matters when yawRelativeToAircraftHeading
+        // is unavailable (cameraBearing() prefers that heading-stable value first). To
+        // recalibrate: point the camera at a known compass direction, compare the cone in
+        // ATAK/WinTAK against reality, and adjust this constant the same way.
+        private const val BEARING_OFFSET_DEG = 0.0
+
+        // Slant-range (look-point distance) calibration bias added to gimbal pitch. 0 = no
+        // correction; tune the same way as BEARING_OFFSET_DEG if the look-point lands short/long.
+        private const val PITCH_OFFSET_DEG = 0.0
+
+        /** Shared so a future AR overlay (Phase 6) uses the same bearing correction as the cone. */
+        fun bearingOffsetDeg() = BEARING_OFFSET_DEG
+
+        // DJI Mini 2 single camera FOV (deg), approximate from published specs (83° diagonal,
+        // 24mm-equivalent wide). Refine if the FOV cone visibly disagrees with the real frame.
+        private const val MINI2_HFOV = 73.0
+        private const val MINI2_VFOV = 45.0
+    }
+}

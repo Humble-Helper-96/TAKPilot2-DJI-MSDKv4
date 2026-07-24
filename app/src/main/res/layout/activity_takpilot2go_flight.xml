@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <com.dji.sdk.sample.takpilot2.FpvTextureView
+        android:id="@+id/flightFpvView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.dji.sdk.sample.takpilot2.CrosshairView
+        android:id="@+id/flightCrosshair"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/flightNoVideoCover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#1A1A1A"
+        android:gravity="center"
+        android:text="Waiting for video…"
+        android:textColor="#666666"
+        android:textSize="16sp"
+        android:visibility="visible" />
+
+    <!-- Transient notice ("Home Point Set", etc.) — upper-left over the video, below the
+         toolbar. Hidden by default; shown + auto-hidden in code. -->
+    <TextView
+        android:id="@+id/fpvNotice"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="64dp"
+        android:layout_marginStart="16dp"
+        android:shadowColor="#CC000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="3"
+        android:text=""
+        android:textColor="#4CAF50"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- ATAK-UAS-Tool-style telemetry overlay, stacked directly above the mini-map (same
+         bottom|end corner/size/margin the map already had — "leave the mini map where it is").
+         Plain text over video, no box, to match the reference look. -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:gravity="end"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/fpvOverlayText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="end"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <com.mapbox.mapboxsdk.maps.MapView
+            android:id="@+id/flightMapView"
+            android:layout_width="160dp"
+            android:layout_height="160dp"
+            app:mapbox_renderTextureMode="true" />
+
+    </LinearLayout>
+
+    <!-- Instrument toolbar: TAKPilot2's blue chrome, houses status readouts + flight actions.
+         Solid bar overlaid on the video (not letterboxed space) — same overlay-on-FPV pattern
+         already used by the HUD/status bars below. -->
+    <LinearLayout
+        android:id="@+id/flightToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_toolbar"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="4dp">
+
+        <ImageButton
+            android:id="@+id/flightBackButton"
+            android:layout_width="40dp"
+            android:layout_height="34dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"
+            android:padding="2dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_toolbar_back" />
+
+        <View android:layout_width="6dp" android:layout_height="1dp" />
+
+        <ImageButton
+            android:id="@+id/flightRthButton"
+            android:layout_width="40dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="12dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Return to home"
+            android:padding="1dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_rth" />
+
+        <com.dji.sdk.sample.takpilot2.BatteryGaugeView
+            android:id="@+id/toolbarBattery"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="14dp"
+            android:contentDescription="Battery" />
+
+        <ImageView
+            android:id="@+id/toolbarGpsIcon"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:contentDescription="GPS satellites"
+            android:src="@drawable/ic_gps" />
+
+        <TextView
+            android:id="@+id/toolbarGps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="14dp"
+            android:text="—"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <com.dji.sdk.sample.takpilot2.SignalBarsView
+            android:id="@+id/toolbarSignal"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:contentDescription="RC signal strength" />
+
+        <TextView
+            android:id="@+id/toolbarSignalText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="14dp"
+            android:alpha="0.4"
+            android:text="—%"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <FrameLayout
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="8dp">
+
+            <ImageView
+                android:id="@+id/toolbarTakIcon"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:contentDescription="TAK server connection"
+                android:src="@drawable/ic_tak_shield" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.05"
+                android:text="TAK"
+                android:textColor="#0D47A1"
+                android:textSize="8sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/toolbarTakDot"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="bottom|start"
+                android:src="@drawable/bg_status_dot" />
+
+        </FrameLayout>
+
+        <com.dji.sdk.sample.takpilot2.LiveToggleView
+            android:id="@+id/flightStreamButton"
+            android:layout_width="82dp"
+            android:layout_height="34dp"
+            android:layout_marginHorizontal="6dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Start/stop live stream (not wired yet)" />
+
+        <com.dji.sdk.sample.takpilot2.RecordToggleView
+            android:id="@+id/flightRecordButton"
+            android:layout_width="74dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="6dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Start/stop recording to SD (not wired yet)" />
+
+    </LinearLayout>
+
+    <!-- Exposure control: a bare EV compensation slider (-2..+2) biasing the shutter-priority
+         auto-ISO, with the live ISO/shutter the camera actually chose shown below. Upper-right,
+         below the toolbar; the video is left-aligned so this sits over the right-side margin.
+         No background box — text carries a drop shadow for legibility over video. -->
+    <LinearLayout
+        android:id="@+id/exposurePanel"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="60dp"
+        android:layout_marginEnd="16dp"
+        android:orientation="vertical">
+
+        <com.dji.sdk.sample.takpilot2.EvSliderView
+            android:id="@+id/evSlider"
+            android:layout_width="match_parent"
+            android:layout_height="28dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="start"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="-2"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="EV"
+                android:textColor="#9AC4FF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="+2"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/exposureReadout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text="ISO —   —"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+</FrameLayout>

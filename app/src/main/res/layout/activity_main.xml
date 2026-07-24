@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+             xmlns:tools="http://schemas.android.com/tools"
+             android:layout_width="match_parent"
+             android:layout_height="match_parent">
+
+    <!-- TAKPilot2 Go: landscape-locked (see port plan) leaves less vertical room than this
+         screen's stacked buttons need, so the last few (Open, version, LDM checkbox) fell
+         off-screen with no way to reach them. Nested ScrollView fixes that without touching
+         content_main.xml's DJI-stock layout/IDs, and keeps framelayout_content itself a
+         FrameLayout — MainActivity.java casts it to FrameLayout for the demo view-swap flow. -->
+    <FrameLayout
+        android:id="@+id/framelayout_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center">
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+            <include layout="@layout/content_main"/>
+        </ScrollView>
+    </FrameLayout>
+</FrameLayout>
+

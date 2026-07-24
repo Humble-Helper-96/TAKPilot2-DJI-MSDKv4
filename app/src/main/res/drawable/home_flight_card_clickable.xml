@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- home_flight_card gradient + a ripple so the whole card reads as tappable (the card
+     itself IS the Enter Flight button — no separate button inside it anymore). -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item android:drawable="@drawable/home_flight_card" />
+</ripple>
