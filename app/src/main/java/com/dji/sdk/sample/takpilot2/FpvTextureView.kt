@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import com.taklite.util.AppLog
 import android.view.TextureView
@@ -41,6 +43,23 @@ class FpvTextureView @JvmOverloads constructor(
     private var videoListener: VideoFeeder.VideoDataListener? = null
     private var codecManager: DJICodecManager? = null
     @Volatile private var sawFirstFrame = false
+    private var sizeCbCount = 0
+    // DIAGNOSTIC (stutter test): the Mini 2 sends no periodic IDR, and DJICodecManager appears
+    // to reset its decoder every ~3.3s without one. Request a keyframe every 2s to pre-empt that
+    // starvation reset — a request to the ACTIVE decoder (unlike main's dormant lever) should
+    // actually land. If this stops the resets, keyframe starvation is confirmed as the cause.
+    private val keyframeHandler = Handler(Looper.getMainLooper())
+    private val keyframePump = object : Runnable {
+        override fun run() {
+            runCatching { codecManager?.resetKeyFrame() }
+            keyframeHandler.postDelayed(this, 2000L)
+        }
+    }
+    // Guards applyAspect against redundant re-application: the aspect transform only depends on
+    // (video size, view size), both stable after startup. Re-running setTransform for the same
+    // inputs is pointless and — critically — suspected of churning the decoder's output surface
+    // (see the stutter investigation), so we skip it when nothing changed.
+    private var lastAspectKey: String? = null
 
     /** Invoked (on the DJI callback thread) the first time raw video bytes arrive. */
     var onFirstFrame: (() -> Unit)? = null
@@ -58,9 +77,15 @@ class FpvTextureView @JvmOverloads constructor(
             codecManager = DJICodecManager(
                 context.applicationContext, surface, width, height,
                 UsbAccessoryService.VideoStreamSource.Camera,
-            ).also { cm ->
-                cm.setOnVideoSizeChangedListener { w, h -> post { applyAspect(w, h) } }
-            }
+            )
+            // DIAGNOSTIC (stutter test): BaseFpvView registers no size listener and applies no
+            // setTransform — video just fills the TextureView. Temporarily matching that exactly
+            // to confirm whether our aspect-ratio transform is what churns DJICodecManager's
+            // output surface every ~3.3s. Aspect ratio will be wrong during this test.
+            // cm.setOnVideoSizeChangedListener { w, h ->
+            //     AppLog.i(TAG, "FPV(opt1): onVideoSizeChanged($w x $h) #${++sizeCbCount}")
+            //     post { applyAspect(w, h) }
+            // }
         }
 
         val feed = VideoFeeder.getInstance()?.primaryVideoFeed
@@ -87,6 +112,10 @@ class FpvTextureView @JvmOverloads constructor(
         } else if (feed == null) {
             AppLog.w(TAG, "FPV(opt1): no primary video feed available yet")
         }
+
+        // DIAGNOSTIC: periodic keyframe pump (see keyframePump doc).
+        keyframeHandler.removeCallbacks(keyframePump)
+        keyframeHandler.postDelayed(keyframePump, 2000L)
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
@@ -110,6 +139,12 @@ class FpvTextureView @JvmOverloads constructor(
         val vw = width.toFloat()
         val vh = height.toFloat()
         if (vw <= 0f || vh <= 0f || videoW <= 0 || videoH <= 0) return
+        // Skip if neither the video nor the view dimensions changed — avoids re-running
+        // setTransform (and any output-surface churn it may cause) on every repeated
+        // onVideoSizeChanged callback.
+        val key = "$videoW x $videoH @ ${width} x ${height}"
+        if (key == lastAspectKey) return
+        lastAspectKey = key
         val viewAspect = vw / vh
         val videoAspect = videoW.toFloat() / videoH.toFloat()
         val m = Matrix()
@@ -139,6 +174,7 @@ class FpvTextureView @JvmOverloads constructor(
     var onVideoRectChanged: ((RectF) -> Unit)? = null
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        keyframeHandler.removeCallbacks(keyframePump)
         videoListener?.let { VideoFeeder.getInstance()?.primaryVideoFeed?.removeVideoDataListener(it) }
         videoListener = null
         try { codecManager?.cleanSurface(); codecManager?.destroyCodec() } catch (_: Throwable) {}
