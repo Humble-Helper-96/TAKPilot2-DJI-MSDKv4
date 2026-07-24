@@ -161,7 +161,6 @@ class FpvTextureView @JvmOverloads constructor(
         /** Invoked (rate-limited) while unsynced — asks the aircraft for a fresh keyframe. */
         @Volatile var onSyncNeeded: (() -> Unit)? = null
         private var lastSyncReq = 0L
-        private var lastPeriodicRefresh = 0L
 
         /** Invoked (rate-limited) when [onSyncNeeded]'s lightweight nudge hasn't produced a
          *  fresh SPS within [HARD_RESYNC_AFTER_MS] — see IdrRequesterHolder.forceResync doc
@@ -274,37 +273,15 @@ class FpvTextureView @JvmOverloads constructor(
                             onHardResyncNeeded?.invoke()
                         }
                     } else {
+                        // Synced and decoding. No periodic self-resync: it was field-rejected
+                        // 2026-07-23 as too disruptive (a ~0.6-3s freeze every 15s — a non-
+                        // starter in flight). We accept gradual macroblock artifacting over a
+                        // long STATIC scene instead (a lost NAL has nothing to overwrite it
+                        // until motion or a real resync). The genuine recovery paths above
+                        // (initial sync + hard-resync escalation when video actually drops, e.g.
+                        // Home<->Flight / lock-unlock) still run; only the blind timer is gone.
+                        // Real fix for the artifacting (frame-loss-triggered resync) is TODO.
                         unsyncedSince = 0L
-                        if (now - lastPeriodicRefresh > PERIODIC_REFRESH_MS) {
-                            // Bound decode-error accumulation even while fully synced: with the
-                            // gimbal still, the long-GOP P-frame stream never gets a fresh IDR on
-                            // its own, so a single dropped/corrupted NAL propagates as growing
-                            // macroblock corruption over a static scene.
-                            //
-                            // Field-confirmed 2026-07-23 (two rounds): neither resetKeyFrame()
-                            // NOR resetDecoder() reliably produces a fresh IDR when called while
-                            // we're already synced — 90+ seconds of resetDecoder() calls every
-                            // 5s produced zero "IDR received post-sync" hits. Every successful
-                            // refresh in that same log was preceded by OUR OWN queue-overflow ->
-                            // unsynced -> hard-resync sequence (4/4). Conclusion: these DJI SDK
-                            // calls are gated by DJI's OWN internal decode-health tracking, not
-                            // an unconditional "resend now" — since their dormant decoder is
-                            // quietly decoding the same healthy stream fine, it sees no reason to
-                            // act on the request. So instead of asking nicely, we deliberately
-                            // put OUR OWN decoder into the exact state that's reliably recovered
-                            // every time: drop the queue, mark unsynced, and go straight to the
-                            // hard-resync call (skipping the normal 3s detection wait — we
-                            // already know we need it). This trades a brief (~0.6-3s, per
-                            // observed recovery times) visible resync flash for guaranteed
-                            // periodic error correction, instead of a "seamless" refresh that
-                            // wasn't actually happening.
-                            lastPeriodicRefresh = now
-                            nalQueue.clear()
-                            waitForSync = true
-                            lastHardResync = now
-                            AppLog.i(TAG, "FPV: periodic refresh — self-inflicting resync (proven path)")
-                            onHardResyncNeeded?.invoke()
-                        }
                     }
 
                     // Feed one NAL if the codec has room (SPS/PPS ride in-band).
@@ -360,11 +337,6 @@ class FpvTextureView @JvmOverloads constructor(
         companion object {
             private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
             private const val QUEUE_CAP = 60 // ~2s at 30fps before we dump + resync
-            // Now a deliberate, brief resync flash (see periodic-refresh comment above), not a
-            // seamless background nudge — 15s balances error-correction frequency against how
-            // often the pilot sees a short freeze. Tune if artifacting rebuilds faster than
-            // this, or if the flashes feel too frequent.
-            private const val PERIODIC_REFRESH_MS = 15000L
             private const val HARD_RESYNC_AFTER_MS = 3000L // escalate if still unsynced this long
         }
     }
