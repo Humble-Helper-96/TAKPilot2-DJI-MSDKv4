@@ -108,12 +108,23 @@
             android:id="@+id/flightRthButton"
             android:layout_width="40dp"
             android:layout_height="34dp"
-            android:layout_marginEnd="12dp"
+            android:layout_marginEnd="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Return to home"
             android:padding="1dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_rth" />
+
+        <ImageButton
+            android:id="@+id/flightResyncButton"
+            android:layout_width="38dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="12dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Video re-sync"
+            android:padding="4dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_resync" />
 
         <com.dji.sdk.sample.takpilot2.BatteryGaugeView
             android:id="@+id/toolbarBattery"

@@ -208,6 +208,12 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         rthButton = findViewById(R.id.flightRthButton)
         rthButton.setOnClickListener { onRthTapped() }
 
+        findViewById<ImageButton>(R.id.flightResyncButton).setOnClickListener {
+            AppLog.v(REC_TAG, "tap: Video Re-Sync")
+            fpvView.requestResync()
+            Toast.makeText(this, "Re-syncing video…", Toast.LENGTH_SHORT).show()
+        }
+
         liveToggle = findViewById(R.id.flightStreamButton)
         liveToggle.setOnClickListener { onLiveToggleTapped() }
         // The underlying push (DroneVideoStreamer) isn't implemented yet (Phase 5) — start()

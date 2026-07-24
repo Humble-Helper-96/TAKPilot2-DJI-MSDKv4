@@ -149,6 +149,13 @@ class FpvTextureView @JvmOverloads constructor(
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
 
+    /** Pilot-triggered "Video Re-Sync" (flight-screen button): forces a hard resync of the
+     *  live decoder to clear accumulated static-scene artifacting on demand. No-op if the
+     *  decoder isn't running yet. */
+    fun requestResync() {
+        decoder?.requestResync()
+    }
+
     /**
      * Owns the MediaCodec: assembles NALs from raw chunks, decodes, and renders newest-only.
      */
@@ -171,6 +178,12 @@ class FpvTextureView @JvmOverloads constructor(
 
         /** Invoked with the real decoded video dimensions (from INFO_OUTPUT_FORMAT_CHANGED). */
         @Volatile var onVideoSize: ((Int, Int) -> Unit)? = null
+
+        /** Set by [requestResync] (pilot-tapped Video Re-Sync). Handled at the top of the decode
+         *  loop: drop the queue, go unsynced, and force the proven resetDecoder recovery now —
+         *  the manual failsafe to clear accumulated static-scene artifacting on demand. */
+        @Volatile private var resyncRequested = false
+        fun requestResync() { resyncRequested = true }
 
         // ---- Annex-B assembler state (called on the DJI feed thread) ----
         private var pending = ByteArray(0)
@@ -226,11 +239,15 @@ class FpvTextureView @JvmOverloads constructor(
                 AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
             }
             if (!nalQueue.offer(nal)) {
-                // Backlog: dump everything and resync at the next SPS. This is the
-                // latency-can-never-grow guarantee.
+                // Queue full — the decoder fell persistently behind (rare now that transient
+                // stalls hold-and-retry instead of dropping). Reset latency by dropping the
+                // backlog and keeping the newest NAL, but do NOT force a resync/freeze: keep
+                // decoding (brief concealed corruption, no freeze — the Mini 2 sends no keyframe
+                // to recover to on its own anyway). The pilot's Video Re-Sync button clears any
+                // lingering artifacting on demand.
                 nalQueue.clear()
-                waitForSync = true
-                AppLog.w(TAG, "FPV: queue overflow — dropped backlog, waiting for SPS")
+                nalQueue.offer(nal)
+                AppLog.w(TAG, "FPV: queue overflow — dropped backlog (no freeze), continuing")
             }
         }
 
@@ -249,11 +266,31 @@ class FpvTextureView @JvmOverloads constructor(
                 }
                 val info = MediaCodec.BufferInfo()
                 var pts = 0L
+                // A NAL we polled but couldn't feed yet because the codec's input was momentarily
+                // full. Held (not dropped) and retried next iteration after draining output frees
+                // a buffer — so a transient decoder stall no longer manufactures artifacting.
+                var pendingNal: ByteArray? = null
 
                 while (running.get()) {
+                    val now = System.currentTimeMillis()
+
+                    // Pilot-tapped Video Re-Sync failsafe: clear the backlog, go unsynced, and
+                    // fire the proven resetDecoder recovery immediately (don't wait out the 3s
+                    // auto-escalation) to clear accumulated artifacting on demand.
+                    if (resyncRequested) {
+                        resyncRequested = false
+                        pendingNal = null
+                        nalQueue.clear()
+                        waitForSync = true
+                        unsyncedSince = 0L
+                        lastSyncReq = 0L        // let onSyncNeeded fire right away while unsynced
+                        lastHardResync = now    // we're firing the hard resync now
+                        AppLog.i(TAG, "FPV: manual re-sync requested by pilot")
+                        onHardResyncNeeded?.invoke()
+                    }
+
                     // The aircraft sends keyframes ONLY on request: while unsynced, keep
                     // asking (rate-limited) until the SPS/PPS/IDR burst arrives.
-                    val now = System.currentTimeMillis()
                     if (waitForSync) {
                         if (unsyncedSince == 0L) unsyncedSince = now
                         if (now - lastSyncReq > 500) {
@@ -284,17 +321,24 @@ class FpvTextureView @JvmOverloads constructor(
                         unsyncedSince = 0L
                     }
 
-                    // Feed one NAL if the codec has room (SPS/PPS ride in-band).
-                    val nal = nalQueue.poll(10, TimeUnit.MILLISECONDS)
+                    // Feed one NAL if the codec has room (SPS/PPS ride in-band). Prefer a NAL we
+                    // were holding from a prior stalled iteration; otherwise poll a fresh one.
+                    val nal = pendingNal ?: nalQueue.poll(10, TimeUnit.MILLISECONDS)
+                    pendingNal = null
                     if (nal != null) {
                         val inIdx = codec.dequeueInputBuffer(10_000)
                         if (inIdx >= 0) {
                             codec.getInputBuffer(inIdx)?.apply { clear(); put(nal) }
                             codec.queueInputBuffer(inIdx, 0, nal.size, pts, 0)
                             pts += 33_333
+                        } else {
+                            // Codec input momentarily full — HOLD this NAL (don't drop it) and
+                            // retry next iteration once draining output below frees a buffer.
+                            // Dropping here used to manufacture persistent artifacting on any
+                            // transient stall (GPU contention w/ the map/HUD); the overflow
+                            // failsafe below still bounds latency if we fall behind for real.
+                            pendingNal = nal
                         }
-                        // else: codec stalled this instant; NAL is dropped rather than queued —
-                        // the resync logic recovers us at the next SPS if decode hiccups.
                     }
 
                     // Drain: render ONLY the newest ready frame, discard older ones.
