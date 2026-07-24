@@ -108,23 +108,45 @@
             android:id="@+id/flightRthButton"
             android:layout_width="40dp"
             android:layout_height="34dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="12dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Return to home"
             android:padding="1dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_rth" />
 
-        <ImageButton
-            android:id="@+id/flightResyncButton"
-            android:layout_width="38dp"
+        <FrameLayout
+            android:layout_width="34dp"
             android:layout_height="34dp"
-            android:layout_marginEnd="12dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Video re-sync"
-            android:padding="4dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_resync" />
+            android:layout_marginEnd="14dp">
+
+            <ImageView
+                android:id="@+id/toolbarTakIcon"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:contentDescription="TAK server connection"
+                android:src="@drawable/ic_tak_shield" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.05"
+                android:text="TAK"
+                android:textColor="#0D47A1"
+                android:textSize="8sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/toolbarTakDot"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="bottom|start"
+                android:src="@drawable/bg_status_dot" />
+
+        </FrameLayout>
 
         <com.dji.sdk.sample.takpilot2.BatteryGaugeView
             android:id="@+id/toolbarBattery"
@@ -174,38 +196,16 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <FrameLayout
-            android:layout_width="34dp"
+        <ImageButton
+            android:id="@+id/flightResyncButton"
+            android:layout_width="38dp"
             android:layout_height="34dp"
-            android:layout_marginStart="8dp">
-
-            <ImageView
-                android:id="@+id/toolbarTakIcon"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:contentDescription="TAK server connection"
-                android:src="@drawable/ic_tak_shield" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="2dp"
-                android:includeFontPadding="false"
-                android:letterSpacing="0.05"
-                android:text="TAK"
-                android:textColor="#0D47A1"
-                android:textSize="8sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/toolbarTakDot"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:layout_gravity="bottom|start"
-                android:src="@drawable/bg_status_dot" />
-
-        </FrameLayout>
+            android:layout_marginStart="8dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Video re-sync"
+            android:padding="3dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_resync" />
 
         <com.dji.sdk.sample.takpilot2.LiveToggleView
             android:id="@+id/flightStreamButton"
