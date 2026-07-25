@@ -244,11 +244,39 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             Toast.makeText(this, "Video stream stopped", Toast.LENGTH_SHORT).show()
             return
         }
-        val started = VideoStreamerHolder.startFromPrefs(applicationContext) { _, msg ->
-            runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
+        // Guard on config before prompting for anything.
+        val p = getSharedPreferences("takpilot2_tak", MODE_PRIVATE)
+        if ((p.getString("video_host", "") ?: "").isEmpty() ||
+            (p.getString("video_streamid", "") ?: "").isEmpty()) {
+            Toast.makeText(this, "Set up the video server in Pre-Flight Setup first", Toast.LENGTH_SHORT).show()
+            return
         }
-        if (!started) {
-            Toast.makeText(this, "Set up the stream in TAK Setup first", Toast.LENGTH_SHORT).show()
+        val profile = p.getString("video_profile", "standard") ?: "standard"
+        if (profile == "original") {
+            // Passthrough — no screen capture, no permission needed.
+            VideoStreamerHolder.startFromPrefs(applicationContext) { _, msg ->
+                runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
+            }
+            return
+        }
+        // Transcode profile → screen-capture stream: request the one-time MediaProjection
+        // permission. onActivityResult starts the foreground service, which starts the stream.
+        AppLog.v(REC_TAG, "tap: LIVE (requesting screen capture)")
+        val mpm = getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
+        Toast.makeText(this, "Starting screen stream…", Toast.LENGTH_SHORT).show()
+        startActivityForResult(mpm.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_MEDIA_PROJECTION) {
+            if (resultCode == RESULT_OK && data != null) {
+                com.dji.sdk.sample.tak.ScreenCaptureService.start(this, resultCode, data)
+            } else {
+                Toast.makeText(this, "Screen capture permission denied — no stream started",
+                    Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -543,6 +571,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     companion object {
         private const val REC_TAG = "TP2Record"
+        private const val REQUEST_MEDIA_PROJECTION = 3001
         private const val HUD_INTERVAL_MS = 500L
         private const val AIRCRAFT_ICON_ID = "aircraft-icon"
         private const val AIRCRAFT_SOURCE_ID = "aircraft-source"
