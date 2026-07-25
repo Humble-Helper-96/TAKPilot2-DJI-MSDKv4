@@ -66,4 +66,31 @@ object IdrRequesterHolder {
             AppLog.w(TAG, "forceResync failed: ${t.message}")
         }
     }
+
+    /**
+     * Set by [com.dji.sdk.sample.takpilot2.FpvTextureView] while its decoder is alive: forces
+     * the ON-SCREEN decoder into a genuine unsync → resetDecoder recovery. That is the ONLY
+     * mechanism field-proven (2026-07-24) to make the Mini 2 actually emit a fresh SPS/PPS/IDR
+     * — direct [requestKeyframe]/[forceResync] on this dormant lever are silently ignored
+     * whenever DJI's decoder believes it's already healthy (which it always is once FPV is up).
+     * The keyframe the aircraft emits in response flows into the shared VideoFeeder stream, so
+     * a SEPARATE listener (the RTSP streamer) receives it too. Null when no flight-screen FPV
+     * decoder is active. Costs a brief on-screen FPV glitch — inherent to passthrough, since
+     * FPV IS the only decoder that can be resynced.
+     */
+    @Volatile
+    var fpvResync: (() -> Unit)? = null
+
+    /** Get a fresh keyframe by the reliable path (FPV resync) when a decoder is on screen,
+     *  else fall back to the best-effort dormant lever. */
+    fun requestFreshKeyframe() {
+        val hook = fpvResync
+        if (hook != null) {
+            AppLog.i(TAG, "requestFreshKeyframe: via FPV decoder resync (reliable)")
+            hook()
+        } else {
+            AppLog.w(TAG, "requestFreshKeyframe: no FPV decoder active — best-effort dormant lever")
+            forceResync()
+        }
+    }
 }

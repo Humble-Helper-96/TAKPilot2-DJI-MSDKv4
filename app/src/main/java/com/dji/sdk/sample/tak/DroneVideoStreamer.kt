@@ -65,6 +65,7 @@ class DroneVideoStreamer(
     @Volatile private var streaming = false
     @Volatile private var paramsSet = false
     @Volatile private var stopped = false
+    @Volatile private var connectedBefore = false
     private var startNs = 0L
     private var frameCount = 0
     private var frameBytesSinceLog = 0L
@@ -73,22 +74,19 @@ class DroneVideoStreamer(
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
 
-    // Bootstrap: request a keyframe on start so SPS/PPS/IDR arrive promptly (the Mini 2 sends
-    // none unprompted — same quirk FpvTextureView works around). Escalates to a hard resync
-    // if params haven't shown up after a few seconds, same proven pattern as the FPV pipeline.
+    // Bootstrap: the Mini 2 sends no SPS/PPS/IDR unprompted, and — field-proven 2026-07-24 —
+    // the ONLY reliable way to make it emit one is to resync the on-screen FPV decoder
+    // ([IdrRequesterHolder.requestFreshKeyframe] via the FPV hook); the direct dormant-lever
+    // calls this used to make are silently ignored whenever FPV is already up. The keyframe
+    // that resync produces flows into the shared VideoFeeder stream, so our own listener
+    // sniffs the SPS/PPS and connects. Re-requested every few seconds until that happens —
+    // spaced generously because each FPV resync itself takes ~0.6-3s to land.
     private val bootstrapHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var bootstrapStartMs = 0L
     private val bootstrapRunnable = object : Runnable {
         override fun run() {
             if (stopped || paramsSet) return
-            val elapsed = System.currentTimeMillis() - bootstrapStartMs
-            if (elapsed > 3000) {
-                AppLog.w(TAG, "no SPS/PPS after ${elapsed}ms, forcing hard resync")
-                IdrRequesterHolder.forceResync()
-            } else {
-                IdrRequesterHolder.requestKeyframe()
-            }
-            bootstrapHandler.postDelayed(this, 500)
+            IdrRequesterHolder.requestFreshKeyframe()
+            bootstrapHandler.postDelayed(this, 3000)
         }
     }
 
@@ -102,6 +100,7 @@ class DroneVideoStreamer(
         }
         stopped = false
         paramsSet = false
+        connectedBefore = false
         assembler.reset()
         startNs = System.nanoTime()
 
@@ -127,7 +126,6 @@ class DroneVideoStreamer(
         // until setVideoInfo() actually happens (see onNal), so RootEncoder's internal
         // "wait up to 5s for video info" never has anything to wait on the wrong thing for.
         IdrRequesterHolder.ensureStarted(context)
-        bootstrapStartMs = System.currentTimeMillis()
         bootstrapHandler.removeCallbacks(bootstrapRunnable)
         bootstrapHandler.post(bootstrapRunnable)
 
@@ -196,6 +194,18 @@ class DroneVideoStreamer(
         streaming = true
         AppLog.i(TAG, "RTSP push connected")
         onStatus(true, "Streaming → ${config.urlSafe()}")
+        // Reconnect re-arm: RootEncoder's H264Packet.sendKeyFrame flag is a one-shot that
+        // RtspSender.stop() resets to false on every reconnect. After that it silently DROPS
+        // every frame ("waiting for keyframe") until it sees a fresh IDR — which the Mini 2
+        // never sends unprompted, so a single network blip would otherwise kill the stream
+        // permanently (field-observed 2026-07-24). Force a fresh keyframe on any reconnect to
+        // re-arm it. Skipped on the very first connect (the params-carrying IDR already armed
+        // it) to avoid a redundant on-screen FPV glitch.
+        if (connectedBefore) {
+            AppLog.i(TAG, "reconnected — forcing fresh keyframe to re-arm the packetizer")
+            IdrRequesterHolder.requestFreshKeyframe()
+        }
+        connectedBefore = true
     }
     override fun onConnectionFailedRtsp(reason: String) {
         AppLog.w(TAG, "connection failed: $reason")

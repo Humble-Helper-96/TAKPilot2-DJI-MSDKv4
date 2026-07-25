@@ -62,6 +62,9 @@ class FpvTextureView @JvmOverloads constructor(
         d.onVideoSize = { w, h -> post { applyAspect(w, h) } }
         d.start()
         decoder = d
+        // Expose our (reliable) resync to anything that needs the aircraft to emit a fresh
+        // SPS/PPS/IDR — notably the RTSP streamer's keyframe bootstrap. See IdrRequesterHolder.
+        IdrRequesterHolder.fpvResync = { requestResync() }
 
         val feed = VideoFeeder.getInstance()?.primaryVideoFeed
         if (feed != null && videoListener == null) {
@@ -136,6 +139,8 @@ class FpvTextureView @JvmOverloads constructor(
     var onVideoRectChanged: ((RectF) -> Unit)? = null
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        // Stop advertising a resync hook that's about to point at a dead decoder.
+        IdrRequesterHolder.fpvResync = null
         videoListener?.let { VideoFeeder.getInstance()?.primaryVideoFeed?.removeVideoDataListener(it) }
         videoListener = null
         decoder?.shutdown()
