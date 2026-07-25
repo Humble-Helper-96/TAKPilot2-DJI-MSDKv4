@@ -379,6 +379,49 @@
         </LinearLayout>
 
         <TextView style="@style/takLabelStyle"
+            android:text="Video quality (on-device transcode)"
+            android:paddingTop="12dp" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Transcoded on device with a 2s keyframe so remote viewers (ATAK) can join and recover cleanly. Aspect ratio is preserved. Published to a -Low path (e.g. Feed-A → Feed-A-Low) so the media server passes it through without re-transcoding."
+            android:textColor="#909090"
+            android:textSize="12sp"
+            android:paddingBottom="6dp" />
+
+        <RadioGroup
+            android:id="@+id/videoProfileGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/videoProfileLow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Low — 360p · 10fps · 275 kbps  (marginal links)"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#1565C0" />
+
+            <RadioButton
+                android:id="@+id/videoProfileStandard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Standard — 480p · 15fps · 550 kbps  (default)"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#1565C0" />
+
+            <RadioButton
+                android:id="@+id/videoProfileHigh"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="High — 720p · 15fps · 1000 kbps"
+                android:textColor="#FFFFFF"
+                android:buttonTint="#1565C0" />
+
+        </RadioGroup>
+
+        <TextView style="@style/takLabelStyle"
             android:text="Full stream URL (push + advertised to ATAK)" />
         <TextView
             android:id="@+id/videoFullUrl"

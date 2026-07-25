@@ -282,6 +282,7 @@ class TakConnectActivity : AppCompatActivity() {
         val vPass = findViewById<EditText>(R.id.videoPassword)
         val vStreamId = findViewById<EditText>(R.id.videoStreamId)
         val vTcp = findViewById<android.widget.CheckBox>(R.id.videoTcp)
+        val vProfileGroup = findViewById<RadioGroup>(R.id.videoProfileGroup)
         val vFullUrl = findViewById<TextView>(R.id.videoFullUrl)
         videoStatus = findViewById(R.id.videoStatus)
 
@@ -290,6 +291,17 @@ class TakConnectActivity : AppCompatActivity() {
         vUser.setText(prefs.getString(KEY_V_USER, ""))
         vStreamId.setText(prefs.getString(KEY_V_STREAMID, ""))
         vTcp.isChecked = prefs.getBoolean(KEY_V_TCP, true)
+        when (prefs.getString(KEY_V_PROFILE, "standard")) {
+            "low" -> vProfileGroup.check(R.id.videoProfileLow)
+            "high" -> vProfileGroup.check(R.id.videoProfileHigh)
+            else -> vProfileGroup.check(R.id.videoProfileStandard)
+        }
+
+        fun selectedProfile(): String = when (vProfileGroup.checkedRadioButtonId) {
+            R.id.videoProfileLow -> "low"
+            R.id.videoProfileHigh -> "high"
+            else -> "standard"
+        }
 
         fun buildConfig(): DroneVideoStreamer.VideoConfig = DroneVideoStreamer.VideoConfig(
             host = vHost.text.toString().trim(),
@@ -298,6 +310,7 @@ class TakConnectActivity : AppCompatActivity() {
             password = vPass.text.toString(),
             streamId = vStreamId.text.toString().trim(),
             tcp = vTcp.isChecked,
+            profile = selectedProfile(),
         )
 
         // Live-update the full-URL preview as fields change.
@@ -313,6 +326,11 @@ class TakConnectActivity : AppCompatActivity() {
         }
         listOf(vHost, vPort, vUser, vPass, vStreamId).forEach { it.addTextChangedListener(watcher) }
         vTcp.setOnCheckedChangeListener { _, _ -> refreshUrl() }
+        // Persist the profile the moment it changes, so the flight-screen LIVE button (which
+        // reads prefs, not this screen's live state) always uses the pilot's current choice.
+        vProfileGroup.setOnCheckedChangeListener { _, _ ->
+            prefs.edit().putString(KEY_V_PROFILE, selectedProfile()).apply()
+        }
         refreshUrl()
 
         findViewById<Button>(R.id.videoStartButton).setOnClickListener {
@@ -328,6 +346,7 @@ class TakConnectActivity : AppCompatActivity() {
                 .putString("video_pass", cfg.password) // so the flight-screen button can start it
                 .putString(KEY_V_STREAMID, cfg.streamId)
                 .putBoolean(KEY_V_TCP, cfg.tcp)
+                .putString(KEY_V_PROFILE, cfg.profile)
                 .apply()
 
             setVideoStatus("Starting RTSP push → ${cfg.urlSafe()}", Color.parseColor("#B0B0B0"))
@@ -537,6 +556,7 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_V_USER = "video_user"
         private const val KEY_V_STREAMID = "video_streamid"
         private const val KEY_V_TCP = "video_tcp"
+        private const val KEY_V_PROFILE = "video_profile"
     }
 }
 
