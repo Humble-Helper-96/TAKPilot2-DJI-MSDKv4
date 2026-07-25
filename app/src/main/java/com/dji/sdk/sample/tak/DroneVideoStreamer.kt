@@ -65,7 +65,6 @@ class DroneVideoStreamer(
     @Volatile private var streaming = false
     @Volatile private var paramsSet = false
     @Volatile private var stopped = false
-    @Volatile private var connectedBefore = false
     private var startNs = 0L
     private var frameCount = 0
     private var frameBytesSinceLog = 0L
@@ -100,7 +99,6 @@ class DroneVideoStreamer(
         }
         stopped = false
         paramsSet = false
-        connectedBefore = false
         assembler.reset()
         startNs = System.nanoTime()
 
@@ -192,20 +190,17 @@ class DroneVideoStreamer(
     override fun onConnectionStartedRtsp(rtspUrl: String) { AppLog.i(TAG, "connecting ${config.urlSafe()}") }
     override fun onConnectionSuccessRtsp() {
         streaming = true
-        AppLog.i(TAG, "RTSP push connected")
+        AppLog.i(TAG, "RTSP push connected — requesting fresh keyframe to arm the packetizer")
         onStatus(true, "Streaming → ${config.urlSafe()}")
-        // Reconnect re-arm: RootEncoder's H264Packet.sendKeyFrame flag is a one-shot that
-        // RtspSender.stop() resets to false on every reconnect. After that it silently DROPS
-        // every frame ("waiting for keyframe") until it sees a fresh IDR — which the Mini 2
-        // never sends unprompted, so a single network blip would otherwise kill the stream
-        // permanently (field-observed 2026-07-24). Force a fresh keyframe on any reconnect to
-        // re-arm it. Skipped on the very first connect (the params-carrying IDR already armed
-        // it) to avoid a redundant on-screen FPV glitch.
-        if (connectedBefore) {
-            AppLog.i(TAG, "reconnected — forcing fresh keyframe to re-arm the packetizer")
-            IdrRequesterHolder.requestFreshKeyframe()
-        }
-        connectedBefore = true
+        // Arm (and re-arm) RootEncoder's H264Packet.sendKeyFrame — on EVERY connect, first
+        // included. connect() is async: the params-carrying IDR from the bootstrap burst was
+        // sent (and silently discarded) while RtspSender.running was still false, so the
+        // packetizer has no keyframe and drops every P-frame ("waiting for keyframe") forever
+        // (the Mini 2 sends no IDR unprompted). Field-diagnosed 2026-07-24: MediaMTX showed
+        // the SDP track online but got zero video and read-timed-out the publisher at ~30s.
+        // Forcing a fresh keyframe NOW (running is true) makes the next IDR actually arm it.
+        // Also covers reconnects, where RtspSender.stop() reset the same one-shot flag.
+        IdrRequesterHolder.requestFreshKeyframe()
     }
     override fun onConnectionFailedRtsp(reason: String) {
         AppLog.w(TAG, "connection failed: $reason")
