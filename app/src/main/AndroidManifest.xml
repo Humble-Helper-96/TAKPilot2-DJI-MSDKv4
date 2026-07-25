@@ -19,6 +19,7 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature
         android:name="android.hardware.usb.host"
@@ -125,6 +126,12 @@
         <service
             android:name="com.dji.sdk.sample.tak.TakForegroundService"
             android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- TAKPilot2 Go / Phase 5: hosts the screen-capture RTSP stream (MediaProjection). -->
+        <service
+            android:name="com.dji.sdk.sample.tak.ScreenCaptureService"
+            android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
         <!-- TAKPilot2 Go / Phase 3: custom home + flight screens.

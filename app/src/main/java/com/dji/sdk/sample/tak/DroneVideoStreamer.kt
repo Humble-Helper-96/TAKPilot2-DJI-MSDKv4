@@ -31,6 +31,7 @@ import java.nio.ByteBuffer
 class DroneVideoStreamer(
     private val context: Context,
     private val config: VideoConfig,
+    private val mediaProjection: android.media.projection.MediaProjection? = null,
     private val onStatus: (Boolean, String) -> Unit,
 ) : ConnectCheckerRtsp {
 
@@ -68,6 +69,13 @@ class DroneVideoStreamer(
     private val assembler = AnnexBNalAssembler { nal, type -> onNal(nal, type) }
     private var videoListener: VideoFeeder.VideoDataListener? = null
     private var transcoder: StreamTranscoder? = null
+    private var screenEncoder: ScreenCaptureEncoder? = null
+    // Screen-capture mode = a transcode profile WITH a MediaProjection (the flight-screen
+    // path). Captures the whole flight screen (FPV + HUD) rather than re-decoding the aircraft
+    // feed — cheaper, and structurally free of the decode-transcoder's NAL-drop artifacting
+    // (see ScreenCaptureEncoder). Transcode profile WITHOUT a projection falls back to the
+    // StreamTranscoder decode path (kept as an internal fallback).
+    private val screenMode: Boolean get() = config.isTranscode && mediaProjection != null
 
     @Volatile private var streaming = false
     @Volatile private var paramsSet = false
@@ -99,15 +107,43 @@ class DroneVideoStreamer(
     val isStreaming: Boolean get() = streaming
 
     fun start() {
+        stopped = false
+        paramsSet = false
+        startNs = System.nanoTime()
+
+        client.setLogs(false)
+        client.setProtocol(if (config.tcp) Protocol.TCP else Protocol.UDP)
+        if (config.username.isNotEmpty()) client.setAuthorization(config.username, config.password)
+        client.setOnlyVideo(true)
+        client.setReTries(10)
+
+        if (screenMode) {
+            // Screen-capture: no aircraft-feed listener, no NAL assembler, no keyframe
+            // bootstrap. The encoder produces frames from the composited screen immediately;
+            // params-ready connects, and the encoder's own sync frame arms the packetizer.
+            val enc = ScreenCaptureEncoder(
+                context, mediaProjection!!,
+                StreamTranscoder.TranscodeProfile.fromPref(config.profile),
+                onEncoded = { buf, info -> onEncodedFrame(buf, info) },
+                onParamsReady = { s, p -> onEncoderParamsReady(s, p) },
+            )
+            if (!enc.start()) {
+                onStatus(false, "Screen capture failed to start")
+                return
+            }
+            screenEncoder = enc
+            AppLog.i(TAG, "start [${config.profile}, screen] push=${config.pushUrl()}")
+            onStatus(true, "Capturing screen → ${config.urlSafe()}")
+            return
+        }
+
+        // ---- Aircraft-feed modes (passthrough, or decode-transcode fallback) ----
         val feed = VideoFeeder.getInstance()?.primaryVideoFeed
         if (feed == null) {
             onStatus(false, "Aircraft not connected (no video source)")
             return
         }
-        stopped = false
-        paramsSet = false
         assembler.reset()
-        startNs = System.nanoTime()
 
         if (config.isTranscode) {
             transcoder = StreamTranscoder(
@@ -117,12 +153,6 @@ class DroneVideoStreamer(
                 onParamsReady = { s, p -> onEncoderParamsReady(s, p) },
             )
         }
-
-        client.setLogs(false)
-        client.setProtocol(if (config.tcp) Protocol.TCP else Protocol.UDP)
-        if (config.username.isNotEmpty()) client.setAuthorization(config.username, config.password)
-        client.setOnlyVideo(true)
-        client.setReTries(10)
 
         val l = VideoFeeder.VideoDataListener { data, size ->
             if (!stopped) {
@@ -153,6 +183,8 @@ class DroneVideoStreamer(
         videoListener = null
         transcoder?.release()
         transcoder = null
+        screenEncoder?.release()
+        screenEncoder = null
         try { client.disconnect() } catch (t: Throwable) { AppLog.w(TAG, "disconnect: ${t.message}") }
         streaming = false
         paramsSet = false
@@ -244,12 +276,19 @@ class DroneVideoStreamer(
         // false and got discarded; without re-arming, the packetizer drops every P-frame forever
         // ("waiting for keyframe"). In TRANSCODE mode ask our own encoder for an IDR (instant, no
         // FPV disturbance); in PASSTHROUGH ask the aircraft via the FPV resync (glitches FPV).
-        if (config.isTranscode) {
-            AppLog.i(TAG, "connected — requesting encoder sync frame to arm the packetizer")
-            transcoder?.requestSyncFrame()
-        } else {
-            AppLog.i(TAG, "connected — requesting fresh source keyframe to arm the packetizer")
-            IdrRequesterHolder.requestFreshKeyframe()
+        when {
+            screenMode -> {
+                AppLog.i(TAG, "connected — requesting screen-encoder sync frame to arm the packetizer")
+                screenEncoder?.requestSyncFrame()
+            }
+            config.isTranscode -> {
+                AppLog.i(TAG, "connected — requesting encoder sync frame to arm the packetizer")
+                transcoder?.requestSyncFrame()
+            }
+            else -> {
+                AppLog.i(TAG, "connected — requesting fresh source keyframe to arm the packetizer")
+                IdrRequesterHolder.requestFreshKeyframe()
+            }
         }
     }
     override fun onConnectionFailedRtsp(reason: String) {
@@ -273,45 +312,22 @@ class DroneVideoStreamer(
 
 object VideoStreamerHolder {
     private var streamer: DroneVideoStreamer? = null
+    private var appContext: Context? = null
 
-    /** Notified on every start/stop so UI (e.g. the flight-screen play button) refreshes,
-     *  regardless of what triggered the change (soft button, RC physical button, etc.). */
+    /** Notified on every start/stop AND on every connection-state change so UI (e.g. the
+     *  flight-screen LIVE pill) reflects real streaming state, not just the start/stop call. */
     @JvmField
     var onStateChanged: Runnable? = null
     private fun notifyState() {
         android.os.Handler(android.os.Looper.getMainLooper()).post { onStateChanged?.run() }
     }
 
-    fun start(
-        context: Context,
-        config: DroneVideoStreamer.VideoConfig,
-        onStatus: (Boolean, String) -> Unit,
-    ) {
-        streamer?.stop()
-        streamer = DroneVideoStreamer(context.applicationContext, config, onStatus).also { it.start() }
-        notifyState()
-    }
-
-    fun stop() {
-        streamer?.stop()
-        streamer = null
-        TakBridgeHolder.setVideoUrl(null)
-        notifyState()
-    }
-
-    val isRunning: Boolean get() = streamer?.isStreaming == true
-    val isActive: Boolean get() = streamer != null
-
-    /**
-     * Start streaming using the video settings saved by TakConnectActivity. Returns false
-     * if no stream is configured. Used by the flight-screen Start Video button.
-     */
-    fun startFromPrefs(context: Context, onStatus: (Boolean, String) -> Unit): Boolean {
+    private fun buildConfig(context: Context): DroneVideoStreamer.VideoConfig? {
         val p = context.getSharedPreferences("takpilot2_tak", Context.MODE_PRIVATE)
         val host = p.getString("video_host", "") ?: ""
         val streamId = p.getString("video_streamid", "") ?: ""
-        if (host.isEmpty() || streamId.isEmpty()) return false
-        val cfg = DroneVideoStreamer.VideoConfig(
+        if (host.isEmpty() || streamId.isEmpty()) return null
+        return DroneVideoStreamer.VideoConfig(
             host = host,
             port = p.getInt("video_port", 8554),
             username = p.getString("video_user", "") ?: "",
@@ -320,10 +336,65 @@ object VideoStreamerHolder {
             tcp = p.getBoolean("video_tcp", true),
             profile = p.getString("video_profile", "standard") ?: "standard",
         )
-        start(context, cfg) { ok, msg ->
-            if (ok) TakBridgeHolder.setVideoUrl(cfg.advertiseUrl())
+    }
+
+    /** Wraps the caller's onStatus so every status change (incl. the async connect-success
+     *  that flips isStreaming true) also refreshes the LIVE pill and advertises the CoT URL. */
+    private fun launch(
+        context: Context,
+        config: DroneVideoStreamer.VideoConfig,
+        projection: android.media.projection.MediaProjection?,
+        onStatus: (Boolean, String) -> Unit,
+    ) {
+        appContext = context.applicationContext
+        streamer?.stop()
+        streamer = DroneVideoStreamer(context.applicationContext, config, projection) { ok, msg ->
+            if (ok) TakBridgeHolder.setVideoUrl(config.advertiseUrl())
+            notifyState()
             onStatus(ok, msg)
-        }
+        }.also { it.start() }
+        notifyState()
+    }
+
+    fun start(
+        context: Context,
+        config: DroneVideoStreamer.VideoConfig,
+        onStatus: (Boolean, String) -> Unit,
+    ) = launch(context, config, null, onStatus)
+
+    fun stop() {
+        streamer?.stop()
+        streamer = null
+        TakBridgeHolder.setVideoUrl(null)
+        // Tear down the screen-capture foreground service + projection if one was running.
+        appContext?.let { ScreenCaptureService.stop(it) }
+        notifyState()
+    }
+
+    val isRunning: Boolean get() = streamer?.isStreaming == true
+    val isActive: Boolean get() = streamer != null
+
+    /**
+     * Start streaming using the video settings saved by TakConnectActivity, with a
+     * MediaProjection (screen-capture transcode). Returns false if no stream is configured.
+     */
+    fun startScreenCapture(
+        context: Context,
+        projection: android.media.projection.MediaProjection,
+        onStatus: (Boolean, String) -> Unit,
+    ): Boolean {
+        val cfg = buildConfig(context) ?: return false
+        launch(context, cfg, projection, onStatus)
+        return true
+    }
+
+    /**
+     * Start streaming using saved settings, no projection (passthrough, or the decode-transcode
+     * fallback). Returns false if no stream is configured.
+     */
+    fun startFromPrefs(context: Context, onStatus: (Boolean, String) -> Unit): Boolean {
+        val cfg = buildConfig(context) ?: return false
+        launch(context, cfg, null, onStatus)
         return true
     }
 }
