@@ -35,6 +35,7 @@ object AppLog {
     private const val PREFS_NAME = "app_log_prefs"
     private const val KEY_ENABLED = "debug_logging_enabled"
     private const val KEY_VERBOSE = "debug_logging_verbose"
+    private const val KEY_TAK = "debug_logging_tak"
     private const val ACTIVE_FILE_NAME = "app.log"
     private const val MAX_FILE_SIZE_BYTES = 1L * 1024 * 1024
     private const val RETENTION_MS = 2L * 60 * 60 * 1000
@@ -82,6 +83,47 @@ object AppLog {
         set(value) {
             if (initialized) prefs.edit().putBoolean(KEY_VERBOSE, value).apply()
         }
+
+    /**
+     * Whether TAK/CoT-subsystem lines (see [TAK_TAGS]) reach the log file. Default true.
+     * Turned off from the Debug screen when diagnosing the app itself: the CoT bridge pushes
+     * on a 2s tick and TakManager/CotParser are chatty, which buries lower-volume app logs
+     * (video pipeline, camera, DTED) in the tail view.
+     *
+     * Only filters the FILE sink — logcat still gets everything, so `adb logcat` is unaffected.
+     */
+    @JvmStatic
+    var takLogging: Boolean
+        get() = !initialized || prefs.getBoolean(KEY_TAK, true)
+        set(value) {
+            if (initialized) prefs.edit().putBoolean(KEY_TAK, value).apply()
+        }
+
+    /**
+     * Tags owned by the TAK/CoT side of the app, suppressed when [takLogging] is off.
+     *
+     * Deliberately an explicit set rather than a "starts with Tak" prefix test: several
+     * app-side tags would false-positive on that ("TAKPilot2GoHome" is the home screen,
+     * "TakConnectActivity" is the whole Pre-Flight Setup screen incl. drone/map/video/DTED
+     * settings), and a prefix rule would silently start eating app logs the moment someone
+     * names a new class Tak-something. A tag missing from this set fails OPEN — the line
+     * still gets logged — which is the safe direction (extra noise, never silent loss).
+     * Add new TAK-subsystem tags here.
+     */
+    private val TAK_TAGS = setOf(
+        "DroneTakBridge",     // telemetry -> CoT push, 2s tick — the loudest of the group
+        "TakManager",
+        "TakClient",
+        "CotParser",
+        "TakCertEnroller",
+        "TakGroupAssigner",
+        "TakMissionClient",
+        "TakMissionManager",
+        "TakAutoConnect",
+        "TakForegroundService",
+        "TakMapMarkers",
+        "TakDropMarkers",
+    )
 
     /** Verbose-tier detail log: UI actions, navigation, per-tick internals. Only written
      * to file when both [enabled] and [verbose] are on; always forwarded to Log.d. */
@@ -148,6 +190,9 @@ object AppLog {
 
     private fun writeToFile(level: String, tag: String, msg: String) {
         if (!enabled) return
+        // FATAL (crash traces) is never filtered — losing a crash to a log-noise setting
+        // would be the worst possible failure mode for this switch.
+        if (level != "FATAL" && !takLogging && tag in TAK_TAGS) return
         val line = buildString {
             append(timestampFormat.format(Date()))
             append(' ').append(level)

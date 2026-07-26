@@ -27,7 +27,19 @@ object CameraSlantPoint {
     private const val TERRAIN_ITERATIONS = 4
     private const val CONVERGE_M = 1.0
 
-    data class GroundPoint(val lat: Double, val lon: Double, val rangeMeters: Double)
+    /**
+     * @param elevationMeters terrain elevation at (lat, lon) as sampled from DTED during the
+     *   iteration that produced this point, or 0.0 when there was no coverage to sample (the
+     *   flat-ground path has no way to know the target's absolute elevation — it only ever
+     *   knows height *relative* to the aircraft's own ground). Carries the same uncorrected
+     *   MSL-vs-WGS84 geoid offset as everything else DTED-derived here; see the class note.
+     */
+    data class GroundPoint(
+        val lat: Double,
+        val lon: Double,
+        val rangeMeters: Double,
+        val elevationMeters: Double = 0.0,
+    )
 
     /**
      * Where the camera is looking, projected onto the ground.
@@ -77,7 +89,9 @@ object CameraSlantPoint {
             val effectiveAgl = aglMeters + (groundElevAtAircraft - targetElev)
             val candidate = computeFlat(lat, lon, effectiveAgl, bearingDeg, pitchDeg)
             val sampled = elevationAt(candidate.lat, candidate.lon) ?: break
-            point = candidate
+            // Attach the elevation actually sampled AT this candidate — not targetElev, which
+            // at this instant still holds the *previous* round's value.
+            point = candidate.copy(elevationMeters = sampled)
             if (abs(sampled - targetElev) < CONVERGE_M) break
             targetElev = sampled
         }

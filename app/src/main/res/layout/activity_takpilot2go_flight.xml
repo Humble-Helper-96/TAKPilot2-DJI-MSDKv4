@@ -71,6 +71,25 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <!-- FAA UASFM ceiling. Its own view rather than another line in fpvOverlayText above so
+             it can turn amber/red on its own when the aircraft exceeds the ceiling. Advisory
+             only — see UasfmStore. -->
+        <TextView
+            android:id="@+id/fpvFaaCeiling"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="end"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <com.mapbox.mapboxsdk.maps.MapView
             android:id="@+id/flightMapView"
             android:layout_width="160dp"
@@ -104,6 +123,49 @@
 
         <View android:layout_width="6dp" android:layout_height="1dp" />
 
+        <com.dji.sdk.sample.takpilot2.BatteryGaugeView
+            android:id="@+id/toolbarBattery"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="14dp"
+            android:contentDescription="Battery" />
+
+        <com.dji.sdk.sample.takpilot2.SignalBarsView
+            android:id="@+id/toolbarSignal"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:contentDescription="RC signal strength" />
+
+        <TextView
+            android:id="@+id/toolbarSignalText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="14dp"
+            android:alpha="0.4"
+            android:text="—%"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/toolbarGpsIcon"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:contentDescription="GPS satellites"
+            android:src="@drawable/ic_gps" />
+
+        <TextView
+            android:id="@+id/toolbarGps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="14dp"
+            android:text="—"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
         <ImageButton
             android:id="@+id/flightRthButton"
             android:layout_width="40dp"
@@ -116,9 +178,14 @@
             android:src="@drawable/ic_rth" />
 
         <FrameLayout
+            android:id="@+id/toolbarTakButton"
             android:layout_width="34dp"
             android:layout_height="34dp"
-            android:layout_marginEnd="14dp">
+            android:layout_marginEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Toggle TAK server connection">
 
             <ImageView
                 android:id="@+id/toolbarTakIcon"
@@ -148,53 +215,44 @@
 
         </FrameLayout>
 
-        <com.dji.sdk.sample.takpilot2.BatteryGaugeView
-            android:id="@+id/toolbarBattery"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_marginEnd="14dp"
-            android:contentDescription="Battery" />
-
-        <ImageView
-            android:id="@+id/toolbarGpsIcon"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:contentDescription="GPS satellites"
-            android:src="@drawable/ic_gps" />
-
-        <TextView
-            android:id="@+id/toolbarGps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="14dp"
-            android:text="—"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <com.dji.sdk.sample.takpilot2.SignalBarsView
-            android:id="@+id/toolbarSignal"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:contentDescription="RC signal strength" />
-
-        <TextView
-            android:id="@+id/toolbarSignalText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="14dp"
-            android:alpha="0.4"
-            android:text="—%"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
         <View
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/flightDropPinButton"
+            android:layout_width="40dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="8dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Drop a TAK marker at the camera crosshair"
+            android:padding="3dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_drop_pin" />
+
+        <ImageButton
+            android:id="@+id/flightShootPhotoButton"
+            android:layout_width="40dp"
+            android:layout_height="34dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Take photo (saves to aircraft SD card)"
+            android:padding="4dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_camera_shutter" />
+
+        <TextView
+            android:id="@+id/flightZoomButton"
+            android:layout_width="36dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_zoom_pill"
+            android:contentDescription="Toggle camera zoom (1x/2x)"
+            android:gravity="center"
+            android:text="1X"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/flightResyncButton"

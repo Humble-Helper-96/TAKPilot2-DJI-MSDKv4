@@ -170,6 +170,32 @@
         <item name="android:paddingBottom">4dp</item>
     </style>
 
+    <!-- Multi-column form row for the Pre-Flight Setup screen. Related short fields sit
+         side-by-side instead of each taking a full row, which is what keeps that screen from
+         running on for several scrolls. 4dp of margin per side gives 8dp between columns. -->
+    <style name="takFormRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+    </style>
+    <style name="takColumn">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+    </style>
+    <!-- Radio option sized to sit as one column of a takFormRow. -->
+    <style name="takColumnRadio">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:buttonTint">#9AC4FF</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
     <style name="takFieldStyle">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
@@ -210,5 +236,53 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">#AAAAAA</item>
         <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- Dropped-marker dialogs (drop / markers list / row actions / inbound-hide) — same dark
+         card + blue-accent language as the home screen (#0E0E10 bg, #1A1B1E cards, #9AC4FF
+         accent) instead of the stock light AlertDialog.
+         Built on AppCompat rather than the platform Theme.Material.Dialog.Alert: the platform
+         theme left title/message/list-item text black on the Pixel 8 Pro test device (its
+         Material-You dynamic-color overlay appears to win over a plain theme-attr override on
+         those specific text roles) — AppCompat's own attr resolution doesn't have that
+         override fight, so every text-bearing attr below actually takes effect. Custom
+         windowBackground (tak_dialog_bg) replaces the default light panel; every text-color
+         attr that AlertDialog's internal layouts can pull from is set explicitly (both the
+         android: and plain forms) rather than relying on one to imply the others. -->
+    <style name="TakDialogTheme" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/tak_dialog_bg</item>
+        <item name="colorAccent">#9AC4FF</item>
+        <item name="android:colorAccent">#9AC4FF</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#AAAAAA</item>
+        <item name="android:textColorPrimaryInverse">#FFFFFF</item>
+        <item name="android:textColorAlertDialogListItem">#FFFFFF</item>
+        <item name="android:editTextColor">#FFFFFF</item>
+        <item name="android:textColorHint">#777777</item>
+    </style>
+
+    <!-- Same, but the positive/default-highlight color reads as a warning (delete / clear-all /
+         inbound-hide confirms) — a red in the same family as the home screen's STOP/QUIT
+         button (#B71C1C) rather than the app's blue accent. -->
+    <style name="TakDialogTheme.Destructive">
+        <item name="colorAccent">#EF5350</item>
+        <item name="android:colorAccent">#EF5350</item>
+    </style>
+
+    <!-- Row for the icon+label lists (markers list panel, change-type picker) — an
+         affiliation/type icon to the left of its text, matched to marker_{friendly,hostile,
+         neutral,unknown}.xml so the picker reads the same shapes the map does. -->
+    <style name="TakDialogListIcon">
+        <item name="android:layout_width">28dp</item>
+        <item name="android:layout_height">28dp</item>
+        <item name="android:layout_marginEnd">14dp</item>
+    </style>
+    <style name="TakDialogListLabel">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:gravity">center_vertical</item>
     </style>
 </resources>

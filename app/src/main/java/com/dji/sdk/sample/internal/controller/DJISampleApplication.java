@@ -87,6 +87,15 @@ public class DJISampleApplication extends Application {
         // chains to the system's previous handler so existing crash behavior is unchanged.
         Thread.setDefaultUncaughtExceptionHandler(
                 new AppLogCrashHandler(Thread.getDefaultUncaughtExceptionHandler()));
+        // Register the TAK contact listener at process start, not when the flight screen
+        // opens — inbound contacts then accumulate in the background and the mini-map has a
+        // full picture the moment it appears instead of filling in over the next minute.
+        com.dji.sdk.sample.tak.TakMapMarkers.INSTANCE.install(this);
+        com.dji.sdk.sample.tak.TakDropMarkers.INSTANCE.init(this);
+        // Same reasoning: pull the downloaded FAA ceilings into memory on a background thread
+        // now, so the flight screen's HUD tick never has to do a tens-of-thousands-of-rows read
+        // on the main thread while video is running.
+        com.dji.sdk.sample.tak.UasfmIndex.INSTANCE.preload(this);
     }
 
     private static class AppLogCrashHandler implements Thread.UncaughtExceptionHandler {

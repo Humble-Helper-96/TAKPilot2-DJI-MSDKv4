@@ -83,6 +83,15 @@ class DebugActivity : AppCompatActivity() {
             AppLog.v(TAG, "detail level set to ${if (on) "Detailed" else "Standard"}")
         }
 
+        val takToggle = findViewById<CheckBox>(R.id.debugTakToggle)
+        takToggle.isChecked = AppLog.takLogging
+        takToggle.setOnCheckedChangeListener { _, on ->
+            AppLog.takLogging = on
+            // Logged from DebugActivity (an app-side tag), so this line survives either way —
+            // it marks the point in the log where the filter changed.
+            AppLog.i(TAG, "TAK/CoT logs ${if (on) "INCLUDED" else "HIDDEN"}")
+        }
+
         findViewById<android.widget.Button>(R.id.debugExportButton).setOnClickListener {
             AppLog.v(TAG, "export tapped")
             exportLog()

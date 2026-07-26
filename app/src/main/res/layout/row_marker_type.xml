@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One row of the markers-list panel and the change-type picker: optional quick-delete X,
+     affiliation icon, label. Inflated by IconListAdapter in TAKPilot2GoFlightActivity.
+     rowMarkerDeleteX is a separate clickable child so tapping it consumes the touch before the
+     enclosing ListView's own item-click fires — tap X to delete in place, tap anywhere else on
+     the row to open its action menu (or the Clear-All confirm). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="12dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="14dp"
+    android:background="?android:attr/selectableItemBackground">
+
+    <ImageView
+        android:id="@+id/rowMarkerDeleteX"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginEnd="8dp"
+        android:padding="4dp"
+        android:visibility="gone"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_marker_delete_x"
+        android:contentDescription="@null" />
+
+    <ImageView
+        android:id="@+id/rowMarkerTypeIcon"
+        style="@style/TakDialogListIcon"
+        android:contentDescription="@null" />
+
+    <TextView
+        android:id="@+id/rowMarkerTypeLabel"
+        style="@style/TakDialogListLabel" />
+</LinearLayout>

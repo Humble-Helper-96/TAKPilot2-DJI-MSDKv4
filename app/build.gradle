@@ -104,6 +104,14 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9"
     implementation 'com.google.android.gms:play-services:11.8.0'
 
+    // Terrain (DTED) import tracking — imports/import_tiles tables, see TerrainDatabase.kt.
+    // Pinned to 2.2.6, not the newer 2.4.x: room-runtime 2.4.x embeds Kotlin metadata compiled
+    // against Kotlin 1.6+ ("compiled with an incompatible version of Kotlin") that this
+    // project's Kotlin 1.5.10 compiler can't read, even without room-ktx. 2.2.6 predates that
+    // and has everything this DAO needs (plain blocking calls, no Flow/suspend surface).
+    implementation "androidx.room:room-runtime:2.2.6"
+    kapt "androidx.room:room-compiler:2.2.6"
+
     implementation 'androidx.lifecycle:lifecycle-common-java8:2.3.1'
     implementation 'androidx.lifecycle:lifecycle-runtime:2.3.1'
     implementation 'androidx.lifecycle:lifecycle-process:2.3.1'
