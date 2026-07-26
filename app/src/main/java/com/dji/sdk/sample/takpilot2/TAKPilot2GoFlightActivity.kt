@@ -79,6 +79,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var exposureReadout: TextView
     private lateinit var zoomButton: TextView
     private lateinit var fpvFaaCeiling: TextView
+    private lateinit var arOverlay: ArOverlayView
+    private lateinit var arButton: TextView
 
     // FAA UASFM ceiling, cached per grid cell. The lookup itself is a hash hit, but re-deriving
     // and re-formatting it on every 500ms tick is pointless when the answer only changes when
@@ -138,7 +140,16 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // hide the "waiting for video" placeholder once the first frame arrives.
         fpvView.onFirstFrame = { runOnUiThread { noVideoCover.visibility = View.GONE } }
         val crosshair = findViewById<CrosshairView>(R.id.flightCrosshair)
-        fpvView.onVideoRectChanged = { rect -> runOnUiThread { crosshair.setVideoRect(rect) } }
+        arOverlay = findViewById(R.id.flightArOverlay)
+        // Both consume the same video rectangle: the AR projection has to agree with the
+        // crosshair about where the centre of the image is, or a marker dropped at the
+        // crosshair won't render under it — which is the whole self-test for this feature.
+        fpvView.onVideoRectChanged = { rect ->
+            runOnUiThread {
+                crosshair.setVideoRect(rect)
+                arOverlay.setVideoRect(rect)
+            }
+        }
 
         fpvNotice = findViewById(R.id.fpvNotice)
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
@@ -258,6 +269,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         zoomButton = findViewById(R.id.flightZoomButton)
         zoomButton.setOnClickListener { onZoomTapped() }
+
+        arButton = findViewById(R.id.flightArButton)
+        arButton.setOnClickListener { onArToggleTapped() }
+        refreshArButton()
 
         findViewById<ImageButton>(R.id.flightDropPinButton).setOnClickListener { onDropPinTapped() }
         // 6C: long-press the drop button to manage already-dropped pins (move/rename/retype/
@@ -633,6 +648,25 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         button.minimumHeight = 0
         val vPad = (4 * resources.displayMetrics.density).toInt()
         button.setPadding(button.paddingLeft, vPad, button.paddingRight, vPad)
+    }
+
+    /**
+     * AR overlay on/off. Off by default every time the flight screen opens — it draws over the
+     * video, so it should be something the pilot switches on deliberately rather than something
+     * they inherit from a previous session and have to notice.
+     */
+    private fun onArToggleTapped() {
+        if (arOverlay.isRunning) arOverlay.stop() else arOverlay.start()
+        AppLog.v(TAG, "tap: AR overlay -> ${if (arOverlay.isRunning) "ON" else "OFF"}")
+        refreshArButton()
+    }
+
+    private fun refreshArButton() {
+        val on = arOverlay.isRunning
+        arButton.alpha = if (on) 1f else 0.45f
+        arButton.setTextColor(
+            if (on) android.graphics.Color.parseColor("#9AC4FF") else android.graphics.Color.WHITE
+        )
     }
 
     private fun onDropPinTapped() {
@@ -1250,6 +1284,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         AppLog.v(TAG, "onDestroy")
+        // Stop the AR redraw loop explicitly — it posts to a Handler several times a second and
+        // would otherwise keep firing against a dead Activity.
+        arOverlay.stop()
         VideoStreamerHolder.onStateChanged = null
         TakDropMarkers.ui = null
         com.dji.sdk.sample.tak.TakMapMarkers.onMapDestroyed()
