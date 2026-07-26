@@ -51,7 +51,19 @@ object TerrainAgl {
      *  informed it. [terrainCorrected] false means this is the raw takeoff-relative altitude —
      *  callers must label the two differently, since presenting an uncorrected figure as "AGL"
      *  is the inaccuracy this class exists to remove. */
-    data class Reading(val meters: Double, val terrainCorrected: Boolean)
+    data class Reading(
+        val meters: Double,
+        val terrainCorrected: Boolean,
+        /**
+         * Altitude above mean sea level, metres, or null if it can't be known yet.
+         *
+         * Needs ONLY the takeoff terrain elevation — `takeoffElevMsl + heightAboveTakeoff` — so
+         * it's available in strictly more situations than the AGL correction, which also needs
+         * terrain under the aircraft's current position. Expect MSL to be populated while AGL
+         * is still falling back to ALT, e.g. flying off the edge of the imported terrain.
+         */
+        val mslMeters: Double?,
+    )
 
     @Volatile private var takeoffTerrainElevM: Double? = null
 
@@ -75,14 +87,26 @@ object TerrainAgl {
 
     @Synchronized
     fun reading(context: Context, hud: DroneTakBridge.Hud): Reading {
-        val raw = Reading(hud.alt, terrainCorrected = false)
-        if (!hud.hasFix) return raw
+        if (!hud.hasFix) return Reading(hud.alt, terrainCorrected = false, mslMeters = null)
 
         latchTakeoffReference(context, hud)
-        val takeoffElev = takeoffTerrainElevM ?: return raw
-        val underAircraft = terrainUnderAircraft(context, hud.lat, hud.lon) ?: return raw
+        val takeoffElev = takeoffTerrainElevM
+            ?: return Reading(hud.alt, terrainCorrected = false, mslMeters = null)
 
-        return Reading(hud.alt + (takeoffElev - underAircraft), terrainCorrected = true)
+        // Sea level = the takeoff point's own elevation plus how far above it we've climbed.
+        // DTED is already MSL-referenced, so no datum conversion enters here — and unlike the
+        // AGL correction below, this needs nothing about the ground the aircraft is currently
+        // over, so it survives flying past the edge of the imported terrain.
+        val msl = takeoffElev + hud.alt
+
+        val underAircraft = terrainUnderAircraft(context, hud.lat, hud.lon)
+            ?: return Reading(hud.alt, terrainCorrected = false, mslMeters = msl)
+
+        return Reading(
+            meters = hud.alt + (takeoffElev - underAircraft),
+            terrainCorrected = true,
+            mslMeters = msl,
+        )
     }
 
     /** Captures the terrain elevation at the takeoff point, once, from the first home location

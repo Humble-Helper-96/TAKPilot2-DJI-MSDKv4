@@ -1075,7 +1075,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // about it — a readout saying one number while the ceiling warning judges another
         // would be worse than having no correction at all.
         val aglReading = if (hud != null) com.dji.sdk.sample.tak.TerrainAgl.reading(this, hud)
-            else com.dji.sdk.sample.tak.TerrainAgl.Reading(0.0, terrainCorrected = false)
+            else com.dji.sdk.sample.tak.TerrainAgl.Reading(0.0, terrainCorrected = false, mslMeters = null)
 
         updateFaaCeiling(hud, aglReading)
 
@@ -1108,6 +1108,16 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 ))
             } else {
                 append("— ft AGL")
+            }
+            append('\n')
+            // Height above sea level. Needs terrain data for the takeoff point, so it reads "—"
+            // until that's available — it is NOT derived from the line above and can be present
+            // while that one is still showing uncorrected ALT.
+            val msl = aglReading.mslMeters
+            if (msl != null) {
+                append("%s MSL".format(Units.feet(msl)))
+            } else {
+                append("— ft MSL")
             }
             append('\n')
             if (hud != null) {
