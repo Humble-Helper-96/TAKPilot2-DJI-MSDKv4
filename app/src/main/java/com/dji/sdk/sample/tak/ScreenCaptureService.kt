@@ -30,12 +30,14 @@ class ScreenCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            AppLog.i(TAG, "stop requested — tearing down projection + service")
             teardown()
             stopSelf()
             return START_NOT_STICKY
         }
 
         // Must be foreground (with the mediaProjection type) BEFORE getMediaProjection() on 14+.
+        AppLog.i(TAG, "starting foreground service (type=mediaProjection, sdk=${Build.VERSION.SDK_INT})")
         startInForeground()
 
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
@@ -52,16 +54,20 @@ class ScreenCaptureService : Service() {
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val proj = runCatching { mpm.getMediaProjection(resultCode, data) }.getOrNull()
         if (proj == null) {
+            AppLog.w(TAG, "getMediaProjection returned null — permission unavailable, stopping")
             toast("Screen capture permission unavailable")
             stopSelf()
             return START_NOT_STICKY
         }
         projection = proj
+        AppLog.i(TAG, "MediaProjection acquired — handing to VideoStreamerHolder")
 
         val started = VideoStreamerHolder.startScreenCapture(applicationContext, proj) { ok, msg ->
+            AppLog.i(TAG, "stream status: ok=$ok $msg")
             if (!ok) android.os.Handler(mainLooper).post { Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() }
         }
         if (!started) {
+            AppLog.w(TAG, "startScreenCapture refused — no video server configured; stopping")
             toast("Configure the video server in Pre-Flight Setup first")
             teardown()
             stopSelf()
@@ -98,6 +104,7 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onDestroy() {
+        AppLog.i(TAG, "onDestroy — projection released, screen capture ended")
         teardown()
         @Suppress("DEPRECATION")
         stopForeground(true)

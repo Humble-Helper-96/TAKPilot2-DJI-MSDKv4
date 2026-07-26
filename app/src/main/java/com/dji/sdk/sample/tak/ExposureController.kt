@@ -7,6 +7,7 @@ import dji.common.camera.SettingsDefinitions.ExposureCompensation
 import dji.common.camera.SettingsDefinitions.ExposureMode
 import dji.common.camera.SettingsDefinitions.FlatCameraMode
 import dji.common.camera.SettingsDefinitions.ISO
+import dji.common.camera.SettingsDefinitions.MeteringMode
 import dji.common.camera.SettingsDefinitions.ShutterSpeed
 import dji.common.error.DJIError
 import dji.common.util.CommonCallbacks
@@ -55,12 +56,13 @@ object ExposureController {
     /** Hidden brightness bias, in 1/3-stop steps, added on top of whatever the pilot sees/sets.
      *  Field-flown 2026-07-22: PROGRAM auto-exposure still ran a touch dark, so the app asked
      *  for +1/3 EV more than the slider showed. Field-flown again 2026-07-23: still too dim at
-     *  +1/3, bumped to a full +1.0 EV bias. The slider itself still reads/persists/displays
-     *  -2.0..+2.0 with 0.0 default — this bias is invisible to the pilot and only applied at
-     *  the point we actually talk to the camera. E.g. slider "0.0" really requests +1.0 EV;
-     *  slider "+2.0" really requests +3.0 EV (may be clamped/rejected — see class doc's +3.0
-     *  cap note); slider "-2.0" really requests -1.0 EV. */
-    private const val HIDDEN_BIAS_STEPS = 3
+     *  +1/3, bumped to a full +1.0 EV bias. Retuned 2026-07-25 to +2/3 EV (now paired with
+     *  forcing CENTER-weighted metering below — see [applyExposureSettings]). The slider itself
+     *  still reads/persists/displays -2.0..+2.0 with 0.0 default — this bias is invisible to
+     *  the pilot and only applied at the point we actually talk to the camera. E.g. slider
+     *  "0.0" really requests +2/3 EV; slider "+2.0" really requests +2.67 EV; slider "-2.0"
+     *  really requests -1.33 EV (see class doc's +3.0 cap note on how far this can go). */
+    private const val HIDDEN_BIAS_STEPS = 2
 
     private fun biased(nominal: ExposureCompensation): ExposureCompensation {
         val i = EV_ALL.indexOf(nominal)
@@ -105,7 +107,33 @@ object ExposureController {
 
     /** Push the exposure setup to the camera (called on connect). Switches the camera to VIDEO
      *  mode FIRST — the Mini 2 boots in photo mode (RC trigger snaps stills), and video-exposure
-     *  settings don't drive the live FPV until the camera is in video mode.
+     *  settings don't drive the live FPV until the camera is in video mode. The actual metering/
+     *  exposure-mode/EV push is [applyExposureSettings] — factored out so [onShootPhotoTapped]
+     *  in the flight screen can apply the IDENTICAL settings after switching to PHOTO_SINGLE to
+     *  shoot, so a snapped photo's total EV always matches what the live video was showing. */
+    fun applyDefaults(context: Context, camera: Camera) {
+        AppLog.i(TAG, "applyDefaults: VIDEO mode -> ${MeteringMode.CENTER}, PROGRAM (full auto), ev=${savedEv(context)}")
+        val afterVideoMode = CommonCallbacks.CompletionCallback<DJIError> { mErr ->
+            AppLog.i(TAG, "set VIDEO mode: ${mErr?.description ?: "OK"}")
+            applyExposureSettings(context, camera)
+        }
+        if (camera.isFlatCameraModeSupported) {
+            camera.setFlatMode(FlatCameraMode.VIDEO_NORMAL, afterVideoMode)
+        } else {
+            camera.setMode(CameraMode.RECORD_VIDEO, afterVideoMode)
+        }
+    }
+
+    /** Metering mode + exposure mode + biased EV — independent of flat/camera mode, so calling
+     *  this identically right after switching to VIDEO_NORMAL or right after switching to
+     *  PHOTO_SINGLE guarantees the same total exposure (mode + compensation) either way, rather
+     *  than photo mode drifting to whatever its own separately-persisted settings were.
+     *
+     *  CENTER-weighted metering (not SPOT or AVERAGE): meters the whole frame but favors the
+     *  middle, which is the general-purpose choice DJI itself defaults most aircraft to — SPOT
+     *  would chase whatever's under the crosshair (bad for a wide establishing shot), AVERAGE
+     *  gives the sky and ground equal weight (blows out ground exposure on a high-contrast
+     *  horizon). Requested 2026-07-25 alongside retuning the hidden EV bias to +2/3.
      *
      *  Uses PROGRAM (full auto) exposure: the camera controls both ISO and shutter and adapts
      *  to light on its own. We tried SHUTTER_PRIORITY + fixed 1/60 + auto-ISO first (to guarantee
@@ -114,24 +142,19 @@ object ExposureController {
      *  did nothing. PROGRAM is the most basic auto mode; if the Mini 2 honors any live AE it's
      *  this. ISO/shutter floor+ceiling limits and the motion-blur tradeoff come later, once
      *  auto-exposure is confirmed working at all. EV compensation still biases it. */
-    fun applyDefaults(context: Context, camera: Camera) {
-        AppLog.i(TAG, "applyDefaults: VIDEO mode -> PROGRAM (full auto), ev=${savedEv(context)}")
-        val afterVideoMode = CommonCallbacks.CompletionCallback<DJIError> { mErr ->
-            AppLog.i(TAG, "set VIDEO mode: ${mErr?.description ?: "OK"}")
+    fun applyExposureSettings(context: Context, camera: Camera, onDone: () -> Unit = {}) {
+        camera.setMeteringMode(MeteringMode.CENTER) { e0 ->
+            AppLog.i(TAG, "setMeteringMode(CENTER): ${e0?.description ?: "OK"}")
             camera.setExposureMode(ExposureMode.PROGRAM) { e1 ->
                 AppLog.i(TAG, "setExposureMode(PROGRAM): ${e1?.description ?: "OK"}")
-                if (e1 != null) return@setExposureMode
+                if (e1 != null) { onDone(); return@setExposureMode }
                 val ev = biased(savedEv(context))
                 camera.setExposureCompensation(ev) { e2 ->
                     AppLog.i(TAG, "setExposureCompensation($ev) [biased]: ${e2?.description ?: "OK"}")
                     logReadback(camera)
+                    onDone()
                 }
             }
-        }
-        if (camera.isFlatCameraModeSupported) {
-            camera.setFlatMode(FlatCameraMode.VIDEO_NORMAL, afterVideoMode)
-        } else {
-            camera.setMode(CameraMode.RECORD_VIDEO, afterVideoMode)
         }
     }
 

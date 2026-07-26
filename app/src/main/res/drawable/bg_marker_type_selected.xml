@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selection outline for a tapped affiliation icon in the drop-pin dialog
+     (TAKPilot2GoFlightActivity.onDropPinTapped) — rounded rect, same blue accent as the rest
+     of the marker-dropper UI. Swapped in/out via setBackgroundResource rather than a
+     state-list selector, so there's no risk of a cached Drawable's selected state leaking
+     across the 4 icon views. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+    <corners android:radius="10dp" />
+    <stroke android:width="2dp" android:color="#9AC4FF" />
+</shape>

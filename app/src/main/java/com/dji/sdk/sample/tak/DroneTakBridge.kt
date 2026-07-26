@@ -116,6 +116,10 @@ class DroneTakBridge(
         if (running) return
         running = true
 
+        // New session = new flight = a new takeoff point, so the latched terrain reference from
+        // the last one must not carry over (see TerrainAgl).
+        TerrainAgl.reset()
+
         val aircraft = DJISampleApplication.getAircraftInstance()
         if (aircraft == null) {
             AppLog.w(TAG, "start(): no aircraft connected yet, telemetry will be empty until it is")
@@ -271,6 +275,12 @@ class DroneTakBridge(
         val homeLat: Double, val homeLon: Double, val homeSet: Boolean,
         val flightTimeSec: Int, val uplinkSignalPct: Int?, val isGoingHome: Boolean,
         val isRecording: Boolean, val liveIso: Int?, val liveShutter: String?,
+        /** The AIRCRAFT's own remaining-flight-time estimate, seconds, or null if it isn't
+         *  reporting one yet. Comes from its GoHomeAssessment, which models actual battery
+         *  state and current draw — unlike the battery-percent-times-nominal-endurance guess
+         *  this replaced, which ignored both. Null on the ground / before the first
+         *  assessment. */
+        val remainingFlightTimeSec: Int?,
     )
 
     fun hud(): Hud {
@@ -296,6 +306,11 @@ class DroneTakBridge(
             lastCameraState?.isRecording ?: false,
             lastExposure?.iso?.takeIf { it > 0 },
             lastExposure?.shutterSpeed?.let { ExposureController.shutterLabel(it) },
+            // Treated as "not reporting" rather than "zero minutes left" when non-positive:
+            // the aircraft returns 0 before it has a usable estimate (notably on the ground),
+            // and a HUD that reads "0 min remaining" while sitting on a full battery would be
+            // both wrong and exactly the kind of wrong that erodes trust in the readout.
+            state?.goHomeAssessment?.remainingFlightTime?.takeIf { it > 0 },
         )
     }
 
@@ -317,7 +332,10 @@ class DroneTakBridge(
         val gp = CameraSlantPoint.compute(
             loc.latitude, loc.longitude, hae, bearing, pitch + PITCH_OFFSET_DEG, ::elevationLookup,
         )
-        return Triple(gp.lat, gp.lon, 0.0)
+        // Third element is the target's terrain elevation, which dropped markers publish as
+        // their CoT hae. 0.0 when there's no DTED coverage — same "unknown, assume sea level"
+        // fallback the SPI push has always used.
+        return Triple(gp.lat, gp.lon, gp.elevationMeters)
     }
 
     /** DTED-backed elevation lookup for [CameraSlantPoint], or null if no tile covers the

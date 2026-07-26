@@ -7,11 +7,20 @@
     android:padding="20dp"
     android:baselineAligned="false">
 
-    <!-- LEFT: logo + status + Quick Controls -->
-    <LinearLayout
+    <!-- LEFT: logo + status + Quick Controls. Scrolls instead of silently squashing the last
+         button to nothing when the card's content doesn't fit the screen's vertical budget —
+         LinearLayout has no built-in overflow handling of its own (bit us when a 4th Quick
+         Controls button was added: it measured down to ~1dp tall instead of just running off
+         the bottom, since its wrap_content child got an AT_MOST spec capped to whatever sliver
+         of space was left). -->
+    <ScrollView
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1.2"
+        android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="vertical"
         android:paddingEnd="20dp">
 
@@ -73,6 +82,14 @@
                 android:textColor="#FFFFFF"
                 android:backgroundTint="#2E7D32" />
             <Button
+                android:id="@+id/homeQuit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="STOP / QUIT"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#B71C1C" />
+            <Button
                 android:id="@+id/homeDataSync"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -91,6 +108,7 @@
         </LinearLayout>
 
     </LinearLayout>
+    </ScrollView>
 
     <!-- RIGHT: the whole card IS the Enter Flight button (clickable, ripple feedback) -->
     <LinearLayout
@@ -144,8 +162,6 @@
                 android:text="—" android:layout_gravity="center_horizontal" />
             <TextView android:id="@+id/homeSdk" style="@style/homeCardSub"
                 android:text="MSDK —" android:layout_gravity="center_horizontal" />
-            <TextView android:id="@+id/homeBattery" style="@style/homeCardSub"
-                android:text="Battery —" android:layout_gravity="center_horizontal" />
         </LinearLayout>
 
         <!-- Spacer pushes the tap hint to the bottom -->

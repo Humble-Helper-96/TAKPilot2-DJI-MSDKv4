@@ -1,5 +1,6 @@
 package com.dji.sdk.sample.takpilot2
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.hardware.usb.UsbManager
@@ -14,7 +15,11 @@ import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.DebugActivity
 import com.dji.sdk.sample.tak.DjiSdkBridge
+import com.dji.sdk.sample.tak.TakAutoConnect
+import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakConnectActivity
+import com.dji.sdk.sample.tak.TakForegroundService
+import com.dji.sdk.sample.tak.VideoStreamerHolder
 import com.taklite.client.tak.TakManager
 import com.taklite.util.AppLog
 import dji.sdk.sdkmanager.DJISDKManager
@@ -37,7 +42,6 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var aircraft: TextView
     private lateinit var sdk: TextView
-    private lateinit var battery: TextView
     private lateinit var takStatus: TextView
     private lateinit var takDot: android.view.View
 
@@ -55,7 +59,6 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
 
         aircraft = findViewById(R.id.homeAircraft)
         sdk = findViewById(R.id.homeSdk)
-        battery = findViewById(R.id.homeBattery)
         takStatus = findViewById(R.id.homeTakStatus)
         takDot = findViewById(R.id.homeTakDot)
 
@@ -64,6 +67,11 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         } else {
             DjiSdkBridge.registerAndConnect(this)
         }
+
+        // If a TAK server is configured (saved enrollment), connect and pull channels now —
+        // one shot per process, so the pilot never has to open Pre-Flight Setup just to get
+        // back online.
+        TakAutoConnect.attemptOnAppLaunch(applicationContext)
 
         findViewById<android.view.View>(R.id.homeEnterFlight).setOnClickListener {
             AppLog.v(TAG, "tap: Enter Flight")
@@ -81,6 +89,36 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
             AppLog.v(TAG, "tap: Debug Log")
             startActivity(Intent(this, DebugActivity::class.java))
         }
+        findViewById<Button>(R.id.homeQuit).setOnClickListener {
+            AppLog.v(TAG, "tap: STOP/QUIT")
+            confirmQuit()
+        }
+    }
+
+    /** The "nuclear option": tear down every long-lived TAKPilot2 process (video stream +
+     *  screen capture, TAK connection + its foreground service, telemetry bridge) and then
+     *  kill this process outright, so a relaunch starts completely clean — for clearing out
+     *  any stuck state found mid-operation without having to know which subsystem is wedged. */
+    private fun confirmQuit() {
+        AlertDialog.Builder(this)
+            .setTitle("Stop & Quit")
+            .setMessage("Force-stop TAKPilot2 Go and all its background processes (video stream, TAK connection, telemetry)? You'll need to relaunch the app.")
+            .setPositiveButton("Stop & Quit") { _, _ -> doQuit() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun doQuit() {
+        AppLog.i(TAG, "STOP/QUIT — tearing down and killing process")
+        runCatching { VideoStreamerHolder.stop() }
+        runCatching { TakBridgeHolder.stop() }
+        runCatching { TakManager.getInstance().disconnect() }
+        runCatching { TakForegroundService.stop(applicationContext) }
+        handler.removeCallbacksAndMessages(null)
+        finishAffinity()
+        Handler(Looper.getMainLooper()).postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 200)
     }
 
     override fun onResume() {
@@ -119,8 +157,6 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         val product = DJISampleApplication.getProductInstance()
         aircraft.text = product?.model?.displayName ?: "Not connected"
         sdk.text = "MSDK 4.18"
-        // Battery telemetry lands in Phase 4 alongside the rest of the drone -> CoT bridge.
-        battery.text = "Battery —"
 
         val connected = TakManager.getInstance().isConnected
         val color = if (connected) Color.parseColor("#4CAF50") else Color.parseColor("#F44336")

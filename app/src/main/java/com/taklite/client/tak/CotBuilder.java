@@ -14,9 +14,14 @@ public class CotBuilder {
     private static final long STALE_DURATION_MS = 300000; // 5 minutes — matches ATAK default
 
     // Drone (air) track: friendly-Air-Military-rotorcraftH-unmanned(Q). ATAK/taklite CotParser
-    // detects the air domain ("-A-") as a drone. Short stale so a lost feed clears quickly.
+    // detects the air domain ("-A-") as a drone. 2 minutes so a momentary GPS-lock loss still
+    // shows the aircraft at its last known position on TAK instead of vanishing near-instantly
+    // (was 15s — too short: it staled out almost as fast as the telemetry hiccup itself).
     private static final String DRONE_TYPE = "a-f-A-M-H-Q";
-    private static final long DRONE_STALE_DURATION_MS = 15000; // 15s
+    private static final long DRONE_STALE_DURATION_MS = 120000; // 2 minutes
+
+    // Pilot-dropped 2525 markers — see the note in buildMarker().
+    private static final long MARKER_STALE_DURATION_MS = 14 * 60 * 60 * 1000L; // 14 hours
 
     // Sensor point of interest — the ground point the drone camera is looking at.
     private static final String SENSOR_POINT_TYPE = "b-m-p-s-p-i";
@@ -333,7 +338,12 @@ public class CotBuilder {
                                       String name, String remarks, String missionName) {
         long now = System.currentTimeMillis();
         String time = formatTime(now);
-        String stale = formatTime(now + 600000); // 10 minutes
+        // 14 hours (operator's call, 2026-07-25): long enough that a dropped marker persists
+        // through an entire incident, short enough that it clears itself before the next
+        // shift so nobody inherits a map full of yesterday's pins. Deliberately unrelated to
+        // DRONE_STALE_DURATION_MS (2 min, live track) and the SPI stale (15s) — a static
+        // marker and a moving aircraft want completely different lifetimes.
+        String stale = formatTime(now + MARKER_STALE_DURATION_MS);
 
         String cotType;
         switch (affiliation.toLowerCase()) {

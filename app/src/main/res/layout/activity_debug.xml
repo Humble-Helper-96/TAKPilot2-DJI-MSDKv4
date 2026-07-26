@@ -52,6 +52,22 @@
                     android:text="Detailed (all app functions)" android:textColor="#DDDDDD" android:textSize="15sp" />
             </LinearLayout>
 
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <CheckBox android:id="@+id/debugTakToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Include TAK / CoT logs" android:textColor="#DDDDDD" android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="2dp"
+                android:text="Uncheck to hide the TAK bridge/CoT chatter (2s telemetry push, TakManager, CotParser) and leave only app logs — video, camera, DTED, UI."
+                android:textColor="#7A7A7A" android:textSize="12sp" />
+
             <Button
                 android:id="@+id/debugExportButton"
                 android:layout_width="match_parent"

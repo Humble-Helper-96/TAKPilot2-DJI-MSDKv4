@@ -158,6 +158,7 @@ class FpvTextureView @JvmOverloads constructor(
      *  live decoder to clear accumulated static-scene artifacting on demand. No-op if the
      *  decoder isn't running yet. */
     fun requestResync() {
+        AppLog.i(TAG, "requestResync (pilot Video Re-Sync) — decoder ${if (decoder != null) "present" else "NOT started"}")
         decoder?.requestResync()
     }
 

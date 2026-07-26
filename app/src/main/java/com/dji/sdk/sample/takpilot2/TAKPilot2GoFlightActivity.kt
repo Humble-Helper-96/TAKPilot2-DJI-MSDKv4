@@ -19,6 +19,7 @@ import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.CameraSlantPoint
 import com.dji.sdk.sample.tak.ExposureController
 import com.dji.sdk.sample.tak.TakBridgeHolder
+import com.dji.sdk.sample.tak.TakDropMarkers
 import com.dji.sdk.sample.tak.VideoStreamerHolder
 import com.mapbox.geojson.Feature
 import com.mapbox.geojson.LineString
@@ -56,8 +57,9 @@ import java.util.UUID
  *
  * Also drives the on-screen telemetry HUD + own-aircraft map marker (Phase 4 addendum) — a
  * 500ms poll of [TakBridgeHolder.hud], same pattern as the Autel sibling app's FlightActivity.
- * No TAK map overlays here yet (that's Phase 6: inbound contact markers/dropped pins/AR);
- * RTSP video push (Phase 5) isn't wired in either.
+ * Inbound TAK contacts/markers are drawn by [com.dji.sdk.sample.tak.TakMapMarkers], which owns
+ * its own source/layer on this screen's style (Phase 6A); dropped pins and the AR overlay
+ * (6B–6D) are still to come.
  */
 class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
@@ -75,7 +77,19 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var recordToggle: RecordToggleView
     private lateinit var rthButton: ImageButton
     private lateinit var exposureReadout: TextView
+    private lateinit var zoomButton: TextView
+    private lateinit var fpvFaaCeiling: TextView
+
+    // FAA UASFM ceiling, cached per grid cell. The lookup itself is a hash hit, but re-deriving
+    // and re-formatting it on every 500ms tick is pointless when the answer only changes when
+    // the aircraft crosses a 1/120-degree cell boundary (~1/2 mile), so we recompute on the
+    // crossing instead. MIN_VALUE means "nothing cached yet".
+    private var lastFaaGridRow = Int.MIN_VALUE
+    private var lastFaaGridCol = Int.MIN_VALUE
+    private var cachedFaaCeilingFt: Int? = null
+    private var cachedFaaWithinDownloadedArea = false
     private var currentCallsign: String = ""
+    private var zoomedIn = false
 
     private var map: MapboxMap? = null
     private var aircraftSource: GeoJsonSource? = null
@@ -102,7 +116,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         Mapbox.getInstance(applicationContext)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_takpilot2go_flight)
-        AppLog.v(REC_TAG, "onCreate")
+        AppLog.v(TAG, "onCreate")
 
         // No native ActionBar on this screen (see AppTheme.NoActionBar in the manifest) — the
         // custom toolbar below is the only top bar. That theme also makes the status bar
@@ -128,6 +142,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         fpvNotice = findViewById(R.id.fpvNotice)
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
+        fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
         toolbarBattery = findViewById(R.id.toolbarBattery)
         toolbarGps = findViewById(R.id.toolbarGps)
         toolbarGpsIcon = findViewById(R.id.toolbarGpsIcon)
@@ -144,6 +159,17 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // its 0 default) and zoom stays pinned at MAP_ZOOM. The per-tick recenter in
             // updateHud() is the only thing that ever moves the camera.
             mapboxMap.uiSettings.setAllGesturesEnabled(false)
+            // 6C: tapping an inbound contact locally hides it (stays on the server). Confirmed
+            // independent of setAllGesturesEnabled(false) above — the locked mini-map's pan/
+            // zoom/rotate stay off, only this explicit click hook is added.
+            mapboxMap.addOnMapClickListener { latLng ->
+                val px = mapboxMap.projection.toScreenLocation(latLng)
+                val hit = mapboxMap.queryRenderedFeatures(px, com.dji.sdk.sample.tak.TakMapMarkers.LAYER_ID)
+                    .firstOrNull()
+                val uid = hit?.getStringProperty(com.dji.sdk.sample.tak.TakMapMarkers.PROP_UID)
+                if (uid != null) onInboundMarkerTapped(uid)
+                uid != null
+            }
             // Zoom + center immediately, before any GPS fix — otherwise the map sits at its
             // default continent-scale zoom until the drone locks GPS (the per-tick recenter that
             // also sets zoom is gated behind hasFix). Centered on DEFAULT_CENTER as a sensible
@@ -168,6 +194,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 )
                 style.addLayer(lLayer)
                 homeLineLayer = lLayer
+
+                // Inbound TAK contacts/markers. Added here, before the aircraft and home
+                // layers, so other operators' symbols always render UNDER our own aircraft
+                // arrow and home pin — MapLibre draws layers in insertion order.
+                com.dji.sdk.sample.tak.TakMapMarkers.onMapReady(style)
 
                 style.addImage(AIRCRAFT_ICON_ID, decodeAircraftIcon())
                 val source = GeoJsonSource(AIRCRAFT_SOURCE_ID, Point.fromLngLat(0.0, 0.0))
@@ -200,28 +231,75 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<ImageButton>(R.id.flightBackButton).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.flightBackButton).setOnClickListener {
+            AppLog.v(TAG, "tap: menu/back (leaving flight screen)")
+            finish()
+        }
 
         recordToggle = findViewById(R.id.flightRecordButton)
         recordToggle.setOnClickListener { onRecordToggleTapped() }
 
         rthButton = findViewById(R.id.flightRthButton)
         rthButton.setOnClickListener { onRthTapped() }
+        rthButton.setOnLongClickListener { onRthLongPressed(); true }
+
+        findViewById<View>(R.id.toolbarTakButton).setOnClickListener {
+            AppLog.v(TAG, "tap: TAK connection toggle")
+            com.dji.sdk.sample.tak.TakAutoConnect.toggle(applicationContext) { _, msg ->
+                runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
+            }
+        }
 
         findViewById<ImageButton>(R.id.flightResyncButton).setOnClickListener {
-            AppLog.v(REC_TAG, "tap: Video Re-Sync")
+            AppLog.v(TAG, "tap: Video Re-Sync")
             fpvView.requestResync()
             Toast.makeText(this, "Re-syncing video…", Toast.LENGTH_SHORT).show()
         }
 
+        zoomButton = findViewById(R.id.flightZoomButton)
+        zoomButton.setOnClickListener { onZoomTapped() }
+
+        findViewById<ImageButton>(R.id.flightDropPinButton).setOnClickListener { onDropPinTapped() }
+        // 6C: long-press the drop button to manage already-dropped pins (move/rename/retype/
+        // re-send/delete) — no map interaction needed, consistent with the locked mini-map.
+        findViewById<ImageButton>(R.id.flightDropPinButton).setOnLongClickListener {
+            onMarkersListTapped(); true
+        }
+        // TakDropMarkers has no Context of its own for user-facing feedback; this screen owns
+        // the toasts. Cleared in onDestroy so a dead Activity is never toasted through.
+        TakDropMarkers.ui = object : TakDropMarkers.Ui {
+            override fun toast(msg: String) {
+                runOnUiThread { Toast.makeText(this@TAKPilot2GoFlightActivity, msg, Toast.LENGTH_SHORT).show() }
+            }
+        }
+
+        findViewById<ImageButton>(R.id.flightShootPhotoButton).setOnClickListener { onShootPhotoTapped() }
+
         liveToggle = findViewById(R.id.flightStreamButton)
         liveToggle.setOnClickListener { onLiveToggleTapped() }
-        // The underlying push (DroneVideoStreamer) isn't implemented yet (Phase 5) — start()
-        // always reports failure, so the toggle only flips to LIVE once that's real. Refreshed
-        // whenever VideoStreamerHolder's state changes, from any trigger (this button, RC
-        // hardware, etc.), not just our own taps.
-        VideoStreamerHolder.onStateChanged = Runnable { liveToggle.setLive(VideoStreamerHolder.isRunning) }
-        liveToggle.setLive(VideoStreamerHolder.isRunning)
+        // Refreshed whenever VideoStreamerHolder's state changes, from any trigger (this
+        // button, a network-drop auto-reconnect, or the reconnect window giving up), not just
+        // our own taps. RECONNECTING (amber, blinking) tells the pilot the app is retrying a
+        // dropped link on its own — don't tap LIVE thinking it's off; tapping it now cancels
+        // the retry instead of starting fresh.
+        var lastLiveState: LiveToggleView.State? = null
+        val refreshLiveToggle = Runnable {
+            val state = when {
+                VideoStreamerHolder.isRunning -> LiveToggleView.State.LIVE
+                VideoStreamerHolder.isReconnecting -> LiveToggleView.State.RECONNECTING
+                else -> LiveToggleView.State.OFF
+            }
+            // Edge-triggered: the holder can notify repeatedly for the same state (every
+            // reconnect attempt), and logging each one would spam the file during a long
+            // network outage — only the actual transitions are interesting.
+            if (state != lastLiveState) {
+                AppLog.i(TAG, "LIVE pill state -> $state")
+                lastLiveState = state
+            }
+            liveToggle.setState(state)
+        }
+        VideoStreamerHolder.onStateChanged = refreshLiveToggle
+        refreshLiveToggle.run()
 
         // Exposure control — the camera's exposure mode is forced to shutter-priority +
         // auto-ISO on connect (see ExposureController + DroneTakBridge); this slider biases it
@@ -232,6 +310,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         evSlider.index = ExposureController.savedSliderIndex(this)
         evSlider.onIndexChanged = { idx, fromUser ->
             if (fromUser) {
+                // v() not i(): a slider drag fires this on every step, so keep it in the
+                // verbose tier where it won't flood a Standard-level capture.
+                AppLog.v(TAG, "EV slider -> ${ExposureController.labelAt(idx)} (index $idx)")
                 ExposureController.setEvAt(applicationContext,
                     DJISampleApplication.getAircraftInstance()?.camera, idx) {}
             }
@@ -240,6 +321,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     private fun onLiveToggleTapped() {
         if (VideoStreamerHolder.isActive) {
+            AppLog.i(TAG, "tap: LIVE — stopping active stream " +
+                "(running=${VideoStreamerHolder.isRunning}, reconnecting=${VideoStreamerHolder.isReconnecting})")
             VideoStreamerHolder.stop()
             Toast.makeText(this, "Video stream stopped", Toast.LENGTH_SHORT).show()
             return
@@ -248,12 +331,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val p = getSharedPreferences("takpilot2_tak", MODE_PRIVATE)
         if ((p.getString("video_host", "") ?: "").isEmpty() ||
             (p.getString("video_streamid", "") ?: "").isEmpty()) {
+            AppLog.w(TAG, "tap: LIVE ignored — video server not configured in Pre-Flight Setup")
             Toast.makeText(this, "Set up the video server in Pre-Flight Setup first", Toast.LENGTH_SHORT).show()
             return
         }
         val profile = p.getString("video_profile", "standard") ?: "standard"
         if (profile == "original") {
             // Passthrough — no screen capture, no permission needed.
+            AppLog.i(TAG, "tap: LIVE — starting passthrough stream (profile=original)")
             VideoStreamerHolder.startFromPrefs(applicationContext) { _, msg ->
                 runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
             }
@@ -261,7 +346,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
         // Transcode profile → screen-capture stream: request the one-time MediaProjection
         // permission. onActivityResult starts the foreground service, which starts the stream.
-        AppLog.v(REC_TAG, "tap: LIVE (requesting screen capture)")
+        AppLog.i(TAG, "tap: LIVE — requesting screen-capture permission (profile=$profile)")
         val mpm = getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
             as android.media.projection.MediaProjectionManager
         Toast.makeText(this, "Starting screen stream…", Toast.LENGTH_SHORT).show()
@@ -272,8 +357,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == RESULT_OK && data != null) {
+                AppLog.i(TAG, "screen-capture permission GRANTED — starting ScreenCaptureService")
                 com.dji.sdk.sample.tak.ScreenCaptureService.start(this, resultCode, data)
             } else {
+                AppLog.w(TAG, "screen-capture permission DENIED (resultCode=$resultCode) — no stream started")
                 Toast.makeText(this, "Screen capture permission denied — no stream started",
                     Toast.LENGTH_LONG).show()
             }
@@ -283,12 +370,15 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     /** Tapping RTH while already going home cancels it (no confirmation needed — canceling is
      *  always safe); otherwise confirms before sending the aircraft home. */
     private fun onRthTapped() {
+        AppLog.v(TAG, "tap: RTH")
         val fc = DJISampleApplication.getAircraftInstance()?.flightController
         if (fc == null) {
+            AppLog.w(TAG, "RTH ignored — aircraft not connected")
             Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
             return
         }
         if (TakBridgeHolder.hud()?.isGoingHome == true) {
+            AppLog.i(TAG, "RTH: already going home — sending cancelGoHome")
             fc.cancelGoHome(toastResultCallback("RTH cancelled", "Cancel failed"))
             return
         }
@@ -296,14 +386,58 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             .setTitle("Return to Home")
             .setMessage("Send the aircraft home now?")
             .setPositiveButton("Return Home") { _, _ ->
+                AppLog.i(TAG, "RTH confirmed — sending startGoHome")
                 fc.startGoHome(toastResultCallback("Returning home", "RTH failed"))
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Cancel") { _, _ -> AppLog.i(TAG, "RTH cancelled at confirm dialog") }
+            .show()
+    }
+
+    /** Long-press RTH: reset the aircraft's home point to the pilot's current position (the
+     *  phone's GPS — RC-N1 has no GPS of its own, so the phone standing in for "the
+     *  controller's location" is the only sensible reading of that). Useful when the pilot
+     *  has walked/driven somewhere else since the aircraft auto-set home at takeoff.
+     *  Confirmed first — this changes where RTH sends the aircraft, so a stale/bad GPS fix
+     *  here is a real safety concern, unlike RTH-cancel which is always safe. */
+    private fun onRthLongPressed() {
+        AppLog.v(TAG, "long-press: RTH (reset home point)")
+        val fc = DJISampleApplication.getAircraftInstance()?.flightController
+        if (fc == null) {
+            AppLog.w(TAG, "reset home point ignored — aircraft not connected")
+            Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val lm = getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        val loc = runCatching {
+            listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+                .mapNotNull { provider -> if (lm.isProviderEnabled(provider)) lm.getLastKnownLocation(provider) else null }
+                .maxByOrNull { it.time }
+        }.getOrNull()
+        if (loc == null) {
+            AppLog.w(TAG, "reset home point aborted — no phone GPS fix from GPS/NETWORK providers")
+            Toast.makeText(this, "No phone GPS fix available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AppLog.i(TAG, "reset home point: phone fix ${"%.6f, %.6f".format(loc.latitude, loc.longitude)} " +
+            "(provider=${loc.provider}, age=${(System.currentTimeMillis() - loc.time) / 1000}s, acc=${loc.accuracy}m)")
+        AlertDialog.Builder(this)
+            .setTitle("Reset Home Point")
+            .setMessage("Set the aircraft's home point to your current location " +
+                "(%.6f, %.6f)? This changes where Return to Home will send it.".format(loc.latitude, loc.longitude))
+            .setPositiveButton("Set Home Here") { _, _ ->
+                AppLog.i(TAG, "reset home point confirmed — sending setHomeLocation")
+                fc.setHomeLocation(
+                    dji.common.model.LocationCoordinate2D(loc.latitude, loc.longitude),
+                    toastResultCallback("Home point updated", "Set home failed"),
+                )
+            }
+            .setNegativeButton("Cancel") { _, _ -> AppLog.i(TAG, "reset home point cancelled at confirm dialog") }
             .show()
     }
 
     private fun toastResultCallback(successMsg: String, failurePrefix: String) =
         CommonCallbacks.CompletionCallback<DJIError> { error ->
+            AppLog.i(TAG, "$successMsg -> ${error?.description ?: "OK"}")
             runOnUiThread {
                 val msg = if (error == null) successMsg else "$failurePrefix: ${error.description}"
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -319,16 +453,20 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      *  so we switch via `setFlatMode(VIDEO_NORMAL)` when the camera reports it's supported,
      *  falling back to the legacy call for older aircraft. */
     private fun onRecordToggleTapped() {
+        AppLog.v(REC_TAG, "tap: REC")
         val aircraft = DJISampleApplication.getAircraftInstance()
         val camera = aircraft?.camera
         if (camera == null) {
+            AppLog.w(REC_TAG, "record ignored — aircraft not connected")
             Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
             return
         }
         if (TakBridgeHolder.hud()?.isRecording == true) {
+            AppLog.i(REC_TAG, "already recording — sending stopRecordVideo")
             camera.stopRecordVideo(recordResultCallback("Recording stopped", "Stop failed", "stopRecordVideo"))
             return
         }
+        AppLog.i(REC_TAG, "starting recording (flatModeSupported=${camera.isFlatCameraModeSupported})")
         val startAfterMode = CommonCallbacks.CompletionCallback<DJIError> { modeError ->
             AppLog.i(REC_TAG, "set video mode result: ${modeError?.description ?: "OK"}")
             if (modeError != null) {
@@ -343,6 +481,502 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             camera.setFlatMode(SettingsDefinitions.FlatCameraMode.VIDEO_NORMAL, startAfterMode)
         } else {
             camera.setMode(SettingsDefinitions.CameraMode.RECORD_VIDEO, startAfterMode)
+        }
+    }
+
+    /** Toggles the camera's digital zoom between 1x and 2x — the Mini 2 (and most MSDK
+     *  aircraft without a zoom lens) only support pure digital crop-zoom, not optical/hybrid,
+     *  so 1x/2x is a simple, broadly-compatible pair rather than trying to expose the
+     *  aircraft's full (model-dependent) zoom range. Affects the actual encoded video feed,
+     *  so it changes both on-screen FPV and whatever's going out over the Phase 5 RTSP push. */
+    /**
+     * FAA UASFM ceiling readout. Hidden entirely when the pilot hasn't downloaded any data, so
+     * the feature costs nothing on screen if unused.
+     *
+     * **Advisory only.** UASFM shows what the FAA is likely to authorise, not what's authorised,
+     * and the downloaded copy ages. Nothing here touches the aircraft's altitude limit.
+     *
+     * The ceiling is compared against [agl], which is terrain-corrected via DTED when coverage
+     * allows (see `TerrainAgl`) — a UASFM ceiling is height above the ground under the aircraft,
+     * so comparing it to a takeoff-relative altitude would misjudge the moment the aircraft
+     * leaves the elevation it launched from. Without DTED coverage the comparison falls back to
+     * the uncorrected figure, and the readout marks itself `~` so the pilot can see the warning
+     * is only as good as flat ground.
+     */
+    private fun updateFaaCeiling(
+        hud: com.dji.sdk.sample.tak.DroneTakBridge.Hud?,
+        agl: com.dji.sdk.sample.tak.TerrainAgl.Reading,
+    ) {
+        if (!com.dji.sdk.sample.tak.UasfmIndex.hasCoverage(this)) {
+            fpvFaaCeiling.visibility = View.GONE
+            return
+        }
+        if (hud == null || !hud.hasFix) {
+            fpvFaaCeiling.visibility = View.VISIBLE
+            fpvFaaCeiling.text = "FAA — no fix"
+            fpvFaaCeiling.setTextColor(android.graphics.Color.parseColor("#B0B0B0"))
+            return
+        }
+
+        val row = com.dji.sdk.sample.tak.UasfmIndex.gridRowFor(hud.lat)
+        val col = com.dji.sdk.sample.tak.UasfmIndex.gridColFor(hud.lon)
+        if (row != lastFaaGridRow || col != lastFaaGridCol) {
+            lastFaaGridRow = row
+            lastFaaGridCol = col
+            cachedFaaCeilingFt = com.dji.sdk.sample.tak.UasfmIndex.ceilingFtAt(this, hud.lat, hud.lon)
+            cachedFaaWithinDownloadedArea =
+                com.dji.sdk.sample.tak.UasfmIndex.isWithinDownloadedArea(this, hud.lat, hud.lon)
+            AppLog.v(TAG, "FAA cell ($row,$col): ceiling=${cachedFaaCeilingFt ?: "none"} " +
+                "withinDownloaded=$cachedFaaWithinDownloadedArea")
+        }
+
+        val aglFt = Units.metersToFeet(agl.meters)
+        // Marks a ceiling judged against an uncorrected altitude — the comparison is only valid
+        // over ground level with the takeoff point, and the pilot should know which they've got.
+        val approx = if (agl.terrainCorrected) "" else "~"
+        val ceiling = cachedFaaCeilingFt
+        fpvFaaCeiling.visibility = View.VISIBLE
+        when {
+            ceiling != null -> {
+                fpvFaaCeiling.text = "FAA $ceiling ft$approx"
+                fpvFaaCeiling.setTextColor(
+                    if (aglFt > ceiling) android.graphics.Color.parseColor("#EF5350")
+                    else android.graphics.Color.WHITE
+                )
+            }
+            // Inside what was downloaded but in no cell: the FAA publishes no facility map
+            // here, which means uncontrolled airspace and the plain Part 107 ceiling. Shown
+            // grey and labelled so it never reads as "the facility map says 400".
+            cachedFaaWithinDownloadedArea -> {
+                val part107 = com.dji.sdk.sample.tak.UasfmIndex.PART_107_DEFAULT_CEILING_FT
+                fpvFaaCeiling.text = "Class G · $part107 ft$approx"
+                fpvFaaCeiling.setTextColor(
+                    if (aglFt > part107) android.graphics.Color.parseColor("#EF5350")
+                    else android.graphics.Color.parseColor("#B0B0B0")
+                )
+            }
+            // Outside the downloaded box entirely — we genuinely don't know. Amber, because
+            // silently implying 400 ft here would be a guess dressed up as information.
+            else -> {
+                fpvFaaCeiling.text = "FAA — no data here"
+                fpvFaaCeiling.setTextColor(android.graphics.Color.parseColor("#FFB74D"))
+            }
+        }
+    }
+
+    private fun onZoomTapped() {
+        AppLog.v(TAG, "tap: zoom (currently ${if (zoomedIn) "2x" else "1x"})")
+        val camera = DJISampleApplication.getAircraftInstance()?.camera
+        if (camera == null) {
+            AppLog.w(TAG, "zoom ignored — aircraft not connected")
+            Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!camera.isDigitalZoomSupported) {
+            AppLog.w(TAG, "zoom unsupported on this camera (isDigitalZoomSupported=false)")
+            Toast.makeText(this, "This camera doesn't support digital zoom", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val targetZoomedIn = !zoomedIn
+        val targetFactor = if (targetZoomedIn) 2.0f else 1.0f
+        camera.setDigitalZoomFactor(targetFactor) { error ->
+            AppLog.i(TAG, "setDigitalZoomFactor($targetFactor): ${error?.description ?: "OK"}")
+            runOnUiThread {
+                if (error != null) {
+                    Toast.makeText(this, "Zoom failed: ${error.description}", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                zoomedIn = targetZoomedIn
+                zoomButton.text = if (zoomedIn) "2X" else "1X"
+            }
+        }
+    }
+
+    /** Shutter button: takes a single still photo, saved to the aircraft's SD card (not the
+     *  phone) — same storage target as video recording. First cut of "quickpic" (a later phase
+     *  will drop a TAK marker with the image attached); for now this just captures the still.
+     *  Switches to PHOTO_SINGLE flat mode to shoot, then restores VIDEO_NORMAL afterward so the
+     *  live FPV feed (this screen's primary job) isn't left in photo mode.
+     *
+     *  Field-found 2026-07-24: a bare `setFlatMode(VIDEO_NORMAL)` after the shoot left the feed
+     *  dark and stuck (~ISO 800 · 1/640, EV slider dead) — the PHOTO_SINGLE round-trip resets
+     *  the camera's exposure mode off PROGRAM, and nothing was re-forcing it back. Fix: restore
+     *  through [ExposureController.applyDefaults], the same call the aircraft's initial connect
+     *  uses — it does the VIDEO_NORMAL switch itself AND re-applies PROGRAM + the biased EV, so
+     *  a photo can no longer leave the feed in a different exposure state than before it. */
+    /**
+     * Drop a TAK marker at whatever the camera is pointed at.
+     *
+     * The mini-map is locked (no pan/zoom by operator spec), so there is no tap-the-map
+     * placement — [TakBridgeHolder.lookPoint] is the cursor, giving the DTED-terrain-corrected
+     * ground intersection of the camera's line of sight. If that's unavailable (no GPS fix or
+     * no gimbal attitude yet) the drop is refused outright: placing a marker at a plausible-
+     * looking but wrong position is worse for the shared picture than not placing one.
+     */
+    /** Restyles a platform AlertDialog neutral button (Reset Numbering / Clear All Markers) as
+     *  a compact red button: same red-fill/outline as the rest of the marker-dropper UI, but
+     *  at roughly half the system default's height — the system button style's built-in
+     *  min-height + vertical padding is sized for a full-width Material button, not a small
+     *  in-line action, so both are stripped/shrunk here while leaving the font size untouched. */
+    private fun styleRedButton(button: android.widget.Button) {
+        button.setTextColor(android.graphics.Color.WHITE)
+        button.setBackgroundResource(R.drawable.bg_button_red)
+        button.setAllCaps(false)
+        button.minHeight = 0
+        button.minimumHeight = 0
+        val vPad = (4 * resources.displayMetrics.density).toInt()
+        button.setPadding(button.paddingLeft, vPad, button.paddingRight, vPad)
+    }
+
+    private fun onDropPinTapped() {
+        AppLog.v(TAG, "tap: drop pin")
+        val look = TakBridgeHolder.lookPoint()
+        if (look == null) {
+            AppLog.w(TAG, "drop pin refused — no look point (GPS/gimbal not ready)")
+            Toast.makeText(this, "Can't drop a marker yet — waiting on GPS + gimbal",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        val (lat, lon, elev) = look
+
+        val view = layoutInflater.inflate(R.layout.dialog_drop_pin, null)
+        val nameField = view.findViewById<android.widget.EditText>(R.id.dropPinName)
+        // Only a preview of the next number — TakDropMarkers consumes the counter solely when
+        // this exact string comes back unedited, so a custom name doesn't leave a gap.
+        var autoName = TakDropMarkers.nextAutoName()
+        nameField.setText(autoName)
+        nameField.setSelection(autoName.length)
+        view.findViewById<TextView>(R.id.dropPinLocation).text =
+            // Display only — the elevation sent in the CoT stays in metres (CotBuilder's
+            // contract), this is just what the pilot reads before confirming the drop.
+            "%.5f, %.5f  ·  %s elev".format(lat, lon, Units.feet(elev))
+
+        // The affiliation icons themselves are the picker (no radio dot) — tapping one outlines
+        // it via bg_marker_type_selected and clears the others. Defaults to Unknown: an
+        // unverified drop shouldn't read as an affirmative Friendly/Hostile/Neutral call until
+        // the pilot actually picks one.
+        val chips = mapOf(
+            TakDropMarkers.Affiliation.FRIENDLY to view.findViewById<View>(R.id.dropPinFriendly),
+            TakDropMarkers.Affiliation.HOSTILE to view.findViewById<View>(R.id.dropPinHostile),
+            TakDropMarkers.Affiliation.NEUTRAL to view.findViewById<View>(R.id.dropPinNeutral),
+            TakDropMarkers.Affiliation.UNKNOWN to view.findViewById<View>(R.id.dropPinUnknown),
+        )
+        var selectedAff = TakDropMarkers.Affiliation.UNKNOWN
+        fun refreshChipSelection() {
+            for ((aff, chip) in chips) {
+                chip.setBackgroundResource(
+                    if (aff == selectedAff) R.drawable.bg_marker_type_selected
+                    else android.R.color.transparent)
+            }
+        }
+        for ((aff, chip) in chips) {
+            chip.setOnClickListener {
+                selectedAff = aff
+                refreshChipSelection()
+            }
+        }
+        refreshChipSelection()
+
+        val dialog = AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Drop Marker at Crosshair")
+            .setView(view)
+            .setPositiveButton("Drop") { _, _ ->
+                AppLog.i(TAG, "drop pin confirmed: ${selectedAff.label} @ $lat,$lon elev=$elev")
+                TakDropMarkers.placeAt(selectedAff, lat, lon, elev, nameField.text.toString())
+            }
+            .setNegativeButton("Cancel") { _, _ -> AppLog.v(TAG, "drop pin cancelled") }
+            // Placeholder text/listener — restyled and rewired in setOnShowListener below, since
+            // the button bar's Views don't exist until the dialog is actually shown.
+            .setNeutralButton("Reset Numbering", null)
+            .create()
+        // Bottom-left, in line with Drop/Cancel — that's simply where AlertDialog puts the
+        // neutral button, so red-button.setOnClickListener replaces the (dismissing) listener
+        // registered via setNeutralButton above with one that resets the counter in place and
+        // leaves the dialog open, rather than closing the whole drop flow on tap.
+        dialog.setOnShowListener {
+            val resetBtn = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+            styleRedButton(resetBtn)
+            resetBtn.setOnClickListener {
+                AppLog.i(TAG, "auto-name counter reset from drop dialog")
+                TakDropMarkers.resetAutoNameCounter()
+                val newAutoName = TakDropMarkers.nextAutoName()
+                // Only overwrite the field if the pilot hasn't already typed something of
+                // their own — same "don't clobber an edit" rule the counter-consume logic
+                // itself follows.
+                if (nameField.text.toString() == autoName) {
+                    nameField.setText(newAutoName)
+                    nameField.setSelection(newAutoName.length)
+                }
+                autoName = newAutoName
+                Toast.makeText(this, "Numbering reset — next is $newAutoName", Toast.LENGTH_SHORT).show()
+            }
+        }
+        dialog.show()
+    }
+
+    /** 6C: local-hide confirm for a tapped inbound contact — the map click listener above
+     *  already resolved which uid was hit; this just confirms before dismissing it, since it's
+     *  someone else's marker (or one of ours that reappeared after a delete). */
+    private fun onInboundMarkerTapped(uid: String) {
+        val tm = com.dji.sdk.sample.tak.TakMapMarkers
+        val user = tm.inboundUser(uid) ?: return
+        AppLog.v(TAG, "tap: inbound marker ${user.callsign} ($uid)")
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+            .setTitle(user.callsign ?: uid)
+            .setMessage("Hide this marker from your map? It stays on the TAK server and may " +
+                "reappear if another client re-broadcasts it.")
+            .setPositiveButton("Hide") { _, _ ->
+                AppLog.i(TAG, "inbound marker hide confirmed: $uid")
+                tm.hideInbound(uid)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** 6C: markers list panel (dialog_markers_list.xml) — two red action buttons up top
+     *  (Reset Numbering, Clear All Markers), then one row per dropped pin (a red X for a quick
+     *  individual delete, its affiliation icon, range/bearing from the aircraft). Tapping a
+     *  row's body (not its X) opens the full action menu (move/rename/retype/re-send/delete);
+     *  tapping the X deletes that pin immediately and refreshes the list in place, since
+     *  [row_marker_type.xml]'s X is a separate clickable child that consumes the touch before
+     *  the enclosing ListView's own item-click ever fires. No map interaction needed, matching
+     *  the locked mini-map. */
+    private fun onMarkersListTapped() {
+        // No early-return on an empty pin list: Reset Numbering and Clear All Markers are both
+        // still meaningful with zero pins (e.g. right after a Clear All, resetting the counter
+        // for the next flight) — the panel must stay reachable, just with an empty rows list.
+        val view = layoutInflater.inflate(R.layout.dialog_markers_list, null)
+        val adapter = IconListAdapter(this)
+        view.findViewById<android.widget.ListView>(R.id.markersListView).adapter = adapter
+        lateinit var dialog: AlertDialog
+
+        fun refresh() {
+            val pins = TakDropMarkers.listPins()
+            val hud = TakBridgeHolder.hud()
+            val rows = pins.map { pin ->
+                val range = if (hud != null) {
+                    val d = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, pin.lat, pin.lon)
+                    val b = CameraSlantPoint.initialBearingDeg(hud.lat, hud.lon, pin.lat, pin.lon)
+                    // Units.distance (not .feet) here: a dropped marker has no geofence bound
+                    // the way the aircraft's own position does, so this can legitimately run to
+                    // five digits of feet where miles read better.
+                    "  ·  %s @ %03.0f°".format(Units.distance(d), b)
+                } else ""
+                IconListAdapter.Row("${pin.affiliation.label}: ${pin.name}$range", pin.affiliation.res, pin)
+            }
+            adapter.setRows(rows)
+        }
+
+        adapter.onDeleteX = onDeleteX@{ row ->
+            val pin = row.pin ?: return@onDeleteX
+            AppLog.i(TAG, "marker delete (X): ${pin.key}")
+            TakDropMarkers.delete(pin.key)
+            refresh()
+        }
+        view.findViewById<android.widget.ListView>(R.id.markersListView)
+            .setOnItemClickListener { _, _, position, _ ->
+                adapter.rowAt(position).pin?.let { onMarkerRowTapped(it) }
+                dialog.dismiss()
+            }
+
+        dialog = AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Dropped Markers")
+            .setView(view)
+            .setNegativeButton("Close", null)
+            // Placeholder — restyled/rewired in setOnShowListener below, same pattern as the
+            // drop-pin dialog's Reset Numbering button.
+            .setNeutralButton("Clear All Markers", null)
+            .create()
+        // Bottom-left, in line with Close — that's simply where AlertDialog puts the neutral
+        // button.
+        dialog.setOnShowListener {
+            val clearBtn = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+            styleRedButton(clearBtn)
+            clearBtn.setOnClickListener { onClearAllMarkersTapped { refresh() } }
+        }
+        refresh()
+        dialog.show()
+    }
+
+    private fun onClearAllMarkersTapped(onCleared: () -> Unit) {
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+            .setTitle("Clear All Markers")
+            .setMessage("Remove all dropped markers from your map? This is local-only — each " +
+                "marker stays on the TAK server until it goes stale (14h) and may reappear on " +
+                "other clients' pictures until then.")
+            .setPositiveButton("Clear All Markers") { _, _ ->
+                AppLog.i(TAG, "markers: clear all confirmed")
+                TakDropMarkers.clearAll()
+                onCleared()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun onMarkerRowTapped(pin: TakDropMarkers.PinInfo) {
+        val actions = arrayOf("Move to crosshair", "Rename", "Change type", "Re-send", "Delete")
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle(pin.name)
+            .setItems(actions) { _, index ->
+                when (index) {
+                    0 -> onMoveMarkerTapped(pin)
+                    1 -> onRenameMarkerTapped(pin)
+                    2 -> onChangeTypeTapped(pin)
+                    3 -> {
+                        AppLog.i(TAG, "marker re-send: ${pin.key}")
+                        TakDropMarkers.resend(pin.key)
+                    }
+                    4 -> onDeleteMarkerTapped(pin)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun onMoveMarkerTapped(pin: TakDropMarkers.PinInfo) {
+        val look = TakBridgeHolder.lookPoint()
+        if (look == null) {
+            Toast.makeText(this, "Can't move — waiting on GPS + gimbal", Toast.LENGTH_LONG).show()
+            return
+        }
+        val (lat, lon, elev) = look
+        AppLog.i(TAG, "marker move: ${pin.key} -> $lat,$lon elev=$elev")
+        TakDropMarkers.moveToLookPoint(pin.key, lat, lon, elev)
+    }
+
+    private fun onRenameMarkerTapped(pin: TakDropMarkers.PinInfo) {
+        val field = android.widget.EditText(this).apply {
+            setText(pin.name)
+            setSelection(pin.name.length)
+            setPadding(48, 24, 48, 24)
+        }
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Rename Marker")
+            .setView(field)
+            .setPositiveButton("Rename") { _, _ ->
+                AppLog.i(TAG, "marker rename: ${pin.key} -> '${field.text}'")
+                TakDropMarkers.rename(pin.key, field.text.toString())
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun onChangeTypeTapped(pin: TakDropMarkers.PinInfo) {
+        val affiliations = TakDropMarkers.Affiliation.values()
+        val adapter = IconListAdapter(this)
+        adapter.setRows(affiliations.map { IconListAdapter.Row(it.label, it.res, pin = null) })
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Change Type")
+            .setAdapter(adapter) { _, index ->
+                AppLog.i(TAG, "marker retype: ${pin.key} -> ${affiliations[index].label}")
+                TakDropMarkers.changeType(pin.key, affiliations[index])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Icon+label row adapter shared by the markers-list panel and the change-type picker
+     *  (row_marker_type.xml) — plain [AlertDialog.setItems] has no icon/delete-X slot, so both
+     *  dialogs use setAdapter instead. [setRows] + notifyDataSetChanged lets the markers list
+     *  refresh itself in place after an X-delete without closing the dialog. */
+    private class IconListAdapter(
+        context: android.content.Context,
+    ) : android.widget.BaseAdapter() {
+        data class Row(val label: String, val iconRes: Int?, val pin: TakDropMarkers.PinInfo?)
+
+        /** Fired when a row's delete-X is tapped (markers-list only; null for change-type rows,
+         *  which never show an X). */
+        var onDeleteX: ((Row) -> Unit)? = null
+
+        private var rows: List<Row> = emptyList()
+        private val inflater = android.view.LayoutInflater.from(context)
+
+        fun setRows(newRows: List<Row>) { rows = newRows; notifyDataSetChanged() }
+        fun rowAt(position: Int): Row = rows[position]
+
+        override fun getCount() = rows.size
+        override fun getItem(position: Int) = rows[position]
+        override fun getItemId(position: Int) = position.toLong()
+        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup?): View {
+            // Not reusing convertView: rows carry per-position click state (the X's target
+            // pin), and this list is short enough (a handful of dropped pins) that the
+            // simplicity of always inflating fresh is worth more than view recycling here.
+            val view = inflater.inflate(R.layout.row_marker_type, parent, false)
+            val row = rows[position]
+
+            val icon = view.findViewById<ImageView>(R.id.rowMarkerTypeIcon)
+            if (row.iconRes != null) {
+                icon.setImageResource(row.iconRes)
+                icon.visibility = View.VISIBLE
+            } else {
+                icon.visibility = View.INVISIBLE
+            }
+
+            view.findViewById<TextView>(R.id.rowMarkerTypeLabel).text = row.label
+
+            val deleteX = view.findViewById<ImageView>(R.id.rowMarkerDeleteX)
+            if (row.pin != null) {
+                deleteX.visibility = View.VISIBLE
+                deleteX.setOnClickListener { onDeleteX?.invoke(row) }
+            } else {
+                deleteX.visibility = View.GONE
+                deleteX.setOnClickListener(null)
+            }
+            return view
+        }
+    }
+
+    private fun onDeleteMarkerTapped(pin: TakDropMarkers.PinInfo) {
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+            .setTitle("Delete Marker")
+            .setMessage("Remove '${pin.name}' from your map? This is local-only — the marker " +
+                "stays on the TAK server until it goes stale (14h) and may reappear on other " +
+                "clients' pictures until then.")
+            .setPositiveButton("Delete") { _, _ ->
+                AppLog.i(TAG, "marker delete: ${pin.key}")
+                TakDropMarkers.delete(pin.key)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun onShootPhotoTapped() {
+        AppLog.v(REC_TAG, "tap: shutter (photo)")
+        val camera = DJISampleApplication.getAircraftInstance()?.camera
+        if (camera == null) {
+            AppLog.w(REC_TAG, "photo ignored — aircraft not connected")
+            Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AppLog.i(REC_TAG, "photo: switching to PHOTO_SINGLE (flatModeSupported=${camera.isFlatCameraModeSupported})")
+        val restoreVideoMode = CommonCallbacks.CompletionCallback<DJIError> { error ->
+            AppLog.i(REC_TAG, "shoot photo result: ${error?.description ?: "OK"}")
+            runOnUiThread {
+                val msg = if (error == null) "Photo saved to aircraft SD card" else "Photo failed: ${error.description}"
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
+            AppLog.i(REC_TAG, "photo: restoring VIDEO_NORMAL + PROGRAM auto-exposure")
+            ExposureController.applyDefaults(applicationContext, camera)
+        }
+        val shootAfterMode = CommonCallbacks.CompletionCallback<DJIError> { modeError ->
+            AppLog.i(REC_TAG, "photo: set PHOTO_SINGLE mode: ${modeError?.description ?: "OK"}")
+            if (modeError != null) {
+                runOnUiThread {
+                    Toast.makeText(this, "Couldn't switch to photo mode: ${modeError.description}", Toast.LENGTH_SHORT).show()
+                }
+                return@CompletionCallback
+            }
+            // Re-push the same metering/exposure-mode/EV used for video onto photo mode before
+            // shooting — PHOTO_SINGLE has its own separately-persisted exposure state, so
+            // without this the still's EV wouldn't necessarily match what the live feed showed.
+            ExposureController.applyExposureSettings(applicationContext, camera) {
+                camera.startShootPhoto(restoreVideoMode)
+            }
+        }
+        if (camera.isFlatCameraModeSupported) {
+            camera.setFlatMode(SettingsDefinitions.FlatCameraMode.PHOTO_SINGLE, shootAfterMode)
+        } else {
+            camera.setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, shootAfterMode)
         }
     }
 
@@ -383,9 +1017,19 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val hud = TakBridgeHolder.hud()
         val takOk = TakManager.getInstance().isConnected
 
+        // A contact going stale is a rendering change that no inbound CoT announces, so the
+        // marker layer needs a clock of its own. Piggybacks on this tick; no-ops unless an
+        // icon actually needs regenerating. Deliberately above the no-GPS-fix early return —
+        // other operators' markers don't depend on OUR aircraft having a fix.
+        com.dji.sdk.sample.tak.TakMapMarkers.tick()
+
         toolbarBattery.setPercent(hud?.batteryPct)
 
-        toolbarGps.text = if (hud != null && hud.hasFix) hud.satCount.toString() else "—"
+        // Show the real satellite count whenever telemetry exists, even below lock threshold —
+        // "—" used to mean "no fix," but visually that's indistinguishable from "no telemetry
+        // at all," and a pilot watching the count creep up while acquiring a fix is more useful
+        // than it vanishing. The icon's color still carries the fix/no-fix distinction.
+        toolbarGps.text = hud?.satCount?.toString() ?: "—"
         toolbarGpsIcon.setColorFilter(
             if (hud != null && hud.hasFix) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt()
         )
@@ -422,6 +1066,15 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         toolbarSignalText.text = if (signalPct != null) "${bucketSignalPct(signalPct)}%" else "—%"
         toolbarSignalText.alpha = if (signalPct != null) 1.0f else 0.4f
 
+        // Computed once per tick and shared: the AGL readout and the FAA ceiling check both
+        // want height above the ground *under the aircraft*, and they must never disagree
+        // about it — a readout saying one number while the ceiling warning judges another
+        // would be worse than having no correction at all.
+        val aglReading = if (hud != null) com.dji.sdk.sample.tak.TerrainAgl.reading(this, hud)
+            else com.dji.sdk.sample.tak.TerrainAgl.Reading(0.0, terrainCorrected = false)
+
+        updateFaaCeiling(hud, aglReading)
+
         fpvOverlayText.text = buildString {
             append(currentCallsign)
             append('\n')
@@ -434,31 +1087,44 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             if (hud != null && hud.hasFix && hud.homeSet) {
                 val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
                 val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                append("%.0fm  %03.0f°T".format(dist, bearing))
+                append("%s  %03.0f°T".format(Units.feet(dist), bearing))
             } else {
-                append("— m  —°T")
+                append("— ft  —°T")
             }
             append('\n')
             if (hud != null && hud.hasFix) {
-                append("%.0f ft AGL".format(hud.alt * 3.28084))
+                // "AGL" only when DTED actually corrected it to height-above-terrain-below;
+                // otherwise "ALT", which is what the raw number really is (height above the
+                // takeoff point). Labelling an uncorrected figure AGL is precisely the
+                // inaccuracy the terrain correction exists to remove, so the label has to move
+                // with it. See TerrainAgl.
+                append("%s %s".format(
+                    Units.feet(aglReading.meters),
+                    if (aglReading.terrainCorrected) "AGL" else "ALT",
+                ))
             } else {
                 append("— ft AGL")
             }
             append('\n')
             if (hud != null) {
-                append("%.0f MPH".format(hud.speedMs * 2.23694))
+                append(Units.mph(hud.speedMs))
             } else {
                 append("— MPH")
             }
             append('\n')
             if (hud != null) {
+                // Remaining time is the AIRCRAFT's own estimate (GoHomeAssessment), which models
+                // real battery state and draw. The previous readout was battery-percent times a
+                // nominal 31-minute endurance, which ignored payload, wind, temperature and
+                // throttle — it read optimistically high in exactly the conditions where an
+                // accurate number matters most. Shown as "—" rather than a guess when the
+                // aircraft isn't reporting one.
                 val elapsedMin = hud.flightTimeSec / 60
-                // Rough estimate only — no drain-rate model, just battery% against the Mini
-                // 2's nominal max flight time. Good enough for a ballpark, not a real RTH clock.
-                val remainingMin = (NOMINAL_FULL_FLIGHT_SEC * hud.batteryPct / 100) / 60
-                append("$elapsedMin min / ~$remainingMin min")
+                val remaining = hud.remainingFlightTimeSec
+                    ?.let { "${it / 60} min" } ?: "— min"
+                append("$elapsedMin min / $remaining left")
             } else {
-                append("— min / ~— min")
+                append("— min / — min left")
             }
         }
 
@@ -532,13 +1198,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        AppLog.v(REC_TAG, "onResume")
+        AppLog.v(TAG, "onResume")
         mapView.onResume()
         handler.post(refresh)
     }
 
     override fun onPause() {
-        AppLog.v(REC_TAG, "onPause")
+        AppLog.v(TAG, "onPause")
         handler.removeCallbacks(refresh)
         handler.removeCallbacks(hideNotice)
         mapView.onPause()
@@ -546,8 +1212,15 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        AppLog.v(REC_TAG, "onStop")
+        AppLog.v(TAG, "onStop")
         TakBridgeHolder.stop()
+        // Leaving the flight screen (back to Home, or the app going to background/closing) —
+        // don't keep pushing video nobody's watching the pilot fly against; also releases the
+        // screen-capture projection so it doesn't linger as a background foreground service.
+        if (VideoStreamerHolder.isActive) {
+            AppLog.i(TAG, "onStop: stopping live stream (left flight screen / app backgrounded)")
+            VideoStreamerHolder.stop()
+        }
         lastHomeSet = false
         mapView.onStop()
         super.onStop()
@@ -559,7 +1232,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        AppLog.v(TAG, "onDestroy")
         VideoStreamerHolder.onStateChanged = null
+        TakDropMarkers.ui = null
+        com.dji.sdk.sample.tak.TakMapMarkers.onMapDestroyed()
         mapView.onDestroy()
         super.onDestroy()
     }
@@ -570,6 +1246,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** Flight-screen lifecycle + toolbar actions (RTH, zoom, TAK toggle, LIVE, nav). */
+        private const val TAG = "TP2Flight"
+        /** Camera capture operations specifically — recording and stills. */
         private const val REC_TAG = "TP2Record"
         private const val REQUEST_MEDIA_PROJECTION = 3001
         private const val HUD_INTERVAL_MS = 500L
@@ -592,9 +1271,5 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         // Where the mini-map centers before the drone has a GPS fix (operator's home area).
         private val DEFAULT_CENTER = LatLng(61.2182, -149.8963)
-
-        // DJI Mini 2 published max flight time, used only as a rough basis for the
-        // "remaining" estimate on the HUD — not a real per-flight drain-rate model.
-        private const val NOMINAL_FULL_FLIGHT_SEC = 31 * 60
     }
 }

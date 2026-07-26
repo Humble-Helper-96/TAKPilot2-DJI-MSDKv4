@@ -277,28 +277,47 @@ public class TakManager implements TakClient.TakClientListener {
         activeAlertId = null;
     }
 
-    /** Broadcast a marker CoT (server-wide); returns its uid, or null if not connected. */
+    /** Mint a marker uid. Only for a marker's FIRST send — reuse it afterwards, see below. */
+    public static String newMarkerUid() {
+        return "marker-" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    /** Broadcast a marker CoT (server-wide) under a NEW uid; returns it, or null if not
+     *  connected. Use {@link #sendMarkerWithUid} to update a marker that already exists. */
     public String sendMarker(double lat, double lon, double alt, String affiliation,
                              String name, String remarks) {
-        if (client == null || !connected) return null;
-        String markerUid = "marker-" + UUID.randomUUID().toString().substring(0, 8);
-        String xml = CotBuilder.buildMarker(uid, callsign, markerUid, affiliation, lat, lon, alt,
-                name, remarks);
-        sendCot(xml);
-        AppLog.d(TAG, "Marker sent: " + affiliation + " @ " + lat + "," + lon + " id=" + markerUid);
-        return markerUid;
+        return sendMarkerWithUid(newMarkerUid(), lat, lon, alt, affiliation, name, remarks, null);
     }
 
     /** Send a marker scoped to a Data Sync mission/feed only (NOT server-wide) via a
      *  &lt;marti&gt;&lt;dest mission=…/&gt;&lt;/marti&gt; tag. Returns its uid, or null if not connected. */
     public String sendMarkerToMission(double lat, double lon, double alt, String affiliation,
                                       String name, String remarks, String missionName) {
+        return sendMarkerWithUid(newMarkerUid(), lat, lon, alt, affiliation, name, remarks, missionName);
+    }
+
+    /**
+     * Send a marker CoT under a CALLER-SUPPLIED uid — the one call that can MOVE or otherwise
+     * update an existing marker rather than spawning a new one.
+     *
+     * In CoT the uid <em>is</em> the marker's identity: re-send the same uid with new lat/lon
+     * and fresh time/start/stale, and every ATAK/iTAK/TAKAware client moves the existing
+     * marker in place. Send a fresh uid instead and they all draw a second marker. So a caller
+     * that owns a persistent pin must store the uid from its first send and pass it back here
+     * for every subsequent move/rename/retype/re-send.
+     *
+     * @param missionName Data Sync feed to scope to, or null to broadcast server-wide.
+     * @return the uid that was sent, or null if not connected.
+     */
+    public String sendMarkerWithUid(String markerUid, double lat, double lon, double alt,
+                                    String affiliation, String name, String remarks,
+                                    String missionName) {
         if (client == null || !connected) return null;
-        String markerUid = "marker-" + UUID.randomUUID().toString().substring(0, 8);
         String xml = CotBuilder.buildMarker(uid, callsign, markerUid, affiliation, lat, lon, alt,
                 name, remarks, missionName);
         sendCot(xml);
-        AppLog.d(TAG, "Marker sent to mission " + missionName + ": " + affiliation + " id=" + markerUid);
+        AppLog.d(TAG, "Marker sent" + (missionName != null ? " to mission " + missionName : "")
+                + ": " + affiliation + " @ " + lat + "," + lon + " id=" + markerUid);
         return markerUid;
     }
 

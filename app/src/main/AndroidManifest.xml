@@ -142,6 +142,7 @@
         <activity
             android:name="com.dji.sdk.sample.takpilot2.TAKPilot2GoHomeActivity"
             android:label="TAKPilot2 Go"
+            android:theme="@style/AppTheme.NoActionBar.SolidStatusBar"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:launchMode="singleTask"

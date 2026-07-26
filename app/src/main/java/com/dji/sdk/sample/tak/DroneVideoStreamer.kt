@@ -32,6 +32,11 @@ class DroneVideoStreamer(
     private val context: Context,
     private val config: VideoConfig,
     private val mediaProjection: android.media.projection.MediaProjection? = null,
+    // Fired once when a reconnect window (see RECONNECT_MAX_MS) expires without success: the
+    // stream and capture/projection have already been torn down internally by the time this
+    // fires, so the caller (VideoStreamerHolder) just needs to drop its reference and clean up
+    // anything it owns (the foreground service).
+    private val onGiveUp: () -> Unit = {},
     private val onStatus: (Boolean, String) -> Unit,
 ) : ConnectCheckerRtsp {
 
@@ -84,6 +89,16 @@ class DroneVideoStreamer(
     private var frameCount = 0
     private var frameBytesSinceLog = 0L
 
+    // ---- Auto-reconnect with backoff (network drops, server restarts, etc.) ----
+    // A dropped connection does NOT tear down the encoder/projection immediately — the capture
+    // keeps running (frames are simply not sent) so a transient blip doesn't cost a fresh
+    // permission grant. Only if RECONNECT_MAX_MS elapses without a successful reconnect do we
+    // give up for real and release everything (see handleConnectionDropped/onGiveUp).
+    @Volatile var isReconnecting: Boolean = false
+        private set
+    private var reconnectStartNs = 0L
+    private var reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS
+
     // Passthrough-only: sniffed source parameter sets (WITH 4-byte start code; the client's
     // packetizer handles them). Unused in transcode mode (the encoder makes its own).
     private var sps: ByteArray? = null
@@ -115,7 +130,11 @@ class DroneVideoStreamer(
         client.setProtocol(if (config.tcp) Protocol.TCP else Protocol.UDP)
         if (config.username.isNotEmpty()) client.setAuthorization(config.username, config.password)
         client.setOnlyVideo(true)
-        client.setReTries(10)
+        // Our own handleConnectionDropped() backoff loop is authoritative on when to give up
+        // (RECONNECT_MAX_MS wall-clock, not attempt count) — set this high so the library's own
+        // internal reTries counter (decremented by every client.reConnect() call) never becomes
+        // the limiting factor first.
+        client.setReTries(1000)
 
         if (screenMode) {
             // Screen-capture: no aircraft-feed listener, no NAL assembler, no keyframe
@@ -175,7 +194,15 @@ class DroneVideoStreamer(
     }
 
     fun stop() {
+        if (stopped) return
         stopped = true
+        isReconnecting = false
+        releaseInternal()
+    }
+
+    /** Shared teardown for an explicit [stop] and a give-up-after-timeout. Idempotent-ish via
+     *  the [stopped] guard in callers; safe to call once. */
+    private fun releaseInternal() {
         bootstrapHandler.removeCallbacks(bootstrapRunnable)
         videoListener?.let {
             runCatching { VideoFeeder.getInstance()?.primaryVideoFeed?.removeVideoDataListener(it) }
@@ -270,6 +297,10 @@ class DroneVideoStreamer(
     override fun onConnectionStartedRtsp(rtspUrl: String) { AppLog.i(TAG, "connecting ${config.urlSafe()}") }
     override fun onConnectionSuccessRtsp() {
         streaming = true
+        if (isReconnecting) {
+            AppLog.i(TAG, "reconnected after ${(System.nanoTime() - reconnectStartNs) / 1_000_000}ms")
+            isReconnecting = false
+        }
         onStatus(true, "Streaming → ${config.urlSafe()}")
         // Arm (and re-arm) RootEncoder's one-shot H264Packet.sendKeyFrame flag on EVERY connect.
         // connect() is async, so the first keyframe was sent while RtspSender.running was still
@@ -293,20 +324,59 @@ class DroneVideoStreamer(
     }
     override fun onConnectionFailedRtsp(reason: String) {
         AppLog.w(TAG, "connection failed: $reason")
-        if (!stopped && client.shouldRetry(reason)) {
-            client.reConnect(2000)
-        } else {
-            streaming = false
-            onStatus(false, "Stream failed: $reason")
-        }
+        handleConnectionDropped(reason)
     }
-    override fun onDisconnectRtsp() { streaming = false; AppLog.i(TAG, "disconnected") }
+    override fun onDisconnectRtsp() {
+        AppLog.i(TAG, "disconnected")
+        handleConnectionDropped("disconnected")
+    }
+
+    /** Entry point for every "the RTSP link just died" event (failed connect attempt, or a
+     *  live connection dropping). Drives the backoff loop; see the reconnect fields above. */
+    private fun handleConnectionDropped(reason: String) {
+        if (stopped) return
+        streaming = false
+        if (reason.contains("Endpoint malformed") || reason.contains("access denied")) {
+            // Not a transient network problem — a config error retrying won't fix. Give up now.
+            AppLog.w(TAG, "non-retryable failure ($reason) — giving up immediately")
+            giveUp("Stream failed: $reason")
+            return
+        }
+        val now = System.nanoTime()
+        if (!isReconnecting) {
+            isReconnecting = true
+            reconnectStartNs = now
+            reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS
+            AppLog.w(TAG, "video connection lost ($reason) — reconnecting, capture stays live")
+            onStatus(false, "Video connection lost — reconnecting…")
+        }
+        val elapsedMs = (now - reconnectStartNs) / 1_000_000
+        if (elapsedMs >= RECONNECT_MAX_MS) {
+            AppLog.w(TAG, "no reconnect after ${elapsedMs}ms — giving up, stopping stream + capture")
+            giveUp("Video stream failed — stopped after 60s")
+            return
+        }
+        AppLog.i(TAG, "reconnect attempt in ${reconnectDelayMs}ms (elapsed ${elapsedMs}ms, reason=$reason)")
+        client.reConnect(reconnectDelayMs)
+        reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
+    }
+
+    private fun giveUp(statusMsg: String) {
+        stopped = true
+        isReconnecting = false
+        releaseInternal()
+        onStatus(false, statusMsg)
+        onGiveUp()
+    }
     override fun onAuthErrorRtsp() { streaming = false; onStatus(false, "Stream auth error (check user/pass)") }
     override fun onAuthSuccessRtsp() { AppLog.i(TAG, "auth ok") }
     override fun onNewBitrateRtsp(bitrate: Long) {}
 
     companion object {
         private const val TAG = "DroneVideoStreamer"
+        private const val RECONNECT_MAX_MS = 60_000L
+        private const val INITIAL_RECONNECT_DELAY_MS = 2_000L
+        private const val MAX_RECONNECT_DELAY_MS = 30_000L
     }
 }
 
@@ -348,7 +418,21 @@ object VideoStreamerHolder {
     ) {
         appContext = context.applicationContext
         streamer?.stop()
-        streamer = DroneVideoStreamer(context.applicationContext, config, projection) { ok, msg ->
+        streamer = DroneVideoStreamer(
+            context.applicationContext, config, projection,
+            onGiveUp = {
+                // Reconnect window expired — DroneVideoStreamer already released its own
+                // encoder/transcoder/client; our job is to drop the reference and tear down
+                // the foreground service + projection it doesn't own.
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    AppLog.w("VideoStreamerHolder", "reconnect window expired — stopping capture")
+                    streamer = null
+                    TakBridgeHolder.setVideoUrl(null)
+                    appContext?.let { ScreenCaptureService.stop(it) }
+                    notifyState()
+                }
+            },
+        ) { ok, msg ->
             if (ok) TakBridgeHolder.setVideoUrl(config.advertiseUrl())
             notifyState()
             onStatus(ok, msg)
@@ -373,6 +457,7 @@ object VideoStreamerHolder {
 
     val isRunning: Boolean get() = streamer?.isStreaming == true
     val isActive: Boolean get() = streamer != null
+    val isReconnecting: Boolean get() = streamer?.isReconnecting == true
 
     /**
      * Start streaming using the video settings saved by TakConnectActivity, with a
