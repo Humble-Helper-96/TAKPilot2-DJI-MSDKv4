@@ -10,6 +10,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- AR marker overlay. BELOW the crosshair deliberately: the crosshair is the aiming
+         reference for marker drops and must never be occluded by a projected marker. Hidden
+         until the pilot turns it on. -->
+    <com.dji.sdk.sample.takpilot2.ArOverlayView
+        android:id="@+id/flightArOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <com.dji.sdk.sample.takpilot2.CrosshairView
         android:id="@+id/flightCrosshair"
         android:layout_width="match_parent"
@@ -213,6 +222,22 @@
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1" />
+
+        <!-- AR overlay toggle. Sits at the head of the right-hand cluster, next to the drop-pin
+             button — drop-pin creates markers, this shows them, so they read as a pair. Tap
+             toggles; long-press opens the AR options (6D-C). -->
+        <TextView
+            android:id="@+id/flightArButton"
+            android:layout_width="36dp"
+            android:layout_height="26dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/bg_zoom_pill"
+            android:contentDescription="Toggle AR marker overlay"
+            android:gravity="center"
+            android:text="AR"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/flightDropPinButton"

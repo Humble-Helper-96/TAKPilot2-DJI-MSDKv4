@@ -314,6 +314,27 @@ class DroneTakBridge(
         )
     }
 
+    /** Where the camera is pointing: true-north bearing and pitch, both degrees. */
+    data class CameraPose(val bearingDeg: Double, val pitchDeg: Double)
+
+    /**
+     * Current camera pose, or null until GPS/gimbal state has arrived.
+     *
+     * Deliberately computed here from the SAME [cameraBearing] + [PITCH_OFFSET_DEG] model that
+     * [lookPoint] uses, rather than handing out raw gimbal yaw for a caller to re-derive. The
+     * AR overlay projects markers with this, and marker DROPS are placed with [lookPoint] — if
+     * those two ever disagreed, a marker would render somewhere other than where it was placed,
+     * and the overlay would look plausible while being wrong. One model, one place.
+     */
+    fun cameraPose(): CameraPose? {
+        val gimbal = lastGimbal ?: return null
+        val state = lastState ?: return null
+        val heading = ((state.aircraftHeadDirection % 360.0) + 360.0) % 360.0
+        val pitch = gimbal.attitudeInDegrees.pitch.toDouble()
+        val yaw = gimbal.attitudeInDegrees.yaw.toDouble()
+        return CameraPose(cameraBearing(yaw, heading), pitch + PITCH_OFFSET_DEG)
+    }
+
     /**
      * One-shot ground point the camera is currently aimed at (for the "drop marker at
      * look-point" hot key, Phase 7). Returns (lat, lon, alt) or null if GPS/gimbal state
@@ -369,5 +390,14 @@ class DroneTakBridge(
         // 24mm-equivalent wide). Refine if the FOV cone visibly disagrees with the real frame.
         private const val MINI2_HFOV = 73.0
         private const val MINI2_VFOV = 45.0
+
+        /**
+         * Shared with the AR overlay, which projects markers across these angles — so the cone
+         * published to ATAK and the on-screen overlay can't disagree about how wide the camera
+         * sees. These are the values the gimbal-sweep calibration in the 6D plan tunes: if a
+         * marker leaves the frame edge before the real object does, the FOV here is too wide.
+         */
+        fun hFovDeg() = MINI2_HFOV
+        fun vFovDeg() = MINI2_VFOV
     }
 }

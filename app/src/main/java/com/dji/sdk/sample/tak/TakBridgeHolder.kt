@@ -43,4 +43,8 @@ object TakBridgeHolder {
 
     /** Latest telemetry snapshot for the on-screen HUD, or null if the bridge isn't running. */
     fun hud(): DroneTakBridge.Hud? = bridge?.hud()
+
+    /** Camera bearing + pitch for the AR overlay's projection — the same model that places
+     *  dropped markers, see [DroneTakBridge.cameraPose]. Null until GPS/gimbal are ready. */
+    fun cameraPose(): DroneTakBridge.CameraPose? = bridge?.cameraPose()
 }
