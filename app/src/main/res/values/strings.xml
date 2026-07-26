@@ -1,5 +1,8 @@
 <resources>
-    <string name="sample_app_name">TAKPilot2 Go (V4 bring-up)</string>
+    <!-- Launcher label only. The applicationId (com.anchortak.takpilot2gov4) must NOT be
+         renamed to match — the DJI API key is bound to it, and changing it breaks aircraft
+         registration until a new key is registered in the DJI developer portal. -->
+    <string name="sample_app_name">TAKPilot2 - DJI MSDKv4</string>
     <string name="action_settings">Settings</string>
 
     <string name="sdk_version">DJI SDK Version: %1$s</string>

@@ -382,7 +382,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             fc.cancelGoHome(toastResultCallback("RTH cancelled", "Cancel failed"))
             return
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
             .setTitle("Return to Home")
             .setMessage("Send the aircraft home now?")
             .setPositiveButton("Return Home") { _, _ ->
@@ -420,7 +420,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
         AppLog.i(TAG, "reset home point: phone fix ${"%.6f, %.6f".format(loc.latitude, loc.longitude)} " +
             "(provider=${loc.provider}, age=${(System.currentTimeMillis() - loc.time) / 1000}s, acc=${loc.accuracy}m)")
-        AlertDialog.Builder(this)
+        // Destructive variant (red accent), matching the marker Delete / Clear All confirms:
+        // this doesn't delete anything, but it changes where RTH will fly the aircraft, and a
+        // stale phone fix here is a genuine safety problem — the same "read this before you
+        // tap" signal the rest of the app's red confirms carry.
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
             .setTitle("Reset Home Point")
             .setMessage("Set the aircraft's home point to your current location " +
                 "(%.6f, %.6f)? This changes where Return to Home will send it.".format(loc.latitude, loc.longitude))
