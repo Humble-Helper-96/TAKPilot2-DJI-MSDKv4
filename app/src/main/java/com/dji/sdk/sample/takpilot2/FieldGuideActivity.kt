@@ -322,6 +322,9 @@ class FieldGuideActivity : AppCompatActivity() {
             "FAA ceiling line",
             "Shown only if you've downloaded FAA data. It tells you the published ceiling " +
                 "where the aircraft currently is, and turns red if you climb above it.\n\n" +
+                "It is labelled AGL because FAA ceilings are always height above the ground — " +
+                "not above sea level. Compare it against the AGL line in the readout above, " +
+                "never against the MSL line.\n\n" +
                 "\"Class G\" in grey means the FAA publishes no facility map there, so the " +
                 "ordinary 400 ft limit applies. Amber \"no data here\" means you have flown " +
                 "outside the area you downloaded and the app genuinely doesn't know — don't " +

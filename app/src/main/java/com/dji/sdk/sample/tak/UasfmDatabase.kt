@@ -99,7 +99,18 @@ interface UasfmDao {
     }
 }
 
-@Database(entities = [UasfmCellEntity::class, UasfmMetaEntity::class], version = 1, exportSchema = false)
+/**
+ * **Version 2 (2026-07-26): bumped deliberately to WIPE existing data, not because the schema
+ * changed.** v1 was populated from the stale `FAA_UAS_FacilityMap_Data_V5` layer and contained
+ * ceilings up to four years out of date — it reported 0 ft in a real 200 ft grid. With
+ * `fallbackToDestructiveMigration()` this bump drops those rows, so the app falls back to
+ * showing "no FAA data downloaded" and the pilot re-downloads from the corrected source.
+ *
+ * Wiping is the right call over migrating: there is no way to correct the old rows in place,
+ * and an airspace advisory silently serving wrong ceilings is worse than one that admits it has
+ * nothing. Bump this again if the source layer ever changes.
+ */
+@Database(entities = [UasfmCellEntity::class, UasfmMetaEntity::class], version = 2, exportSchema = false)
 abstract class UasfmDatabase : RoomDatabase() {
     abstract fun uasfmDao(): UasfmDao
 

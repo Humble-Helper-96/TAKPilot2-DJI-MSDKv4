@@ -541,8 +541,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val ceiling = cachedFaaCeilingFt
         fpvFaaCeiling.visibility = View.VISIBLE
         when {
+            // "AGL" is spelled out because the readout directly above this now shows MSL, and a
+            // bare "FAA 200 ft" next to a "413 ft MSL" invites reading the ceiling as an MSL
+            // figure. UASFM ceilings are always height above ground.
             ceiling != null -> {
-                fpvFaaCeiling.text = "FAA $ceiling ft$approx"
+                fpvFaaCeiling.text = "FAA $ceiling ft AGL$approx"
                 fpvFaaCeiling.setTextColor(
                     if (aglFt > ceiling) android.graphics.Color.parseColor("#EF5350")
                     else android.graphics.Color.WHITE
@@ -553,7 +556,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // grey and labelled so it never reads as "the facility map says 400".
             cachedFaaWithinDownloadedArea -> {
                 val part107 = com.dji.sdk.sample.tak.UasfmIndex.PART_107_DEFAULT_CEILING_FT
-                fpvFaaCeiling.text = "Class G · $part107 ft$approx"
+                fpvFaaCeiling.text = "Class G · $part107 ft AGL$approx"
                 fpvFaaCeiling.setTextColor(
                     if (aglFt > part107) android.graphics.Color.parseColor("#EF5350")
                     else android.graphics.Color.parseColor("#B0B0B0")
