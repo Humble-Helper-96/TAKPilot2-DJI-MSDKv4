@@ -40,10 +40,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
+                <!-- Bound to the same string as the launcher label so the two can't drift
+                     apart the next time the app is renamed. -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="TAKPilot2 Go"
+                    android:maxLines="1"
+                    android:text="@string/sample_app_name"
                     android:textColor="#FFFFFF"
                     android:textSize="22sp"
                     android:textStyle="bold" />

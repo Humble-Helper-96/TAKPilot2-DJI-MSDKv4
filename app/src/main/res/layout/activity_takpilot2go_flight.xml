@@ -123,6 +123,38 @@
 
         <View android:layout_width="6dp" android:layout_height="1dp" />
 
+        <!-- TAK connection state sits first in the status cluster, immediately after the menu
+             button: it gates everything else this screen does with the server, so it reads
+             before battery/signal/GPS rather than after them. -->
+        <FrameLayout
+            android:id="@+id/toolbarTakButton"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Toggle TAK server connection">
+
+            <!-- The real TAK mark already contains the wordmark, so the old hand-drawn shield
+                 silhouette + separate "TAK" TextView overlay is gone. -->
+            <ImageView
+                android:id="@+id/toolbarTakIcon"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:scaleType="fitCenter"
+                android:contentDescription="TAK server connection"
+                android:src="@drawable/ic_tak_logo" />
+
+            <ImageView
+                android:id="@+id/toolbarTakDot"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="bottom|start"
+                android:src="@drawable/bg_status_dot" />
+
+        </FrameLayout>
+
         <com.dji.sdk.sample.takpilot2.BatteryGaugeView
             android:id="@+id/toolbarBattery"
             android:layout_width="34dp"
@@ -176,44 +208,6 @@
             android:padding="1dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_rth" />
-
-        <FrameLayout
-            android:id="@+id/toolbarTakButton"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_marginEnd="14dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Toggle TAK server connection">
-
-            <ImageView
-                android:id="@+id/toolbarTakIcon"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:contentDescription="TAK server connection"
-                android:src="@drawable/ic_tak_shield" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="2dp"
-                android:includeFontPadding="false"
-                android:letterSpacing="0.05"
-                android:text="TAK"
-                android:textColor="#0D47A1"
-                android:textSize="8sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/toolbarTakDot"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:layout_gravity="bottom|start"
-                android:src="@drawable/bg_status_dot" />
-
-        </FrameLayout>
 
         <View
             android:layout_width="0dp"
