@@ -32,15 +32,34 @@ import kotlin.math.min
 object UasfmStore {
     private const val TAG = "UasfmStore"
 
-    /** FAA UAS Data Delivery System (udds-faa.opendata.arcgis.com) feature service. If the FAA
-     *  retires this endpoint the download will fail with a clear HTTP error rather than
-     *  silently returning nothing — the version is in the path, so a V6 would be a new URL. */
+    /**
+     * FAA UAS Data Delivery System feature service — the LIVE published layer.
+     *
+     * **Do not "upgrade" this to one of the suffixed siblings.** That server hosts several
+     * UASFM layers and the names are actively misleading:
+     *
+     * | Layer | Ceiling at 61.1668,-149.8647 | MAP_EFF |
+     * |---|---|---|
+     * | `FAA_UAS_FacilityMap_Data` (this one) | 200 | 7/9/2026 |
+     * | `FAA_UAS_FacilityMap_Data_Primary` | 0 | 1/26/2023 |
+     * | `FAA_UAS_FacilityMap_Data_V5` | 0 | 10/6/2022 |
+     *
+     * `_V5` reads like "version 5, therefore newest" — it is not; it sits alongside `_V5_Dev`
+     * and `_V5_AppTest` and is a stale snapshot. This app shipped against `_V5` and reported
+     * a **0 ft ceiling in a real 200 ft grid** in Anchorage, from data nearly four years out of
+     * date. Caught 2026-07-26 by the operator standing in the cell, cross-checked against the
+     * FAA's own "Visualize it" viewer, which agrees with this layer.
+     *
+     * **`MAP_EFF` is the tell.** If a spot check ever returns an effective date that isn't
+     * roughly current, the layer is wrong — that field was visible in the original research and
+     * showing 2022, and not questioning it is what let this through.
+     */
     private const val SERVICE_URL =
         "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/" +
-            "FAA_UAS_FacilityMap_Data_V5/FeatureServer/0/query"
+            "FAA_UAS_FacilityMap_Data/FeatureServer/0/query"
 
-    /** The service caps a single response at 1000 records (its `maxRecordCount`). */
-    private const val PAGE_SIZE = 1000
+    /** This layer's `maxRecordCount` is 2000 (the stale `_V5` one was 1000). */
+    private const val PAGE_SIZE = 2000
 
     /** Refuse absurd areas outright — the nationwide set is ~370k cells, and pulling that to a
      *  phone over a field hotspot is a mistake we should catch before it starts, not halfway
