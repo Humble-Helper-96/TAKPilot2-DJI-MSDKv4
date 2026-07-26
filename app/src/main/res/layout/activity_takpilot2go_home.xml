@@ -93,6 +93,14 @@
                 android:textColor="#FFFFFF"
                 android:backgroundTint="#B71C1C" />
             <Button
+                android:id="@+id/homeFieldGuide"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Field Guide"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#1565C0" />
+            <Button
                 android:id="@+id/homeDataSync"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

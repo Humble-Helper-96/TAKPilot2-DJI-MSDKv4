@@ -114,6 +114,14 @@
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="false" />
 
+        <!-- Pilot field guide: what every control does, read in the field. -->
+        <activity
+            android:name="com.dji.sdk.sample.takpilot2.FieldGuideActivity"
+            android:label="Field Guide"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+
         <!-- Debug screen: view/export/clear the AppLog file sink. -->
         <activity
             android:name="com.dji.sdk.sample.tak.DebugActivity"

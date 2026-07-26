@@ -81,6 +81,10 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
             AppLog.v(TAG, "tap: Pre-Flight Setup")
             startActivity(Intent(this, TakConnectActivity::class.java))
         }
+        findViewById<Button>(R.id.homeFieldGuide).setOnClickListener {
+            AppLog.v(TAG, "tap: Field Guide")
+            startActivity(Intent(this, FieldGuideActivity::class.java))
+        }
         findViewById<Button>(R.id.homeDataSync).setOnClickListener {
             AppLog.v(TAG, "tap: Data Sync")
             startActivity(Intent(this, DataSyncActivity::class.java))
