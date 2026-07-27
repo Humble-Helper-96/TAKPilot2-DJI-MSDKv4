@@ -5,6 +5,8 @@ import android.graphics.Matrix
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.AttributeSet
 import com.dji.sdk.sample.tak.IdrRequesterHolder
@@ -52,6 +54,19 @@ import java.util.concurrent.atomic.AtomicBoolean
  * running. Backoff grows with consecutive failures (capped) so a persistently broken decoder
  * doesn't spin-loop, and resets to zero the moment a frame actually renders, so an isolated
  * failure recovers at full speed next time.
+ *
+ * **Two-tier, one-way-per-session escalation on repeated failure.** First failure drops the
+ * `KEY_LOW_LATENCY` hint (a known weak spot in some budget SoCs' Codec2 HAL implementations) and
+ * recreates via the SAME decoder-by-MIME-type call. **Confirmed on the RT3 that this alone is
+ * not sufficient** — `c2.mtk.avc.decoder` failed identically with the hint already off, same
+ * error, same ~7s cadence. That is expected once you know `MediaCodec.createDecoderByType()` is
+ * deterministic: it hands back the platform's one preferred component for that MIME type every
+ * time, so recreating with different format flags can never escape a defect that lives in the
+ * component itself. The second failure therefore switches decoder SELECTION, not configuration:
+ * it looks up a software-only AVC decoder via [MediaCodecList] and requests it BY NAME
+ * ([MediaCodec.createByCodecName]) for the rest of the session — every certified Android device
+ * ships one (a CDD requirement), and it is a genuinely different implementation, not the same
+ * broken part with different settings.
  */
 class FpvTextureView @JvmOverloads constructor(
     context: Context,
@@ -203,6 +218,40 @@ class FpvTextureView @JvmOverloads constructor(
          */
         private var useLowLatencyHint = true
 
+        /**
+         * Second-tier escalation: request a software AVC decoder BY NAME instead of the
+         * platform's preferred hardware one for this MIME type. Only reached after a failure
+         * has ALREADY survived having [useLowLatencyHint] dropped — see the class doc for why
+         * that ordering matters (recreating a hardware decoder that's broken for reasons other
+         * than the low-latency hint just hands back the identical broken component). One-way per
+         * session, same rationale as [useLowLatencyHint].
+         */
+        private var preferSoftwareDecoder = false
+
+        /** Resolved once and cached — no reason to re-scan [MediaCodecList] on every recreate
+         *  once we already know which software decoder this device has. */
+        private var softwareDecoderName: String? = null
+
+        /**
+         * Finds a software-only AVC decoder. Null if none is found — shouldn't happen (every
+         * certified device has one per the Android CDD), but this runs on hardware outside our
+         * control, so failing closed to the platform default is safer than assuming.
+         *
+         * [MediaCodecInfo.isSoftwareOnly] exists from API 29; below that this falls back to the
+         * long-standing naming convention (a vendor's own decoder is never named "OMX.google."
+         * or "c2.android.").
+         */
+        private fun findSoftwareAvcDecoder(): String? {
+            for (info in MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos) {
+                if (info.isEncoder) continue
+                if (!info.supportedTypes.any { it.equals(MIME, ignoreCase = true) }) continue
+                val isSoftware = if (android.os.Build.VERSION.SDK_INT >= 29) info.isSoftwareOnly
+                    else info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.")
+                if (isSoftware) return info.name
+            }
+            return null
+        }
+
         /** Invoked (rate-limited) while unsynced — asks the aircraft for a fresh keyframe. */
         @Volatile var onSyncNeeded: (() -> Unit)? = null
         private var lastSyncReq = 0L
@@ -292,8 +341,21 @@ class FpvTextureView @JvmOverloads constructor(
         /** Builds and starts a MediaCodec against this thread's [surface]. Used for the initial
          *  decoder and, on a codec-level failure, to rebuild in place without touching the
          *  Surface or the thread itself — see the class doc. */
-        private fun createCodec(): MediaCodec =
-            MediaCodec.createDecoderByType(MIME).apply {
+        private fun createCodec(): MediaCodec {
+            val base = if (preferSoftwareDecoder) {
+                val name = softwareDecoderName ?: findSoftwareAvcDecoder()?.also { softwareDecoderName = it }
+                if (name != null) {
+                    AppLog.i(TAG, "FPV: creating decoder by name (software fallback): $name")
+                    MediaCodec.createByCodecName(name)
+                } else {
+                    AppLog.w(TAG, "FPV: no software AVC decoder found on this device — " +
+                        "falling back to the platform default despite it having failed")
+                    MediaCodec.createDecoderByType(MIME)
+                }
+            } else {
+                MediaCodec.createDecoderByType(MIME)
+            }
+            return base.apply {
                 val fmt = MediaFormat.createVideoFormat(MIME, 1280, 720)
                 fmt.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = realtime
                 if (useLowLatencyHint && android.os.Build.VERSION.SDK_INT >= 30) {
@@ -302,6 +364,7 @@ class FpvTextureView @JvmOverloads constructor(
                 configure(fmt, surface, null, 0)
                 start()
             }
+        }
 
         // ---- Decode loop (this thread) ----
         override fun run() {
@@ -435,13 +498,23 @@ class FpvTextureView @JvmOverloads constructor(
                             "recreating decoder", e)
                         try { cd.stop() } catch (_: Throwable) {}
                         try { cd.release() } catch (_: Throwable) {}
-                        // Any instability at all is enough to stop asking for the demanding mode
-                        // — see useLowLatencyHint's doc. Checked here, applied on the createCodec
-                        // call below.
+                        // Escalation ladder — cheapest fix tried first, applied on the
+                        // createCodec call below:
                         if (useLowLatencyHint) {
+                            // Tier 1: any instability at all is enough to stop asking for the
+                            // demanding mode. See useLowLatencyHint's doc.
                             useLowLatencyHint = false
                             AppLog.w(TAG, "FPV: dropping low-latency decode hint for the rest of " +
                                 "this session after a codec failure")
+                        } else if (!preferSoftwareDecoder) {
+                            // Tier 2: it failed again even without the low-latency hint, so the
+                            // hint was never the cause — recreating via the same MIME type just
+                            // hands back the identical (broken) hardware component. Switch which
+                            // decoder gets selected, not how it's configured. See the class doc.
+                            preferSoftwareDecoder = true
+                            AppLog.w(TAG, "FPV: hardware decoder still failing without low-" +
+                                "latency mode — switching to a software AVC decoder for the " +
+                                "rest of this session")
                         }
                         // Grows with consecutive failures so a persistently broken decoder
                         // doesn't spin-loop recreating itself several times a second; capped so
