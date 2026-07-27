@@ -318,19 +318,30 @@ class FieldGuideActivity : AppCompatActivity() {
                 "on. Think of it as where the aircraft is looking.\n\n" +
                 "The ring in the middle changes colour to tell you how accurate a marker " +
                 "dropped right now would be. It follows how steeply the camera is tilted down, " +
-                "which you can also read on the GIMBAL line in the readout:\n\n" +
-                "GREEN — 25° down or steeper. Roughly ±10 ft on the ground.\n" +
-                "YELLOW — 10° to 25° down. Roughly ±50 ft.\n" +
-                "WHITE — shallower than 10° down. Too flat to put a useful number on.\n\n" +
+                "which you can also read on the GIMBAL line in the readout. The exact angles " +
+                "depend on whether you've loaded terrain data (DTED) for where you're flying:\n\n" +
+                "WITH terrain data loaded —\n" +
+                "GREEN: 25° down or steeper. Roughly ±10 ft on the ground.\n" +
+                "YELLOW: 10° to 25° down. Roughly ±50 ft.\n\n" +
+                "WITHOUT terrain data —\n" +
+                "GREEN: 30° down or steeper. Roughly ±50 ft on the ground.\n" +
+                "YELLOW: 15° to 30° down. Roughly ±100 ft.\n\n" +
+                "RED — shallower than the yellow range either way. Too flat to trust; get " +
+                "steeper or fly closer before dropping a marker.\n\n" +
                 "The reason is geometry: the flatter the camera looks, the further along the " +
                 "ground a small aiming error slides the marker. Looking steeply down at " +
                 "something is far more precise than marking it from across the valley — so if " +
                 "a marker's position matters, fly closer and tilt down rather than zooming in " +
-                "from a distance.",
+                "from a distance. Terrain data needs a steeper angle for the same trust level " +
+                "because without it the app has to assume flat ground, which is its own source " +
+                "of error stacked on top of the aiming error.",
             listOf(
-                "Those figures assume a good GPS fix and terrain data loaded for the area. A " +
-                    "weak fix, or hovering near large metal structures, will be worse than " +
-                    "that at any angle.",
+                "Those figures assume a good GPS fix. A weak fix, or hovering near large " +
+                    "metal structures, will be worse than that at any angle.",
+                "It's the terrain data at your aircraft's CURRENT position that matters here, " +
+                    "not just whether you've loaded any for the area — flying past the edge of " +
+                    "your downloaded coverage switches the ring to the without-terrain-data " +
+                    "thresholds.",
             ),
         )
 

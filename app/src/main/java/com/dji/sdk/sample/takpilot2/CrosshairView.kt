@@ -35,19 +35,27 @@ class CrosshairView @JvmOverloads constructor(
     }
 
     /**
-     * Centre-ring colour as a marker-accuracy cue, driven by gimbal pitch.
+     * Centre-ring colour as a marker-accuracy cue, driven by gimbal pitch AND whether DTED
+     * covers the aircraft's current position.
      *
      * Ground-point accuracy falls off as `1/sin²(pitch)` — the shallower the look angle, the
-     * more a given pitch or bearing error smears along the ground. Measured at ~40 m up:
-     * roughly 4.5 ft of ground error per degree at -45°, 19 ft at -20°, 65 ft at -10°. So the
-     * same marker drop is an order of magnitude tighter looking steeply down than obliquely,
-     * and the pilot has no other way to see that. Thresholds: [PITCH_GOOD_DEG]/[PITCH_FAIR_DEG].
+     * more a given pitch or bearing error smears along the ground. So the same marker drop is
+     * an order of magnitude tighter looking steeply down than obliquely, and the pilot has no
+     * other way to see that. Thresholds: [PITCH_GOOD_DEG]/[PITCH_FAIR_DEG] (with DTED),
+     * [PITCH_GOOD_DEG_NO_DTED]/[PITCH_FAIR_DEG_NO_DTED] (without) — steeper is required for the
+     * same trust level without DTED, because the flat-ground assumption stacks an extra error
+     * source on top of the same geometric term.
      *
      * Only the centre ring is tinted; the arms stay white so the reticle reads the same as a
      * sighting reference regardless of state.
+     *
+     * @param dtedAvailable whether DTED covers the aircraft's CURRENT position — i.e. whether a
+     *   marker dropped right now would actually get [CameraSlantPoint]'s terrain-corrected
+     *   solve, not just whether any DTED is loaded anywhere. Defaults false (the stricter
+     *   thresholds) so an omitted argument fails toward more caution, not less.
      */
-    fun setGimbalPitch(pitchDeg: Double?) {
-        val next = accuracyColorFor(pitchDeg)
+    fun setGimbalPitch(pitchDeg: Double?, dtedAvailable: Boolean = false) {
+        val next = accuracyColorFor(pitchDeg, dtedAvailable)
         if (next == ringColor) return   // avoid invalidating on every HUD tick
         ringColor = next
         ring.color = next
@@ -152,36 +160,63 @@ class CrosshairView @JvmOverloads constructor(
         private const val HIT_RADIUS_DP = 34f
 
         /**
-         * Steeper than this, a marker drop is worth trusting. Set to -25 from field results:
-         * the operator reported acceptable placement at ~100 ft AGL and -20 deg, so -30 was
-         * stricter than the hardware actually warrants and left the ring amber during
-         * perfectly good drops.
+         * Steeper than this WITH DTED coverage, a marker drop is worth trusting. Set to -25
+         * from field results: the operator reported acceptable placement at ~100 ft AGL and
+         * -20 deg, so -30 was stricter than the hardware actually warrants and left the ring
+         * amber during perfectly good drops. Roughly +/-10 ft of ground accuracy at this
+         * boundary.
          */
         const val PITCH_GOOD_DEG = -25.0
 
         /**
-         * Between this and [PITCH_GOOD_DEG]: usable, but a degree of pointing error is already
-         * tens of feet on the ground. Shallower than this is unmarked — below about -10 the
-         * 1/sin^2 term runs away fast enough that a placement isn't worth quoting a figure for.
-         *
-         * With good GPS and DTED coverage, expect roughly +/-50 ft of ground accuracy in this
-         * band against +/-10 ft in the green one. Both assume good inputs: a weak GPS fix or a
+         * Between this and [PITCH_GOOD_DEG] WITH DTED: usable, but a degree of pointing error
+         * is already tens of feet on the ground. Roughly +/-50 ft of ground accuracy at this
+         * boundary. Both this and [PITCH_GOOD_DEG] assume good inputs: a weak GPS fix or a
          * magnetically noisy hover degrades them regardless of look angle.
          */
         const val PITCH_FAIR_DEG = -10.0
 
+        /**
+         * Steeper than this WITHOUT DTED coverage at the aircraft's current position, a marker
+         * drop is worth trusting. Field-calibrated 2026-07-27 on the RT3 (no DTED loaded):
+         * drops read roughly +/-50 ft at this boundary — compare [PITCH_GOOD_DEG]'s +/-10 ft
+         * WITH DTED at the same trust level. Steeper is required without DTED because the
+         * flat-ground assumption ([CameraSlantPoint.computeFlat]) stacks its own error on top
+         * of the same 1/sin²(pitch) geometric term DTED coverage would otherwise correct for.
+         */
+        const val PITCH_GOOD_DEG_NO_DTED = -30.0
+
+        /**
+         * Between this and [PITCH_GOOD_DEG_NO_DTED] WITHOUT DTED: roughly +/-100 ft of ground
+         * accuracy at this boundary, field-calibrated alongside [PITCH_GOOD_DEG_NO_DTED].
+         */
+        const val PITCH_FAIR_DEG_NO_DTED = -15.0
+
         private val ACCURACY_GOOD = Color.parseColor("#4CAF50")
         private val ACCURACY_FAIR = Color.parseColor("#FFEB3B")
+
+        /** Shallower than the fair threshold, either way — a drop here is worth actively
+         *  discouraging, not just leaving unmarked (the previous white/neutral state). Red
+         *  regardless of DTED availability; only which pitch triggers it differs. */
+        private val ACCURACY_POOR = Color.parseColor("#F44336")
 
         /**
          * Single source for the accuracy tint, shared with the HUD's gimbal readout so the
          * number and the reticle cannot disagree about what state the pilot is in.
+         *
+         * @param dtedAvailable selects which threshold pair applies — see the constants' docs.
+         *   Defaults false (the stricter, no-DTED pair) so an omitted argument fails toward
+         *   showing worse accuracy than is actually the case, never better.
          */
-        fun accuracyColorFor(pitchDeg: Double?): Int = when {
-            pitchDeg == null -> Color.WHITE
-            pitchDeg <= PITCH_GOOD_DEG -> ACCURACY_GOOD
-            pitchDeg <= PITCH_FAIR_DEG -> ACCURACY_FAIR
-            else -> Color.WHITE
+        fun accuracyColorFor(pitchDeg: Double?, dtedAvailable: Boolean = false): Int {
+            val good = if (dtedAvailable) PITCH_GOOD_DEG else PITCH_GOOD_DEG_NO_DTED
+            val fair = if (dtedAvailable) PITCH_FAIR_DEG else PITCH_FAIR_DEG_NO_DTED
+            return when {
+                pitchDeg == null -> Color.WHITE
+                pitchDeg <= good -> ACCURACY_GOOD
+                pitchDeg <= fair -> ACCURACY_FAIR
+                else -> ACCURACY_POOR
+            }
         }
     }
 }

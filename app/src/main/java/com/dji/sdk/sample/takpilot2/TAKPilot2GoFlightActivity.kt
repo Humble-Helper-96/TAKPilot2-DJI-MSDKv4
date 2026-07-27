@@ -679,13 +679,19 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      *
      * Both are driven from the same value so the number and the reticle can't disagree. The
      * thresholds mark how much a marker drop can be trusted: ground error scales as
-     * 1/sin^2(pitch), so at ~40 m up it runs roughly 4.5 ft per degree of pointing error at
-     * -45 deg, 19 ft at -20 deg, and 65 ft at -10 deg. Steeper is dramatically better, and
-     * nothing else on screen tells the pilot that. Thresholds live in [CrosshairView].
+     * 1/sin^2(pitch), so steeper is dramatically better, and nothing else on screen tells the
+     * pilot that. Two threshold pairs — WITH DTED coverage at the aircraft's current position
+     * and WITHOUT — since the no-DTED flat-ground assumption stacks its own error on top of the
+     * same geometric term; field-calibrated for both, see [CrosshairView]'s constants.
      */
     private fun updateGimbalPitch(hud: com.dji.sdk.sample.tak.DroneTakBridge.Hud?) {
         val pitch = hud?.gimbalPitch
-        crosshairView.setGimbalPitch(pitch)
+        // Whether a marker dropped RIGHT NOW would get CameraSlantPoint's terrain-corrected
+        // solve — the same question CameraSlantPoint.compute itself asks (DTED coverage at the
+        // aircraft's OWN current position, not just whether any DTED is loaded anywhere).
+        val dtedAvailable = hud != null &&
+            com.dji.sdk.sample.tak.DtedIndex.elevationAt(this, hud.lat, hud.lon) != null
+        crosshairView.setGimbalPitch(pitch, dtedAvailable)
         if (pitch == null) {
             fpvGimbalPitch.text = "GIMBAL —"
             fpvGimbalPitch.setTextColor(android.graphics.Color.parseColor("#B0B0B0"))
@@ -701,7 +707,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvGimbalPitch.text = label
         // Shared classifier, not a second copy of the thresholds — these two displays drifting
         // apart would be worse than having only one of them.
-        fpvGimbalPitch.setTextColor(CrosshairView.accuracyColorFor(pitch))
+        fpvGimbalPitch.setTextColor(CrosshairView.accuracyColorFor(pitch, dtedAvailable))
     }
 
     private fun onArToggleTapped() {
