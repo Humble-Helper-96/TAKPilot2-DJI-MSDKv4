@@ -6,12 +6,14 @@ object TakBridgeHolder {
     // Remembered so it survives bridge restarts (reconnect) and a start-before-connect order.
     private var videoUrl: String? = null
     private var cameraPointEnabled = false
+    private var zoomFactor: Double = 1.0
 
     fun start(droneUid: String, droneCallsign: String) {
         bridge?.stop()
         bridge = DroneTakBridge(droneUid, droneCallsign).also {
             it.videoUrl = videoUrl
             it.cameraPointEnabled = cameraPointEnabled
+            it.zoomFactor = zoomFactor
             it.start()
         }
     }
@@ -34,6 +36,21 @@ object TakBridgeHolder {
     }
 
     val isCameraPointEnabled: Boolean get() = cameraPointEnabled
+
+    /**
+     * Current digital zoom (1.0 = none), set by the flight screen's zoom control.
+     *
+     * Held here rather than only in the Activity because TWO things depend on it and must not
+     * disagree: the FOV cone published to other TAK clients, and the AR overlay's projection.
+     * Zooming crops the camera's angular width, so a fixed 1x FOV puts every AR marker at
+     * roughly half its correct offset from centre at 2x — which is exactly how this surfaced.
+     */
+    fun setZoomFactor(factor: Double) {
+        zoomFactor = if (factor.isFinite() && factor >= 1.0) factor else 1.0
+        bridge?.zoomFactor = zoomFactor
+    }
+
+    val currentZoomFactor: Double get() = zoomFactor
 
     val isRunning: Boolean get() = bridge != null
 
