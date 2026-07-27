@@ -239,6 +239,29 @@ class FieldGuideActivity : AppCompatActivity() {
         )
 
         entry(
+            listOf(arPill(on = false) to "Off", arPill(on = true) to "On"),
+            "AR — markers on the video",
+            "Draws markers onto the live picture where the things themselves are, so you can " +
+                "see which building, vehicle or hillside a marker refers to instead of working " +
+                "it out from the map. It goes GREEN while it's running.\n\n" +
+                "Anything outside the camera's view shows as a small arrow at the edge of the " +
+                "picture, pointing the way you'd have to turn to see it.\n\n" +
+                "Press and hold to choose what it draws — your own markers, the team's markers, " +
+                "the team's positions, air traffic, weather stations — and how far out to show " +
+                "air traffic (2.5, 5 or 15 miles). Turning something off clears it from the " +
+                "video straight away. Ground markers always show out to 5 miles.",
+            listOf(
+                "Markers will swim about while you swing the camera quickly and settle once " +
+                    "you stop. That's normal — the position data and the video don't arrive at " +
+                    "exactly the same moment.",
+                "This answers \"which of those is it\", not \"what are its coordinates\". For " +
+                    "a precise position, put the crosshair on it and drop a marker.",
+                "Air traffic positions can be up to about ten seconds old, so a fast aircraft " +
+                    "will be somewhat ahead of where its marker sits.",
+            ),
+        )
+
+        entry(
             listOf(image(R.drawable.ic_camera_shutter) to "Photo"),
             "Photo",
             "Takes a still photo, saved to the card in the aircraft — not to your phone. The " +
@@ -308,6 +331,28 @@ class FieldGuideActivity : AppCompatActivity() {
                 "Those figures assume a good GPS fix and terrain data loaded for the area. A " +
                     "weak fix, or hovering near large metal structures, will be worse than " +
                     "that at any angle.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "Quick marker — tap the crosshair",
+            "Tapping the crosshair itself drops a marker on the spot, with no questions asked. " +
+                "It always goes out as Unknown and always carries the same name, " +
+                "${com.dji.sdk.sample.tak.TakDropMarkers.QUICK_NAME}, so the team learns to " +
+                "recognise it.\n\n" +
+                "There is only ever ONE of these. To point it at something else, aim the " +
+                "camera and press and hold the crosshair — it moves to where you're now " +
+                "looking, on everyone's screen. Tapping again does not drop a second one.\n\n" +
+                "Use it as a live pointer: \"what I am looking at right now\". For anything " +
+                "you want to keep a record of, use the drop-marker button instead, where you " +
+                "can name it and set its type.",
+            listOf(
+                "To get the quick marker back to being unused, delete it from the marker list " +
+                    "(press and hold the drop-marker button). After that a tap will place a " +
+                    "fresh one.",
+                "It obeys the same rules as any other marker: deleting it only clears it from " +
+                    "your screen, and it stays on everyone else's until it ages out.",
             ),
         )
 
@@ -598,6 +643,19 @@ class FieldGuideActivity : AppCompatActivity() {
         gravity = Gravity.CENTER
         setBackgroundResource(R.drawable.bg_zoom_pill)
         setTextColor(Color.WHITE); textSize = 12f
+        setTypeface(null, android.graphics.Typeface.BOLD)
+        layoutParams = LinearLayout.LayoutParams(dp(36), dp(26))
+    }
+
+    /** The AR pill in either state, built from the same drawables and tints the flight screen's
+     *  refreshArButton() uses, so an example here can't show a state the toolbar never renders. */
+    private fun arPill(on: Boolean): View = TextView(this).apply {
+        text = "AR"
+        gravity = Gravity.CENTER
+        setBackgroundResource(if (on) R.drawable.bg_ar_pill_active else R.drawable.bg_zoom_pill)
+        setTextColor(if (on) CONNECTED_GREEN else Color.WHITE)
+        alpha = if (on) 1f else 0.45f
+        textSize = 12f
         setTypeface(null, android.graphics.Typeface.BOLD)
         layoutParams = LinearLayout.LayoutParams(dp(36), dp(26))
     }

@@ -77,14 +77,19 @@
         android:paddingEnd="14dp">
 
         <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
-             ISO/shutter the camera actually chose beneath it. -->
+             ISO/shutter the camera actually chose beneath it.
+
+             Width is the MAP's width, not a number of its own: the map is the widest thing in
+             this column, so matching it is what makes the exposure block, the readouts and the
+             map read as one right-hand instrument stack instead of the slider hanging out over
+             the video. It also tracks the h440dp dimen override for free. -->
         <com.dji.sdk.sample.takpilot2.EvSliderView
             android:id="@+id/evSlider"
-            android:layout_width="176dp"
+            android:layout_width="@dimen/flight_map_size"
             android:layout_height="24dp" />
 
         <LinearLayout
-            android:layout_width="176dp"
+            android:layout_width="@dimen/flight_map_size"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
 
@@ -102,7 +107,7 @@
         <TextView
             android:id="@+id/exposureReadout"
             style="@style/hudText"
-            android:layout_width="176dp"
+            android:layout_width="@dimen/flight_map_size"
             android:gravity="center"
             android:text="ISO —   —" />
 
@@ -264,9 +269,23 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!-- AR overlay toggle. Sits at the head of the right-hand cluster, next to the drop-pin
-             button — drop-pin creates markers, this shows them, so they read as a pair. Tap
-             toggles; long-press opens the AR options (6D-C). -->
+        <!-- Drop-pin heads the right-hand cluster and is deliberately the LARGEST control in the
+             bar: it is the most-used action on this screen, and a pilot reaching for it is
+             usually also flying, so it has to be findable and hittable without aiming. AR sits
+             immediately after it — drop-pin creates markers, AR shows them, so they read as a
+             pair either way round. -->
+        <ImageButton
+            android:id="@+id/flightDropPinButton"
+            android:layout_width="56dp"
+            android:layout_height="46dp"
+            android:layout_marginEnd="10dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Drop a TAK marker at the camera crosshair"
+            android:padding="1dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_drop_pin" />
+
+        <!-- Tap toggles the AR overlay; long-press opens the AR options (6D-C). -->
         <TextView
             android:id="@+id/flightArButton"
             android:layout_width="36dp"
@@ -279,17 +298,6 @@
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:textStyle="bold" />
-
-        <ImageButton
-            android:id="@+id/flightDropPinButton"
-            android:layout_width="40dp"
-            android:layout_height="34dp"
-            android:layout_marginEnd="8dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Drop a TAK marker at the camera crosshair"
-            android:padding="3dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_drop_pin" />
 
         <ImageButton
             android:id="@+id/flightShootPhotoButton"

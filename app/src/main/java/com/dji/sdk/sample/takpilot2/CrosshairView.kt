@@ -6,7 +6,11 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
+import kotlin.math.hypot
 
 /**
  * ATAK-UAS-Tool-style center reticle, drawn over the FPV video's actual content area (not the
@@ -78,6 +82,45 @@ class CrosshairView @JvmOverloads constructor(
         style = Paint.Style.STROKE
     }
 
+    /** Tap inside the reticle — quick-drop a marker at the look point. Set by the flight screen. */
+    var onReticleTap: (() -> Unit)? = null
+
+    /** Long-press inside the reticle — re-aim the existing quick-drop marker. */
+    var onReticleLongPress: (() -> Unit)? = null
+
+    private val gesture = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean = true
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            onReticleTap?.invoke()
+            return true
+        }
+        override fun onLongPress(e: MotionEvent) {
+            // The action fires without any visible press state (there's no button here to
+            // highlight), so the buzz is the only confirmation the long-press registered.
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            onReticleLongPress?.invoke()
+        }
+    })
+
+    /**
+     * Touches are claimed ONLY within [HIT_RADIUS_DP] of the reticle centre.
+     *
+     * This view is `match_parent` and sits over the whole video, so consuming everything would
+     * silently swallow every future touch on the FPV area. Rejecting at ACTION_DOWN — rather
+     * than filtering later — means a touch that starts outside the reticle is never routed here
+     * at all and the rest of its gesture goes wherever it would have gone before.
+     */
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (onReticleTap == null && onReticleLongPress == null) return false
+        if (videoRect.isEmpty) return false
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val r = HIT_RADIUS_DP * resources.displayMetrics.density
+            val dist = hypot(event.x - videoRect.centerX(), event.y - videoRect.centerY())
+            if (dist > r) return false
+        }
+        return gesture.onTouchEvent(event)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (videoRect.isEmpty) return
@@ -100,6 +143,14 @@ class CrosshairView @JvmOverloads constructor(
     }
 
     companion object {
+        /**
+         * Tap target around the reticle centre, in dp. Comfortably larger than the drawn reticle
+         * (22dp arms) because the pilot is aiming at it with a thumb while flying, but well short
+         * of covering the video — an over-wide target here would eat FPV touches for no visible
+         * reason.
+         */
+        private const val HIT_RADIUS_DP = 34f
+
         /**
          * Steeper than this, a marker drop is worth trusting. Set to -25 from field results:
          * the operator reported acceptable placement at ~100 ft AGL and -20 deg, so -30 was

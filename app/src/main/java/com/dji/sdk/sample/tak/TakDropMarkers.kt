@@ -49,6 +49,13 @@ object TakDropMarkers {
     private const val PROP_KEY = "key"
     private const val PROP_ICON = "icon"
 
+    /**
+     * Callsign carried by the reticle-tap marker (see [placeQuick]). Fixed and short: it is the
+     * same marker every time, so a name everyone learns to recognise beats a number, and a fixed
+     * string keeps it clear of the `<callsign>-P<n>` auto-naming used by ordinary drops.
+     */
+    const val QUICK_NAME = "E419"
+
     enum class Affiliation(val id: String, val label: String, val res: Int) {
         // `id` is what CotBuilder.buildMarker switches on to pick the CoT type — these four
         // strings map to a-f-G / a-h-G / a-n-G / a-u-G. Don't rename them casually.
@@ -67,6 +74,8 @@ object TakDropMarkers {
         var name: String,
         /** CoT uid from the first send — the marker's identity. Null until it's been sent. */
         var cotUid: String?,
+        /** The one reticle-tap pin. See [quickPin]. */
+        val quick: Boolean = false,
     )
 
     /** Read-only snapshot for the 6C markers list panel. */
@@ -231,6 +240,59 @@ object TakDropMarkers {
         }
     }
 
+    // ---- Quick drop (reticle tap) ----
+
+    /**
+     * The reticle-tap marker: one pin, always [Affiliation.UNKNOWN], placed and re-aimed straight
+     * from the crosshair with no dialog in between.
+     *
+     * **Exactly one may exist at a time, and that is the whole point.** The pilot is not
+     * cataloguing places — they are keeping one "what I am looking at right now" marker current
+     * for everyone else on the picture. A second tap re-aiming the same marker (rather than
+     * dropping another) is what makes it a live pointer instead of a trail of numbered pins, and
+     * it is why this needs no menu: with one target there is nothing to choose between. UNKNOWN
+     * because a marker placed in under a second is by definition unverified.
+     *
+     * Identified by a stored flag, not by its name — so the pilot can rename it from the markers
+     * list without it quietly becoming an ordinary pin (or, worse, a second quick drop becoming
+     * possible). Deleting it from the markers list is what frees the slot.
+     */
+    fun quickPin(): PinInfo? = pins.values.firstOrNull { it.quick }?.let {
+        PinInfo(it.key, it.name, it.affiliation, it.lat, it.lon, it.alt)
+    }
+
+    /**
+     * Place the quick-drop pin. No-op returning false if one already exists — the caller decides
+     * how to tell the pilot, since the answer ("long-press to re-aim it") is UI text.
+     *
+     * Does NOT touch the auto-name counter: this pin has a fixed callsign, so consuming a -P<n>
+     * would leave a gap in the numbering of the pins that actually use it.
+     */
+    fun placeQuick(lat: Double, lon: Double, alt: Double): Boolean {
+        if (quickPin() != null) return false
+        val pin = Pin(
+            key = "quick-${System.nanoTime()}",
+            lat = lat, lon = lon, alt = alt,
+            affiliation = Affiliation.UNKNOWN, name = QUICK_NAME, cotUid = null, quick = true,
+        )
+        pins[pin.key] = pin
+        AppLog.i(TAG, "quick drop placed: ${pin.key} @ $lat,$lon alt=$alt")
+        save()
+        rebuild()
+        sendPin(pin)
+        return true
+    }
+
+    /**
+     * Re-aim the quick-drop pin at the current look point, keeping its uid so every other TAK
+     * client moves the existing marker instead of collecting duplicates. False if there is none.
+     */
+    fun moveQuick(lat: Double, lon: Double, alt: Double): Boolean {
+        val pin = pins.values.firstOrNull { it.quick } ?: return false
+        moveToLookPoint(pin.key, lat, lon, alt)
+        return true
+    }
+
     // ---- 6C: markers list panel / row actions ----
 
     /** Snapshot of all dropped pins for the markers list panel, newest first. */
@@ -328,6 +390,9 @@ object TakDropMarkers {
                     put("key", p.key); put("lat", p.lat); put("lon", p.lon); put("alt", p.alt)
                     put("aff", p.affiliation.id); put("name", p.name)
                     p.cotUid?.let { put("uid", it) }
+                    // Only written when set: an absent key reads back as false, so pins saved
+                    // before quick-drop existed load unchanged.
+                    if (p.quick) put("quick", true)
                 })
             }
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -351,6 +416,7 @@ object TakDropMarkers {
                     key, o.getDouble("lat"), o.getDouble("lon"), o.optDouble("alt", 0.0),
                     aff, o.optString("name", "Marker"),
                     o.optString("uid", "").takeIf { it.isNotEmpty() },
+                    o.optBoolean("quick", false),
                 )
             }
         } catch (e: Exception) { AppLog.w(TAG, "load failed: ${e.message}") }

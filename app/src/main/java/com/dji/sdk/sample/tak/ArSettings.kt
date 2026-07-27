@@ -30,49 +30,18 @@ object ArSettings {
     private const val KEY_WEATHER = "show_weather"
 
     /**
-     * What a category toggle refers to, and how far out that kind of thing is worth drawing.
-     * Order here is the order shown in the options dialog.
+     * What a category toggle refers to. Order here is the order shown in the options dialog.
      *
-     * **Range is per-category on purpose.** 5 km is right for ground markers, where anything
-     * further is an unactionable speck. It is badly wrong for air traffic: an aircraft at a few
-     * thousand feet is plainly relevant at 15 nm and is exactly what a pilot wants to see.
+     * Labels are deliberately terse — two or three words, no sentence-case description line.
+     * This menu is opened in flight, one-handed, to fix a picture that is already too busy; a
+     * pilot reading a paragraph per row is a pilot not looking at the video.
      */
-    enum class Category(
-        val key: String,
-        val label: String,
-        val description: String,
-        val maxRangeM: Double,
-    ) {
-        MY_MARKERS(
-            KEY_MY_MARKERS,
-            "My dropped markers",
-            "Markers you placed from this aircraft",
-            GROUND_RANGE_M,
-        ),
-        OTHER_MARKERS(
-            KEY_OTHER_MARKERS,
-            "Other users' markers",
-            "Markers other operators have placed",
-            GROUND_RANGE_M,
-        ),
-        OTHER_POSITIONS(
-            KEY_OTHER_POSITIONS,
-            "Other users' positions",
-            "Where other operators themselves are",
-            GROUND_RANGE_M,
-        ),
-        AIRCRAFT(
-            KEY_AIRCRAFT,
-            "Aircraft (ADS-B)",
-            "Nearby air traffic, out to 15 nm",
-            AIR_RANGE_M,
-        ),
-        WEATHER(
-            KEY_WEATHER,
-            "Weather (METAR)",
-            "Airport weather stations",
-            AIR_RANGE_M,
-        ),
+    enum class Category(val key: String, val label: String) {
+        MY_MARKERS(KEY_MY_MARKERS, "My Markers"),
+        OTHER_MARKERS(KEY_OTHER_MARKERS, "Team Markers"),
+        OTHER_POSITIONS(KEY_OTHER_POSITIONS, "Team Positions"),
+        AIRCRAFT(KEY_AIRCRAFT, "Air Traffic"),
+        WEATHER(KEY_WEATHER, "Weather"),
     }
 
     /**
@@ -101,9 +70,68 @@ object ArSettings {
     /** Set by the operator's METAR gateway as `METAR-<ICAO>`; see its runbook. */
     private const val METAR_UID_PREFIX = "METAR-"
 
-    private const val GROUND_RANGE_M = 5_000.0
-    /** 15 nautical miles, the operator's chosen air-traffic horizon. */
-    private const val AIR_RANGE_M = 15.0 * 1852.0
+    /** Statute, not nautical. The whole app displays imperial (see `Units.kt`) and mixing the
+     *  two units of "mile" in a pilot-facing menu is exactly how a range gets misread. */
+    private const val METERS_PER_MILE = 1609.344
+
+    /**
+     * Ground horizon: fixed at 5 statute miles, not adjustable.
+     *
+     * Ground markers are sparse and static — a range knob for them would be a control the pilot
+     * never has a reason to touch. Air traffic is the opposite (see [AirRange]), which is why
+     * only that one is exposed.
+     */
+    private const val GROUND_RANGE_M = 5.0 * METERS_PER_MILE
+
+    /** Airport weather stations are sparse and the nearest one is worth seeing however far it
+     *  is, so METAR keeps the widest fixed horizon rather than following [AirRange]. */
+    private const val WEATHER_RANGE_M = 15.0 * METERS_PER_MILE
+
+    private const val KEY_AIR_RANGE = "air_range_mi"
+
+    /**
+     * How far out ADS-B tracks are drawn — the one range the pilot can change, because it is the
+     * one that changes with conditions rather than with preference. Over a quiet area 15 miles of
+     * traffic is useful situational awareness; over a busy pattern the same setting carpets the
+     * video with diamonds and the pilot needs to pull it in to the traffic that actually matters
+     * to them.
+     */
+    enum class AirRange(val miles: Double) {
+        MI_2_5(2.5),
+        MI_5(5.0),
+        MI_15(15.0);
+
+        val meters: Double get() = miles * METERS_PER_MILE
+        /** "2.5 mi" / "5 mi" — no trailing ".0" on the whole-number options. */
+        val label: String
+            get() = if (miles == miles.toLong().toDouble()) "${miles.toLong()} mi"
+            else "$miles mi"
+    }
+
+    /** Default 15 mi: the widest option, matching the horizon air tracks already shipped with
+     *  (15 nm) so an existing pilot's picture does not silently shrink on update. */
+    fun airRange(context: Context): AirRange {
+        val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getFloat(KEY_AIR_RANGE, AirRange.MI_15.miles.toFloat()).toDouble()
+        return AirRange.values().minByOrNull { kotlin.math.abs(it.miles - stored) }
+            ?: AirRange.MI_15
+    }
+
+    fun setAirRange(context: Context, range: AirRange) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putFloat(KEY_AIR_RANGE, range.miles.toFloat()).apply()
+        AppLog.i(TAG, "AR air-traffic range -> ${range.label}")
+    }
+
+    /**
+     * How far out a category is drawn, in metres. The single place range is decided, so the
+     * overlay's draw loop never has to know which categories are fixed and which are pilot-set.
+     */
+    fun rangeMeters(context: Context, category: Category): Double = when (category) {
+        Category.AIRCRAFT -> airRange(context).meters
+        Category.WEATHER -> WEATHER_RANGE_M
+        else -> GROUND_RANGE_M
+    }
 
     private const val KEY_HFOV = "fov_h_deg"
     private const val KEY_VFOV = "fov_v_deg"
