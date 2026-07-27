@@ -108,13 +108,14 @@ object ArSettings {
             else "$miles mi"
     }
 
-    /** Default 15 mi: the widest option, matching the horizon air tracks already shipped with
-     *  (15 nm) so an existing pilot's picture does not silently shrink on update. */
+    /** Default 5 mi — operator's call 2026-07-27, after field use showed 15 mi tends to carpet
+     *  a busy area with more diamonds than the pilot actually wants by default. The pilot can
+     *  still pick 15 mi from the AR options dialog when a wider horizon is actually wanted. */
     fun airRange(context: Context): AirRange {
         val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getFloat(KEY_AIR_RANGE, AirRange.MI_15.miles.toFloat()).toDouble()
+            .getFloat(KEY_AIR_RANGE, AirRange.MI_5.miles.toFloat()).toDouble()
         return AirRange.values().minByOrNull { kotlin.math.abs(it.miles - stored) }
-            ?: AirRange.MI_15
+            ?: AirRange.MI_5
     }
 
     fun setAirRange(context: Context, range: AirRange) {
