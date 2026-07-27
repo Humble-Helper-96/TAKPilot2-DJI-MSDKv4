@@ -38,7 +38,7 @@ object UasfmStore {
      * **Do not "upgrade" this to one of the suffixed siblings.** That server hosts several
      * UASFM layers and the names are actively misleading:
      *
-     * | Layer | Ceiling at 61.1668,-149.8647 | MAP_EFF |
+     * | Layer | Ceiling at the Anchorage test cell | MAP_EFF |
      * |---|---|---|
      * | `FAA_UAS_FacilityMap_Data` (this one) | 200 | 7/9/2026 |
      * | `FAA_UAS_FacilityMap_Data_Primary` | 0 | 1/26/2023 |
