@@ -154,15 +154,15 @@ class ArOverlayView @JvmOverloads constructor(
         if (logThisPass) lastDiagMs = now
 
         // Aircraft altitude in the same reference the pins carry (DTED MSL). Without a terrain
-        // reference we can't form a vertical angle at all, so pins are drawn flat-on — better
-        // than inventing a height and pinning them to the wrong part of the image.
+        // reference we can't difference two real elevations, so both pins and contacts fall
+        // back to a flat-ground assumption below — degraded, not disabled.
         val aircraftMsl = com.dji.sdk.sample.tak.TerrainAgl.reading(context, hud).mslMeters
         // Loud, because without it EVERY vertical angle silently degrades: reported altitudes
-        // can't be differenced against anything, and contacts fall back to a flat-plane
-        // assumption that puts air traffic at the pilot's own level. That failure looks like
-        // "AR works but planes are at the wrong height" rather than like a missing input.
+        // can't be differenced against anything, and both pins and contacts fall back to a
+        // flat-plane assumption that puts everything at the pilot's own takeoff level. That
+        // failure looks like "AR works but heights are wrong" rather than like a missing input.
         if (logThisPass && aircraftMsl == null) {
-            AppLog.w(TAG, "no aircraft MSL (no DTED takeoff reference) — all contact " +
+            AppLog.w(TAG, "no aircraft MSL (no DTED takeoff reference) — pin and contact " +
                 "elevations are flat-plane estimates; air traffic will render at your level")
         }
 
@@ -180,8 +180,23 @@ class ArOverlayView @JvmOverloads constructor(
             val dBearing = ((bearing - pose.bearingDeg + 540.0) % 360.0) - 180.0
 
             // Height of the pin relative to the aircraft; negative = below, the normal case.
-            // Zero when there's no MSL reference, which flattens the geometry (see above).
-            val dz = if (aircraftMsl != null) pin.alt - aircraftMsl else 0.0
+            val dz = if (aircraftMsl != null) {
+                pin.alt - aircraftMsl
+            } else {
+                // No DTED reference for the AIRCRAFT's own position — pin.alt itself is 0.0 in
+                // this state too (CameraSlantPoint's "unknown, assume sea level" fallback; see
+                // DroneTakBridge.lookPoint), so there is no real elevation on either side of
+                // this subtraction to use. Fall back to the SAME flat-ground assumption
+                // CameraSlantPoint used to place this pin's lat/lon in the first place, and that
+                // drawContacts() below already uses for inbound contacts without DTED: the pin
+                // sits at the aircraft's own takeoff-relative ground level, i.e. straight down
+                // by however far the aircraft has climbed. A hard 0.0 here (always level with
+                // the aircraft) ignored the actual look angle the moment the aircraft wasn't at
+                // ground level — the SPoI never had this gap because it always used this exact
+                // fallback for the math that placed the pin to begin with; AR just wasn't
+                // reusing it.
+                -hud.alt
+            }
 
             // Reject on SLANT range, never on ground distance. Aiming steeply down — which is
             // exactly how a marker gets dropped on something beneath the aircraft — drives
