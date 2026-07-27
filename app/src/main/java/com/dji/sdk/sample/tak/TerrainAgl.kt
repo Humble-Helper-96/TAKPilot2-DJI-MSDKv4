@@ -85,6 +85,15 @@ object TerrainAgl {
      *  as soon as there's also DTED coverage under the aircraft. */
     val hasTakeoffReference: Boolean get() = takeoffTerrainElevM != null
 
+    /**
+     * DTED elevation (m MSL) at the takeoff point, or null before it latches.
+     *
+     * Exposed so [CameraSlantPoint] can work in a true MSL frame. DJI's altitude is height above
+     * the TAKEOFF POINT; adding this converts it to height above sea level, which is the only
+     * reference that can be differenced against DTED terrain elevations at some other location.
+     */
+    val takeoffTerrainElevMsl: Double? get() = takeoffTerrainElevM
+
     @Synchronized
     fun reading(context: Context, hud: DroneTakBridge.Hud): Reading {
         if (!hud.hasFix) return Reading(hud.alt, terrainCorrected = false, mslMeters = null)

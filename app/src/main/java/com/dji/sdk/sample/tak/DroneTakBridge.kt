@@ -252,7 +252,8 @@ class DroneTakBridge(
         // Slant-range calibration bias — see PITCH_OFFSET_DEG note below.
         val pitchAdj = pitch + PITCH_OFFSET_DEG
 
-        val gp = CameraSlantPoint.compute(lat, lon, aglMeters, bearing, pitchAdj, ::elevationLookup)
+        val gp = CameraSlantPoint.compute(
+            lat, lon, aglMeters, bearing, pitchAdj, ::elevationLookup, aircraftMsl(aglMeters))
         tak.sendCameraPoint(spiUid, droneUid, "$droneCallsign-SPI", gp.lat, gp.lon, gp.rangeMeters)
 
         // FOV cone: ATAK/taklite draw it natively from the drone PLI's <sensor> element.
@@ -370,12 +371,19 @@ class DroneTakBridge(
         val bearing = cameraBearing(yaw, heading)
         val gp = CameraSlantPoint.compute(
             loc.latitude, loc.longitude, hae, bearing, pitch + PITCH_OFFSET_DEG, ::elevationLookup,
+            aircraftMsl(hae),
         )
         // Third element is the target's terrain elevation, which dropped markers publish as
         // their CoT hae. 0.0 when there's no DTED coverage — same "unknown, assume sea level"
         // fallback the SPI push has always used.
         return Triple(gp.lat, gp.lon, gp.elevationMeters)
     }
+
+    /** Aircraft altitude above MEAN SEA LEVEL, or null before the takeoff terrain reference
+     *  latches. [heightAboveTakeoff] is DJI's own altitude; adding the takeoff point's terrain
+     *  elevation puts it in the same frame as the DTED samples the slant solver compares against. */
+    private fun aircraftMsl(heightAboveTakeoff: Double): Double? =
+        TerrainAgl.takeoffTerrainElevMsl?.plus(heightAboveTakeoff)
 
     /** DTED-backed elevation lookup for [CameraSlantPoint], or null if no tile covers the
      *  point (that's the normal case until the pilot uploads coverage for the area — the
@@ -404,10 +412,8 @@ class DroneTakBridge(
         /** Shared so a future AR overlay (Phase 6) uses the same bearing correction as the cone. */
         fun bearingOffsetDeg() = BEARING_OFFSET_DEG
 
-        // DJI Mini 2 single camera FOV (deg), approximate from published specs (83° diagonal,
-        // 24mm-equivalent wide). Refine if the FOV cone visibly disagrees with the real frame.
-        private const val MINI2_HFOV = 73.0
-        private const val MINI2_VFOV = 45.0
+        // Base FOV now lives in TakBridgeHolder so the 6D-D calibration can adjust it in
+        // flight; the published-spec defaults are TakBridgeHolder.DEFAULT_HFOV/VFOV.
 
         /**
          * Camera field of view, **corrected for digital zoom**, shared with the AR overlay so
@@ -427,8 +433,8 @@ class DroneTakBridge(
          * These base values are what the gimbal-sweep calibration in the 6D plan tunes: if a
          * marker leaves the frame edge before the real object does, the FOV here is too wide.
          */
-        fun hFovDeg(zoom: Double = 1.0) = zoomedFov(MINI2_HFOV, zoom)
-        fun vFovDeg(zoom: Double = 1.0) = zoomedFov(MINI2_VFOV, zoom)
+        fun hFovDeg(zoom: Double = 1.0) = zoomedFov(TakBridgeHolder.currentHFovBase, zoom)
+        fun vFovDeg(zoom: Double = 1.0) = zoomedFov(TakBridgeHolder.currentVFovBase, zoom)
 
         private fun zoomedFov(baseDeg: Double, zoom: Double): Double {
             if (!zoom.isFinite() || zoom <= 1.0) return baseDeg

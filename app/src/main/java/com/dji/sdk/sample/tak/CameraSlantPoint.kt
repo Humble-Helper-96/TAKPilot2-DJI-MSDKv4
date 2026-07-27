@@ -77,6 +77,7 @@ object CameraSlantPoint {
         lat: Double, lon: Double, aglMeters: Double,
         bearingDeg: Double, pitchDeg: Double,
         elevationAt: ((Double, Double) -> Double?)? = null,
+        aircraftMslMeters: Double? = null,
     ): GroundPoint {
         val flat = computeFlat(lat, lon, aglMeters, bearingDeg, pitchDeg)
         if (elevationAt == null) return flat
@@ -86,7 +87,22 @@ object CameraSlantPoint {
         var targetElev = groundElevAtAircraft
         var point = flat
         for (i in 0 until TERRAIN_ITERATIONS) {
-            val effectiveAgl = aglMeters + (groundElevAtAircraft - targetElev)
+            // Height of the aircraft above the CANDIDATE TARGET.
+            //
+            // Prefer a true MSL frame when the caller can supply one: [aglMeters] is DJI's
+            // height above the TAKEOFF POINT, and the fallback below silently treats it as
+            // height above the ground directly beneath the aircraft. Those are equal only
+            // until the aircraft flies somewhere the terrain differs from the launch site —
+            // after that the ray is solved with the wrong height and the ground point lands
+            // short or long. Field-caught 2026-07-27: flying out over ground ~17 m below the
+            // takeoff elevation put the SPoI ~68 m short at 370 m, i.e. 2.5 deg below where
+            // the camera was actually pointing, on the app's own crosshair AND on every other
+            // TAK client's map.
+            val effectiveAgl = if (aircraftMslMeters != null) {
+                aircraftMslMeters - targetElev
+            } else {
+                aglMeters + (groundElevAtAircraft - targetElev)
+            }
             val candidate = computeFlat(lat, lon, effectiveAgl, bearingDeg, pitchDeg)
             val sampled = elevationAt(candidate.lat, candidate.lon) ?: break
             // Attach the elevation actually sampled AT this candidate — not targetElev, which

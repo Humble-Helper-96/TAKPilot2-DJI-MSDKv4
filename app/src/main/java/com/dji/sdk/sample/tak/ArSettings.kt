@@ -105,6 +105,39 @@ object ArSettings {
     /** 15 nautical miles, the operator's chosen air-traffic horizon. */
     private const val AIR_RANGE_M = 15.0 * 1852.0
 
+    private const val KEY_HFOV = "fov_h_deg"
+    private const val KEY_VFOV = "fov_v_deg"
+
+    /**
+     * Calibrated camera field of view (degrees at 1x), persisted across flights.
+     *
+     * The defaults are derived from published specs, not measured. AR accuracy is most sensitive
+     * to this at the FRAME EDGES — an FOV error is invisible at the centre and grows outward —
+     * so it is calibrated by putting a marker on a known object near the edge and adjusting
+     * until the icon sits on it. See the 6D plan's calibration section.
+     */
+    fun loadFov(context: Context) {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        TakBridgeHolder.setFovBase(
+            p.getFloat(KEY_HFOV, TakBridgeHolder.DEFAULT_HFOV.toFloat()).toDouble(),
+            p.getFloat(KEY_VFOV, TakBridgeHolder.DEFAULT_VFOV.toFloat()).toDouble(),
+        )
+    }
+
+    /** Applies immediately AND persists — the pilot is adjusting while watching the overlay. */
+    fun saveFov(context: Context, hDeg: Double, vDeg: Double) {
+        TakBridgeHolder.setFovBase(hDeg, vDeg)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putFloat(KEY_HFOV, TakBridgeHolder.currentHFovBase.toFloat())
+            .putFloat(KEY_VFOV, TakBridgeHolder.currentVFovBase.toFloat())
+            .apply()
+        AppLog.i(TAG, "AR FOV calibrated to %.1f x %.1f deg"
+            .format(TakBridgeHolder.currentHFovBase, TakBridgeHolder.currentVFovBase))
+    }
+
+    fun resetFov(context: Context) =
+        saveFov(context, TakBridgeHolder.DEFAULT_HFOV, TakBridgeHolder.DEFAULT_VFOV)
+
     /** Default ON: the toggle implies everything shows, so first run should match that. */
     fun isEnabled(context: Context, category: Category): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

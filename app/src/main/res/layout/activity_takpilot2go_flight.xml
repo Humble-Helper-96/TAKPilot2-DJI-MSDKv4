@@ -80,6 +80,42 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <!-- Gimbal look angle. Its own view so it can colour independently: marker placement
+             accuracy degrades as 1/sin^2(pitch), so a shallow angle is a real accuracy warning,
+             not decoration. See updateGimbalPitch. -->
+        <TextView
+            android:id="@+id/fpvGimbalPitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="end"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <!-- Gimbal pitch. Its own view so it can carry the same accuracy colour as the crosshair
+             centre ring — the number and the reticle then reinforce each other rather than the
+             pilot having to map one onto the other. -->
+        <TextView
+            android:id="@+id/fpvGimbalPitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="end"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
         <!-- FAA UASFM ceiling. Its own view rather than another line in fpvOverlayText above so
              it can turn amber/red on its own when the aircraft exceeds the ceiling. Advisory
              only — see UasfmStore. -->

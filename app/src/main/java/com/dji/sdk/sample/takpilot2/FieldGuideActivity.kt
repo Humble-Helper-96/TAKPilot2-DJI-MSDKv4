@@ -292,7 +292,23 @@ class FieldGuideActivity : AppCompatActivity() {
             emptyList(),
             "The crosshair",
             "Marks the centre of the camera view — the exact spot a dropped marker will land " +
-                "on. Think of it as where the aircraft is looking.",
+                "on. Think of it as where the aircraft is looking.\n\n" +
+                "The ring in the middle changes colour to tell you how accurate a marker " +
+                "dropped right now would be. It follows how steeply the camera is tilted down, " +
+                "which you can also read on the GIMBAL line in the readout:\n\n" +
+                "GREEN — 25° down or steeper. Roughly ±10 ft on the ground.\n" +
+                "YELLOW — 10° to 25° down. Roughly ±50 ft.\n" +
+                "WHITE — shallower than 10° down. Too flat to put a useful number on.\n\n" +
+                "The reason is geometry: the flatter the camera looks, the further along the " +
+                "ground a small aiming error slides the marker. Looking steeply down at " +
+                "something is far more precise than marking it from across the valley — so if " +
+                "a marker's position matters, fly closer and tilt down rather than zooming in " +
+                "from a distance.",
+            listOf(
+                "Those figures assume a good GPS fix and terrain data loaded for the area. A " +
+                    "weak fix, or hovering near large metal structures, will be worse than " +
+                    "that at any angle.",
+            ),
         )
 
         entry(
@@ -300,7 +316,8 @@ class FieldGuideActivity : AppCompatActivity() {
             "The readout (bottom right)",
             "Top to bottom: your aircraft's callsign; its latitude and longitude; how far and " +
                 "in which direction it is from the home point; its height above the ground; " +
-                "its height above sea level; its speed; and flight time with an estimate of " +
+                "its height above sea level; how far the camera is tilted down; its speed; " +
+                "and flight time with an estimate of " +
                 "how much flying you have left.\n\n" +
                 "The time remaining comes from the aircraft itself and moves with how hard " +
                 "you're flying — expect it to drop when you climb or push into wind.",
