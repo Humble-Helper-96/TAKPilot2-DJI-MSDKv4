@@ -50,6 +50,10 @@ class DroneTakBridge(
     // drone PLI so ATAK/taklite draw the cone natively. -1 = omit.
     @Volatile private var sensorFov = -1.0
     @Volatile private var sensorVfov = -1.0
+
+    /** Current digital zoom (1.0 = none). Set by the flight screen's zoom control via
+     *  [TakBridgeHolder]; narrows both the published FOV cone and the AR projection. */
+    @Volatile var zoomFactor: Double = 1.0
     @Volatile private var sensorAzimuth = -1.0
     @Volatile private var sensorElevation = 0.0
     @Volatile private var sensorRange = -1.0
@@ -253,8 +257,10 @@ class DroneTakBridge(
 
         // FOV cone: ATAK/taklite draw it natively from the drone PLI's <sensor> element.
         // Mini 2 has one fixed-FOV camera (no lens switching, no live-tracked zoom yet).
-        sensorFov = MINI2_HFOV
-        sensorVfov = MINI2_VFOV
+        // Zoom-corrected, so the cone drawn on other clients' maps narrows when the pilot zooms
+        // in — it was previously pinned to the 1x width regardless.
+        sensorFov = hFovDeg(zoomFactor)
+        sensorVfov = vFovDeg(zoomFactor)
         sensorAzimuth = bearing
         sensorElevation = pitch
         sensorRange = gp.rangeMeters
@@ -404,12 +410,30 @@ class DroneTakBridge(
         private const val MINI2_VFOV = 45.0
 
         /**
-         * Shared with the AR overlay, which projects markers across these angles — so the cone
-         * published to ATAK and the on-screen overlay can't disagree about how wide the camera
-         * sees. These are the values the gimbal-sweep calibration in the 6D plan tunes: if a
+         * Camera field of view, **corrected for digital zoom**, shared with the AR overlay so
+         * the cone published to ATAK and the on-screen overlay can't disagree about how wide
+         * the camera sees.
+         *
+         * Digital zoom on this aircraft is a centre crop, so the angular width shrinks with the
+         * zoom factor — and NOT linearly. Halving the crop does not halve the angle:
+         *
+         *     effectiveHalfAngle = atan( tan(baseHalfAngle) / zoom )
+         *
+         * At 1x this returns the base values unchanged. At 2x the 73 deg horizontal becomes
+         * ~41 deg, not 36.5 — using the linear approximation would leave markers a few degrees
+         * out at the frame edges, which is the same class of error as the linear-projection bug
+         * fixed in 6D-A.
+         *
+         * These base values are what the gimbal-sweep calibration in the 6D plan tunes: if a
          * marker leaves the frame edge before the real object does, the FOV here is too wide.
          */
-        fun hFovDeg() = MINI2_HFOV
-        fun vFovDeg() = MINI2_VFOV
+        fun hFovDeg(zoom: Double = 1.0) = zoomedFov(MINI2_HFOV, zoom)
+        fun vFovDeg(zoom: Double = 1.0) = zoomedFov(MINI2_VFOV, zoom)
+
+        private fun zoomedFov(baseDeg: Double, zoom: Double): Double {
+            if (!zoom.isFinite() || zoom <= 1.0) return baseDeg
+            val halfRad = Math.toRadians(baseDeg / 2.0)
+            return 2.0 * Math.toDegrees(Math.atan(Math.tan(halfRad) / zoom))
+        }
     }
 }

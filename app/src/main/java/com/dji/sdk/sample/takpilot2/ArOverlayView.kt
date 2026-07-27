@@ -157,6 +157,14 @@ class ArOverlayView @JvmOverloads constructor(
         // reference we can't form a vertical angle at all, so pins are drawn flat-on — better
         // than inventing a height and pinning them to the wrong part of the image.
         val aircraftMsl = com.dji.sdk.sample.tak.TerrainAgl.reading(context, hud).mslMeters
+        // Loud, because without it EVERY vertical angle silently degrades: reported altitudes
+        // can't be differenced against anything, and contacts fall back to a flat-plane
+        // assumption that puts air traffic at the pilot's own level. That failure looks like
+        // "AR works but planes are at the wrong height" rather than like a missing input.
+        if (logThisPass && aircraftMsl == null) {
+            AppLog.w(TAG, "no aircraft MSL (no DTED takeoff reference) — all contact " +
+                "elevations are flat-plane estimates; air traffic will render at your level")
+        }
 
         for (pin in pins) {
             // Ground (great-circle) distance — what the label shows, matching the home-distance
@@ -315,7 +323,7 @@ class ArOverlayView @JvmOverloads constructor(
             // start obscuring the video, which is a flight-safety regression rather than an
             // aesthetic one. Nearest are drawn first, so the ones that lose their label are the
             // furthest away.
-            drawContact(canvas, xy.first, xy.second, u, category, withLabel = drawn < MAX_LABELS)
+            drawContact(canvas, xy.first, xy.second, u, category, dz, withLabel = drawn < MAX_LABELS)
             drawn++
         }
 
@@ -338,7 +346,9 @@ class ArOverlayView @JvmOverloads constructor(
      * No heading rotation: CotParser does not carry the CoT `course` field, so there is nothing
      * honest to rotate by, and a symmetric diamond does not imply a direction it does not know.
      */
-    private fun drawAircraft(canvas: Canvas, x: Float, y: Float, u: TakUser, withLabel: Boolean) {
+    private fun drawAircraft(
+        canvas: Canvas, x: Float, y: Float, u: TakUser, dzMeters: Double?, withLabel: Boolean,
+    ) {
         val r = 8f * d
         arrowPath.reset()
         arrowPath.moveTo(x, y - r)
@@ -351,8 +361,13 @@ class ArOverlayView @JvmOverloads constructor(
         canvas.drawPath(arrowPath, dotRing)
         if (!withLabel) return
         val callsign = u.callsign ?: u.uid
-        val text = if (isUsableAltitude(u.alt)) "%s  %s".format(callsign, Units.feet(u.alt))
-                   else callsign
+        // RELATIVE height, signed — "+2400 ft" is the question a pilot is actually asking of
+        // another aircraft, and unlike its MSL altitude it is self-checking: a track labelled
+        // +2400 ft that renders near the horizon is visibly wrong, where "2900 ft" looks
+        // plausible whatever the icon does.
+        val text = dzMeters?.let {
+            "%s  %s%s".format(callsign, if (it >= 0) "+" else "-", Units.feet(abs(it)))
+        } ?: callsign
         drawLabel(canvas, x, y + r, text)
     }
 
@@ -375,11 +390,11 @@ class ArOverlayView @JvmOverloads constructor(
     /** 2525 frame for a placed marker; team-coloured dot for a PLI/unit. Grey when stale. */
     private fun drawContact(
         canvas: Canvas, x: Float, y: Float, u: TakUser, category: ArSettings.Category,
-        withLabel: Boolean,
+        dzMeters: Double?, withLabel: Boolean,
     ) {
         val label = u.callsign ?: u.uid
         if (category == ArSettings.Category.AIRCRAFT) {
-            drawAircraft(canvas, x, y, u, withLabel)
+            drawAircraft(canvas, x, y, u, dzMeters, withLabel)
             return
         }
         val milRes = TakMapMarkers.milMarkerRes(u.type)
@@ -414,8 +429,9 @@ class ArOverlayView @JvmOverloads constructor(
     private fun project(dBearingDeg: Double, dElevDeg: Double): Pair<Float, Float>? {
         if (abs(dBearingDeg) >= MAX_PROJECT_ANGLE || abs(dElevDeg) >= MAX_PROJECT_ANGLE) return null
 
-        val halfH = Math.toRadians(DroneTakBridge.hFovDeg() / 2.0)
-        val halfV = Math.toRadians(DroneTakBridge.vFovDeg() / 2.0)
+        val zoom = TakBridgeHolder.currentZoomFactor
+        val halfH = Math.toRadians(DroneTakBridge.hFovDeg(zoom) / 2.0)
+        val halfV = Math.toRadians(DroneTakBridge.vFovDeg(zoom) / 2.0)
         val nx = tan(Math.toRadians(dBearingDeg)) / tan(halfH)
         val ny = tan(Math.toRadians(dElevDeg)) / tan(halfV)
         if (abs(nx) > 1.0 || abs(ny) > 1.0) return null   // off-frame; edge arrows come in 6D-C
@@ -460,8 +476,9 @@ class ArOverlayView @JvmOverloads constructor(
     private fun drawEdgeArrow(canvas: Canvas, dBearingDeg: Double, dElevDeg: Double, color: Int) {
         // Normalised direction; clamped because a target directly behind produces a huge value
         // that would otherwise dominate the angle.
-        val nx = (dBearingDeg / (DroneTakBridge.hFovDeg() / 2.0)).coerceIn(-1.0, 1.0)
-        val ny = (-dElevDeg / (DroneTakBridge.vFovDeg() / 2.0)).coerceIn(-1.0, 1.0)
+        val zoom = TakBridgeHolder.currentZoomFactor
+        val nx = (dBearingDeg / (DroneTakBridge.hFovDeg(zoom) / 2.0)).coerceIn(-1.0, 1.0)
+        val ny = (-dElevDeg / (DroneTakBridge.vFovDeg(zoom) / 2.0)).coerceIn(-1.0, 1.0)
         val margin = 16f * d
         val cx = videoRect.centerX()
         val cy = videoRect.centerY()

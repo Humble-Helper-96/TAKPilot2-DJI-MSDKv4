@@ -612,6 +612,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 }
                 zoomedIn = targetZoomedIn
                 zoomButton.text = if (zoomedIn) "2X" else "1X"
+                // Zoom crops the camera's angular width, so both the FOV cone published to TAK
+                // and the AR projection have to narrow with it — without this every AR marker
+                // sits at roughly half its correct offset from centre at 2x.
+                TakBridgeHolder.setZoomFactor(targetFactor.toDouble())
             }
         }
     }
