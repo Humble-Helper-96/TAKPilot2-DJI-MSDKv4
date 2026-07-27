@@ -11,12 +11,14 @@ import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.dji.sdk.sample.R
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
+import com.dji.sdk.sample.tak.ArSettings
 import com.dji.sdk.sample.tak.CameraSlantPoint
 import com.dji.sdk.sample.tak.ExposureController
 import com.dji.sdk.sample.tak.TakBridgeHolder
@@ -144,6 +146,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvView.onFirstFrame = { runOnUiThread { noVideoCover.visibility = View.GONE } }
         val crosshair = findViewById<CrosshairView>(R.id.flightCrosshair)
         crosshairView = crosshair
+        // Quick drop: the reticle itself is the control. Tap places, long-press re-aims.
+        crosshair.onReticleTap = { onQuickDropTapped() }
+        crosshair.onReticleLongPress = { onQuickDropLongPressed() }
         arOverlay = findViewById(R.id.flightArOverlay)
         // Both consume the same video rectangle: the AR projection has to agree with the
         // crosshair about where the centre of the image is, or a marker dropped at the
@@ -706,26 +711,53 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     /**
-     * AR options — which categories the overlay is allowed to draw.
+     * AR options — what the overlay may draw, and how far out it draws air traffic.
      *
-     * A multi-choice dialog rather than a sequence of prompts: these are independent switches
-     * the pilot flips while looking at a cluttered picture, and they need to see the current
-     * state of all three at once. Applies live — the overlay reads [ArSettings] every frame, so
-     * turning a category off clears it from the video immediately rather than on next entry.
+     * One dialog showing every switch at once rather than a sequence of prompts: these are
+     * independent settings the pilot flips while looking at a picture that is already too busy,
+     * so they need the current state of all of them in view. Everything applies LIVE — the
+     * overlay reads [ArSettings] every frame — so an adjustment clears or repopulates the video
+     * immediately instead of on next entry, which is what makes decluttering a usable in-flight
+     * action rather than a setup step.
+     *
+     * Uses a custom view instead of `setMultiChoiceItems`: the stock two-line list item was the
+     * one menu in the app that didn't match the rest of it, and it had nowhere to put a range
+     * control.
      */
     private fun onArOptionsTapped() {
         AppLog.v(TAG, "long-press: AR options")
-        val categories = com.dji.sdk.sample.tak.ArSettings.Category.values()
-        val labels = categories.map { "${it.label}\n${it.description}" }.toTypedArray()
-        val checked = categories.map {
-            com.dji.sdk.sample.tak.ArSettings.isEnabled(this, it)
-        }.toBooleanArray()
+        val view = layoutInflater.inflate(R.layout.dialog_ar_options, null)
+
+        // Rows built from the enum, not written out in XML — a category added later can't be
+        // silently missing from the menu that controls it.
+        val container = view.findViewById<LinearLayout>(R.id.arCategoryContainer)
+        for (category in ArSettings.Category.values()) {
+            val row = layoutInflater.inflate(R.layout.row_ar_category, container, false)
+                as android.widget.CheckBox
+            row.text = category.label
+            row.isChecked = ArSettings.isEnabled(this, category)
+            row.setOnCheckedChangeListener { _, isChecked ->
+                ArSettings.setEnabled(this, category, isChecked)
+            }
+            container.addView(row)
+        }
+
+        val group = view.findViewById<android.widget.RadioGroup>(R.id.arRangeGroup)
+        val rangeIds = mapOf(
+            ArSettings.AirRange.MI_2_5 to R.id.arRange25,
+            ArSettings.AirRange.MI_5 to R.id.arRange5,
+            ArSettings.AirRange.MI_15 to R.id.arRange15,
+        )
+        group.check(rangeIds.getValue(ArSettings.airRange(this)))
+        group.setOnCheckedChangeListener { _, checkedId ->
+            rangeIds.entries.firstOrNull { it.value == checkedId }?.let {
+                ArSettings.setAirRange(this, it.key)
+            }
+        }
 
         AlertDialog.Builder(this, R.style.TakDialogTheme)
-            .setTitle("Show in AR")
-            .setMultiChoiceItems(labels, checked) { _, index, isChecked ->
-                com.dji.sdk.sample.tak.ArSettings.setEnabled(this, categories[index], isChecked)
-            }
+            .setTitle("AR Overlay")
+            .setView(view)
             .setPositiveButton("Done", null)
             .setNeutralButton("Calibrate FOV…") { _, _ -> onArCalibrateTapped() }
             .show()
@@ -787,12 +819,102 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * AR pill on/off state.
+     *
+     * Running reads as the app's status green (#4CAF50) on a green-filled pill; off is the plain
+     * white pill at reduced alpha, like the other inactive toolbar controls. The earlier version
+     * only shifted the label from white to the #9AC4FF accent, which is the same tint used for
+     * ordinary emphasis all over this screen — at 12sp over moving video that was not a state
+     * indication so much as a hint. Green is the colour this app already means "on/good" with
+     * (TAK dot, GPS icon, crosshair accuracy ring), and it carries at a glance.
+     *
+     * Size is deliberately unchanged between states: a control that grows on tap reads as a
+     * different control.
+     */
     private fun refreshArButton() {
         val on = arOverlay.isRunning
         arButton.alpha = if (on) 1f else 0.45f
-        arButton.setTextColor(
-            if (on) android.graphics.Color.parseColor("#9AC4FF") else android.graphics.Color.WHITE
+        arButton.setBackgroundResource(
+            if (on) R.drawable.bg_ar_pill_active else R.drawable.bg_zoom_pill
         )
+        arButton.setTextColor(
+            if (on) android.graphics.Color.parseColor("#4CAF50") else android.graphics.Color.WHITE
+        )
+    }
+
+    /**
+     * Transient notice over the top-left of the video, auto-hidden.
+     *
+     * One implementation shared by every caller so they can't drift on placement or timeout.
+     * Distinct from a Toast on purpose: this says "the app did the thing", where the toasts
+     * [TakDropMarkers] raises say "the TAK server has it" — during a comms outage the difference
+     * between those two is exactly what the pilot needs to see.
+     */
+    private fun showNotice(text: String) {
+        fpvNotice.text = text
+        fpvNotice.visibility = View.VISIBLE
+        handler.removeCallbacks(hideNotice)
+        handler.postDelayed(hideNotice, HOME_NOTICE_MS)
+    }
+
+    /**
+     * Quick drop — tap the reticle, marker goes down at the look point. No dialog, no menu.
+     *
+     * The toolbar drop button asks for a name and an affiliation because those drops are a
+     * record. This one is a live pointer: the pilot has seen something, wants the rest of the
+     * picture looking at it now, and any interaction between seeing it and marking it is
+     * interaction spent not watching. So it is always [TakDropMarkers.Affiliation.UNKNOWN] (a
+     * marker placed in under a second is unverified by definition) with a fixed callsign, and
+     * only one can exist — a second tap is refused rather than silently laying down a duplicate.
+     * Re-aiming it is the long-press, so the two gestures can't be confused under pressure.
+     */
+    private fun onQuickDropTapped() {
+        AppLog.v(TAG, "tap: reticle (quick drop)")
+        if (TakDropMarkers.quickPin() != null) {
+            // Deliberately not "moved it for you": a tap that sometimes places and sometimes
+            // moves is a gesture the pilot can't predict the result of.
+            Toast.makeText(this,
+                "${TakDropMarkers.QUICK_NAME} already placed — long-press the reticle to re-aim it",
+                Toast.LENGTH_SHORT).show()
+            return
+        }
+        val look = TakBridgeHolder.lookPoint()
+        if (look == null) {
+            AppLog.w(TAG, "quick drop refused — no look point (GPS/gimbal not ready)")
+            Toast.makeText(this, "Can't drop a marker yet — waiting on GPS + gimbal",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        val (lat, lon, elev) = look
+        if (TakDropMarkers.placeQuick(lat, lon, elev)) {
+            showNotice("${TakDropMarkers.QUICK_NAME} dropped")
+        }
+    }
+
+    /**
+     * Long-press the reticle — re-aim the quick-drop marker at whatever the camera is on now,
+     * keeping its uid so it moves in place on every other TAK client.
+     *
+     * Places it if there isn't one yet, rather than scolding the pilot for using the wrong
+     * gesture: both gestures then mean "the marker belongs where I'm looking", which is the only
+     * thing this feature does.
+     */
+    private fun onQuickDropLongPressed() {
+        AppLog.v(TAG, "long-press: reticle (quick drop re-aim)")
+        val look = TakBridgeHolder.lookPoint()
+        if (look == null) {
+            AppLog.w(TAG, "quick drop re-aim refused — no look point (GPS/gimbal not ready)")
+            Toast.makeText(this, "Can't move the marker yet — waiting on GPS + gimbal",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        val (lat, lon, elev) = look
+        if (TakDropMarkers.moveQuick(lat, lon, elev)) {
+            showNotice("${TakDropMarkers.QUICK_NAME} re-aimed")
+        } else if (TakDropMarkers.placeQuick(lat, lon, elev)) {
+            showNotice("${TakDropMarkers.QUICK_NAME} dropped")
+        }
     }
 
     private fun onDropPinTapped() {
@@ -1216,12 +1338,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         } else {
             homeLayer?.setProperties(visibility(Property.NONE))
         }
-        if (homeSet && !lastHomeSet) {
-            fpvNotice.text = "Home Point Set"
-            fpvNotice.visibility = View.VISIBLE
-            handler.removeCallbacks(hideNotice)
-            handler.postDelayed(hideNotice, HOME_NOTICE_MS)
-        }
+        if (homeSet && !lastHomeSet) showNotice("Home Point Set")
         lastHomeSet = homeSet
 
         exposureReadout.text = "ISO ${hud?.liveIso ?: "—"}   ${hud?.liveShutter ?: "—"}"

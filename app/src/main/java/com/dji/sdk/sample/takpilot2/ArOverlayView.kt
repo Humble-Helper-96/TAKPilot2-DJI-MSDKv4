@@ -170,7 +170,9 @@ class ArOverlayView @JvmOverloads constructor(
             // Ground (great-circle) distance — what the label shows, matching the home-distance
             // and markers-list convention used elsewhere in the app.
             val groundDist = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, pin.lat, pin.lon)
-            if (groundDist > MAX_RANGE_M) continue
+            // Same ground horizon everything else on the ground gets — one source, so our own
+            // pins can't out-range another operator's marker sitting beside them.
+            if (groundDist > ArSettings.rangeMeters(context, ArSettings.Category.MY_MARKERS)) continue
 
             val bearing = CameraSlantPoint.initialBearingDeg(hud.lat, hud.lon, pin.lat, pin.lon)
             // Wrapped to -180..180 so a target behind the aircraft doesn't project as if it were
@@ -245,7 +247,7 @@ class ArOverlayView @JvmOverloads constructor(
             if (!ArSettings.isEnabled(context, category)) { skipped++; continue }
 
             val groundDist = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, lat, lon)
-            if (groundDist > category.maxRangeM) { skipped++; continue }
+            if (groundDist > ArSettings.rangeMeters(context, category)) { skipped++; continue }
 
             // Height of the contact relative to the aircraft. Two independent ways to get it,
             // and they disagree — which one is right is an open field question (see below).
@@ -594,10 +596,7 @@ class ArOverlayView @JvmOverloads constructor(
          *  meaning anything. Deliberately compared against slant range, not ground distance —
          *  see the loop. */
         private const val MIN_RANGE_M = 2.0
-        /** Beyond this a marker is a speck the pilot can't act on; also the first line of
-         *  defence against a busy TAK picture carpeting the video. */
-        /** Per-category ranges now live in ArSettings.Category; this is only the pin cap. */
-        private const val MAX_RANGE_M = 5000.0
+        // Range caps all live in ArSettings.rangeMeters() — ground fixed, air pilot-selectable.
         /** TAK's "unknown altitude" sentinel — see isUsableAltitude. */
         private const val UNKNOWN_ALT_SENTINEL = 999_999.0
         /** Matches the magenta the ADS-B gateway tags its tracks with. */
