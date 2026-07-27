@@ -32,6 +32,26 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    assembler splits the Annex-B stream (3- or 4-byte start codes) into whole NALs, queues
  *    them boundedly (dumping + resyncing at the next SPS on overflow, so latency can never
  *    accumulate), and a decode thread renders only the newest ready frame each pass.
+ *
+ * **The decode loop recovers from a codec that dies mid-stream, not just from a codec that
+ * never got a keyframe.** Found on an Oukitel RT3 (MediaTek MT6762): its hardware AVC decoder
+ * (`c2.mtk.avc.decoder`) threw `previous call to queue exceeded timeout` -> MediaCodec
+ * `UNKNOWN_ERROR` about 3 seconds into every session, something never seen on the Pixel 8 Pro
+ * or 10a. Before this, ANY MediaCodec-level exception was fatal to the whole decode thread —
+ * caught once, logged, and the thread simply ended with no restart path, while the DJI video
+ * callback (on a different thread) kept assembling and queueing NALs forever with nobody left
+ * to drain them: a permanently frozen frame with the app otherwise fully responsive, "queue
+ * overflow" spamming the log, and no recovery short of leaving and re-entering the flight
+ * screen (the only thing that rebuilds the TextureView surface). See
+ * `docs/TAKPILOT2_V4_PORT_PLAN.md` for the full diagnosis.
+ *
+ * Now a codec-level exception during the per-iteration feed/drain is caught locally: the dead
+ * `MediaCodec` is stopped/released and a fresh one is created against the SAME [Surface] (the
+ * Surface itself is never touched here — only [shutdown] releases it), decode state resets to
+ * "unsynced" so the existing keyframe-request path re-syncs it, and the SAME thread keeps
+ * running. Backoff grows with consecutive failures (capped) so a persistently broken decoder
+ * doesn't spin-loop, and resets to zero the moment a frame actually renders, so an isolated
+ * failure recovers at full speed next time.
  */
 class FpvTextureView @JvmOverloads constructor(
     context: Context,
@@ -171,6 +191,18 @@ class FpvTextureView @JvmOverloads constructor(
         private val nalQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
         @Volatile private var waitForSync = true // drop everything until an SPS arrives
 
+        /**
+         * Whether [createCodec] requests `KEY_LOW_LATENCY` (API 30+ only regardless). Starts
+         * true — it's been reliable on every device this pipeline was field-tested against
+         * (Pixel 8 Pro, Pixel 10a) — and is dropped permanently for the rest of this session the
+         * first time the codec fails (see the recovery catch below). Low-latency decode modes
+         * are a known weak spot in some budget SoCs' Codec2 HAL implementations; if that's what's
+         * destabilizing a given device's hardware decoder, this removes the variable without
+         * giving up the faster mode on hardware that handles it fine. One-way per session: no
+         * evidence yet justifies switching it back on once a device has shown it can't handle it.
+         */
+        private var useLowLatencyHint = true
+
         /** Invoked (rate-limited) while unsynced — asks the aircraft for a fresh keyframe. */
         @Volatile var onSyncNeeded: (() -> Unit)? = null
         private var lastSyncReq = 0L
@@ -257,25 +289,34 @@ class FpvTextureView @JvmOverloads constructor(
             }
         }
 
+        /** Builds and starts a MediaCodec against this thread's [surface]. Used for the initial
+         *  decoder and, on a codec-level failure, to rebuild in place without touching the
+         *  Surface or the thread itself — see the class doc. */
+        private fun createCodec(): MediaCodec =
+            MediaCodec.createDecoderByType(MIME).apply {
+                val fmt = MediaFormat.createVideoFormat(MIME, 1280, 720)
+                fmt.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = realtime
+                if (useLowLatencyHint && android.os.Build.VERSION.SDK_INT >= 30) {
+                    fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                }
+                configure(fmt, surface, null, 0)
+                start()
+            }
+
         // ---- Decode loop (this thread) ----
         override fun run() {
             var codec: MediaCodec? = null
             try {
-                codec = MediaCodec.createDecoderByType(MIME).apply {
-                    val fmt = MediaFormat.createVideoFormat(MIME, 1280, 720)
-                    fmt.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = realtime
-                    if (android.os.Build.VERSION.SDK_INT >= 30) {
-                        fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-                    }
-                    configure(fmt, surface, null, 0)
-                    start()
-                }
+                codec = createCodec()
                 val info = MediaCodec.BufferInfo()
                 var pts = 0L
                 // A NAL we polled but couldn't feed yet because the codec's input was momentarily
                 // full. Held (not dropped) and retried next iteration after draining output frees
                 // a buffer — so a transient decoder stall no longer manufactures artifacting.
                 var pendingNal: ByteArray? = null
+                // Consecutive codec-level failures since the last successfully rendered frame —
+                // drives the recreate backoff below and resets to 0 the moment a frame renders.
+                var codecFailures = 0
 
                 while (running.get()) {
                     val now = System.currentTimeMillis()
@@ -327,47 +368,99 @@ class FpvTextureView @JvmOverloads constructor(
                         unsyncedSince = 0L
                     }
 
-                    // Feed one NAL if the codec has room (SPS/PPS ride in-band). Prefer a NAL we
-                    // were holding from a prior stalled iteration; otherwise poll a fresh one.
-                    val nal = pendingNal ?: nalQueue.poll(10, TimeUnit.MILLISECONDS)
-                    pendingNal = null
-                    if (nal != null) {
-                        val inIdx = codec.dequeueInputBuffer(10_000)
-                        if (inIdx >= 0) {
-                            codec.getInputBuffer(inIdx)?.apply { clear(); put(nal) }
-                            codec.queueInputBuffer(inIdx, 0, nal.size, pts, 0)
-                            pts += 33_333
-                        } else {
-                            // Codec input momentarily full — HOLD this NAL (don't drop it) and
-                            // retry next iteration once draining output below frees a buffer.
-                            // Dropping here used to manufacture persistent artifacting on any
-                            // transient stall (GPU contention w/ the map/HUD); the overflow
-                            // failsafe below still bounds latency if we fall behind for real.
-                            pendingNal = nal
+                    // Feed/drain, isolated in its own try: a codec-level exception here (a HW
+                    // decoder wedging mid-stream — see the class doc for the RT3/MediaTek case
+                    // that motivated this) is NOT allowed to kill the thread. It's recovered by
+                    // rebuilding the MediaCodec in place, below.
+                    val cd = codec!!
+                    try {
+                        // Feed one NAL if the codec has room (SPS/PPS ride in-band). Prefer a NAL
+                        // we were holding from a prior stalled iteration; otherwise poll a fresh
+                        // one.
+                        val nal = pendingNal ?: nalQueue.poll(10, TimeUnit.MILLISECONDS)
+                        pendingNal = null
+                        if (nal != null) {
+                            val inIdx = cd.dequeueInputBuffer(10_000)
+                            if (inIdx >= 0) {
+                                cd.getInputBuffer(inIdx)?.apply { clear(); put(nal) }
+                                cd.queueInputBuffer(inIdx, 0, nal.size, pts, 0)
+                                pts += 33_333
+                            } else {
+                                // Codec input momentarily full — HOLD this NAL (don't drop it) and
+                                // retry next iteration once draining output below frees a buffer.
+                                // Dropping here used to manufacture persistent artifacting on any
+                                // transient stall (GPU contention w/ the map/HUD); the overflow
+                                // failsafe below still bounds latency if we fall behind for real.
+                                pendingNal = nal
+                            }
                         }
-                    }
 
-                    // Drain: render ONLY the newest ready frame, discard older ones.
-                    var outIdx = codec.dequeueOutputBuffer(info, 0)
-                    var lastIdx = -1
-                    while (outIdx >= 0 || outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                            val f = codec.outputFormat
-                            // Prefer the crop rect — it gives the true visible size.
-                            val w = if (f.containsKey("crop-right"))
-                                f.getInteger("crop-right") - f.getInteger("crop-left") + 1
-                            else f.getInteger(MediaFormat.KEY_WIDTH)
-                            val h = if (f.containsKey("crop-bottom"))
-                                f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
-                            else f.getInteger(MediaFormat.KEY_HEIGHT)
-                            onVideoSize?.invoke(w, h)
-                        } else {
-                            if (lastIdx >= 0) codec.releaseOutputBuffer(lastIdx, false)
-                            lastIdx = outIdx
+                        // Drain: render ONLY the newest ready frame, discard older ones.
+                        var outIdx = cd.dequeueOutputBuffer(info, 0)
+                        var lastIdx = -1
+                        while (outIdx >= 0 || outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                                val f = cd.outputFormat
+                                // Prefer the crop rect — it gives the true visible size.
+                                val w = if (f.containsKey("crop-right"))
+                                    f.getInteger("crop-right") - f.getInteger("crop-left") + 1
+                                else f.getInteger(MediaFormat.KEY_WIDTH)
+                                val h = if (f.containsKey("crop-bottom"))
+                                    f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+                                else f.getInteger(MediaFormat.KEY_HEIGHT)
+                                onVideoSize?.invoke(w, h)
+                            } else {
+                                if (lastIdx >= 0) cd.releaseOutputBuffer(lastIdx, false)
+                                lastIdx = outIdx
+                            }
+                            outIdx = cd.dequeueOutputBuffer(info, 0)
                         }
-                        outIdx = codec.dequeueOutputBuffer(info, 0)
+                        if (lastIdx >= 0) {
+                            cd.releaseOutputBuffer(lastIdx, true)
+                            // A frame actually rendered — whatever was wrong is no longer
+                            // happening. Reset so the NEXT failure (if any) starts its backoff
+                            // from scratch instead of inheriting an escalated delay from an
+                            // unrelated earlier incident.
+                            if (codecFailures > 0) {
+                                AppLog.i(TAG, "FPV: decoder recovered after $codecFailures failure(s)")
+                                codecFailures = 0
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Deliberately Exception, not Throwable: an OutOfMemoryError or similar
+                        // should still escalate to the outer catch rather than feed a recreate
+                        // loop.
+                        codecFailures++
+                        AppLog.e(TAG, "FPV: codec error (failure #$codecFailures) — " +
+                            "recreating decoder", e)
+                        try { cd.stop() } catch (_: Throwable) {}
+                        try { cd.release() } catch (_: Throwable) {}
+                        // Any instability at all is enough to stop asking for the demanding mode
+                        // — see useLowLatencyHint's doc. Checked here, applied on the createCodec
+                        // call below.
+                        if (useLowLatencyHint) {
+                            useLowLatencyHint = false
+                            AppLog.w(TAG, "FPV: dropping low-latency decode hint for the rest of " +
+                                "this session after a codec failure")
+                        }
+                        // Grows with consecutive failures so a persistently broken decoder
+                        // doesn't spin-loop recreating itself several times a second; capped so
+                        // it still retries at a bounded rate rather than giving up outright —
+                        // there's no other recovery path available to the pilot short of leaving
+                        // and re-entering the flight screen, so this never stops trying.
+                        Thread.sleep(minOf(
+                            RECREATE_BACKOFF_BASE_MS * codecFailures, RECREATE_BACKOFF_MAX_MS))
+                        codec = createCodec()
+                        // A new codec has no decode state — it needs a full SPS/PPS/IDR burst
+                        // before it can produce anything, same as first sync. Anything queued
+                        // for the old instance is stale.
+                        pendingNal = null
+                        nalQueue.clear()
+                        waitForSync = true
+                        unsyncedSince = 0L
+                        lastSyncReq = 0L
+                        pts = 0L
                     }
-                    if (lastIdx >= 0) codec.releaseOutputBuffer(lastIdx, true)
                 }
             } catch (t: Throwable) {
                 AppLog.e(TAG, "FPV decoder died: ${t.message}", t)
@@ -388,6 +481,11 @@ class FpvTextureView @JvmOverloads constructor(
             private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
             private const val QUEUE_CAP = 60 // ~2s at 30fps before we dump + resync
             private const val HARD_RESYNC_AFTER_MS = 3000L // escalate if still unsynced this long
+            // Codec-recreate backoff: delay = min(BASE * consecutive failures, MAX). One-off
+            // failure recovers in 300ms; a decoder that's persistently broken settles at a 4s
+            // retry rate instead of spin-looping. Resets to 0 on the next rendered frame.
+            private const val RECREATE_BACKOFF_BASE_MS = 300L
+            private const val RECREATE_BACKOFF_MAX_MS = 4000L
         }
     }
 
