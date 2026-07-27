@@ -505,6 +505,19 @@ class FpvTextureView @JvmOverloads constructor(
                                 codecFailures = 0
                             }
                         }
+                    } catch (e: InterruptedException) {
+                        // NOT a codec failure — this is shutdown() (running.set(false) then
+                        // interrupt()) interrupting the blocked nalQueue.poll() above. Field-
+                        // observed 2026-07-27: without this separate clause, a screen
+                        // navigation tearing down the surface mid-decode got misread as a codec
+                        // error, wastefully rebuilt a MediaCodec that was immediately discarded,
+                        // and — worse — COULD escalate/persist a wrong "this device needs
+                        // software decode" conclusion from an ordinary shutdown rather than an
+                        // actual failure, if the interrupt happened to land before any real
+                        // failure had occurred. running.get() is already false by the time
+                        // interrupt() fires, so the outer while loop ends the thread on its own;
+                        // just stop touching decoder state here.
+                        break
                     } catch (e: Exception) {
                         // Deliberately Exception, not Throwable: an OutOfMemoryError or similar
                         // should still escalate to the outer catch rather than feed a recreate
