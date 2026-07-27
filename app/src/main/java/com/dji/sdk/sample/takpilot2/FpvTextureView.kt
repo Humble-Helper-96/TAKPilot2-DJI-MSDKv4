@@ -9,6 +9,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.AttributeSet
+import com.dji.sdk.sample.tak.FpvDecoderHealth
 import com.dji.sdk.sample.tak.IdrRequesterHolder
 import com.taklite.util.AppLog
 import android.view.Surface
@@ -67,6 +68,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ([MediaCodec.createByCodecName]) for the rest of the session — every certified Android device
  * ships one (a CDD requirement), and it is a genuinely different implementation, not the same
  * broken part with different settings.
+ *
+ * **What's learned is remembered across sessions, per device — see [FpvDecoderHealth].** Without
+ * that, a device whose hardware decoder is broken pays this whole escalation ramp (field-measured
+ * on the RT3: ~45 seconds of visible freezing across two failed hardware attempts and their
+ * resync waits, before the software decoder syncs) EVERY time the flight screen's video surface
+ * is recreated — leaving and re-entering, the app backgrounding — even on the tenth flight on a
+ * device that told us the answer on the first one. A fresh session starts at whichever tier
+ * already worked last time, on this device, and only re-escalates if that tier itself fails.
  */
 class FpvTextureView @JvmOverloads constructor(
     context: Context,
@@ -91,7 +100,7 @@ class FpvTextureView @JvmOverloads constructor(
         // in-flight incident this fixed.
         IdrRequesterHolder.ensureStarted(context)
 
-        val d = DecoderThread(Surface(surface))
+        val d = DecoderThread(Surface(surface), context.applicationContext)
         d.onSyncNeeded = { IdrRequesterHolder.requestKeyframe() }
         d.onHardResyncNeeded = { IdrRequesterHolder.forceResync() }
         d.onVideoSize = { w, h -> post { applyAspect(w, h) } }
@@ -200,33 +209,40 @@ class FpvTextureView @JvmOverloads constructor(
     /**
      * Owns the MediaCodec: assembles NALs from raw chunks, decodes, and renders newest-only.
      */
-    private class DecoderThread(private val surface: Surface) : Thread("FpvDecoder") {
+    private class DecoderThread(
+        private val surface: Surface,
+        private val appContext: Context,
+    ) : Thread("FpvDecoder") {
 
         private val running = AtomicBoolean(true)
         private val nalQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
         @Volatile private var waitForSync = true // drop everything until an SPS arrives
 
         /**
-         * Whether [createCodec] requests `KEY_LOW_LATENCY` (API 30+ only regardless). Starts
-         * true — it's been reliable on every device this pipeline was field-tested against
-         * (Pixel 8 Pro, Pixel 10a) — and is dropped permanently for the rest of this session the
-         * first time the codec fails (see the recovery catch below). Low-latency decode modes
-         * are a known weak spot in some budget SoCs' Codec2 HAL implementations; if that's what's
-         * destabilizing a given device's hardware decoder, this removes the variable without
-         * giving up the faster mode on hardware that handles it fine. One-way per session: no
-         * evidence yet justifies switching it back on once a device has shown it can't handle it.
+         * Whether [createCodec] requests `KEY_LOW_LATENCY` (API 30+ only regardless). Starts at
+         * whatever [FpvDecoderHealth] already knows about THIS device — true (untried, or proven
+         * fine, as on the Pixel 8 Pro/10a) unless a prior session on this exact device already
+         * had to drop it, in which case a fresh session doesn't waste time re-discovering that.
+         * Dropped permanently for the rest of THIS session on a codec failure regardless (see the
+         * recovery catch below), and that failure is what feeds [FpvDecoderHealth] for next time.
+         * Low-latency decode modes are a known weak spot in some budget SoCs' Codec2 HAL
+         * implementations; if that's what's destabilizing a device's hardware decoder, this
+         * removes the variable without giving up the faster mode on hardware that handles it
+         * fine.
          */
-        private var useLowLatencyHint = true
+        private var useLowLatencyHint = FpvDecoderHealth.startWithLowLatency(appContext)
 
         /**
          * Second-tier escalation: request a software AVC decoder BY NAME instead of the
-         * platform's preferred hardware one for this MIME type. Only reached after a failure
-         * has ALREADY survived having [useLowLatencyHint] dropped — see the class doc for why
-         * that ordering matters (recreating a hardware decoder that's broken for reasons other
-         * than the low-latency hint just hands back the identical broken component). One-way per
+         * platform's preferred hardware one for this MIME type. Starts true immediately, skipping
+         * the hardware attempt(s) entirely, if [FpvDecoderHealth] already knows this device needs
+         * it. Otherwise only reached after a failure has ALREADY survived having
+         * [useLowLatencyHint] dropped — see the class doc for why that ordering matters
+         * (recreating a hardware decoder that's broken for reasons other than the low-latency
+         * hint just hands back the identical broken component). One-way per
          * session, same rationale as [useLowLatencyHint].
          */
-        private var preferSoftwareDecoder = false
+        private var preferSoftwareDecoder = FpvDecoderHealth.startWithSoftwareDecoder(appContext)
 
         /** Resolved once and cached — no reason to re-scan [MediaCodecList] on every recreate
          *  once we already know which software decoder this device has. */
@@ -504,6 +520,7 @@ class FpvTextureView @JvmOverloads constructor(
                             // Tier 1: any instability at all is enough to stop asking for the
                             // demanding mode. See useLowLatencyHint's doc.
                             useLowLatencyHint = false
+                            FpvDecoderHealth.recordLowLatencyFailed(appContext)
                             AppLog.w(TAG, "FPV: dropping low-latency decode hint for the rest of " +
                                 "this session after a codec failure")
                         } else if (!preferSoftwareDecoder) {
@@ -512,6 +529,7 @@ class FpvTextureView @JvmOverloads constructor(
                             // hands back the identical (broken) hardware component. Switch which
                             // decoder gets selected, not how it's configured. See the class doc.
                             preferSoftwareDecoder = true
+                            FpvDecoderHealth.recordSoftwareDecoderNeeded(appContext)
                             AppLog.w(TAG, "FPV: hardware decoder still failing without low-" +
                                 "latency mode — switching to a software AVC decoder for the " +
                                 "rest of this session")
