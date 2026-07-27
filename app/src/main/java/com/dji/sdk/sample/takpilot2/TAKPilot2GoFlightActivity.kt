@@ -1470,7 +1470,12 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             uid = "TAKPilot2-" + UUID.randomUUID().toString().substring(0, 8)
             prefs.edit().putString("uid", uid).apply()
         }
-        currentCallsign = prefs.getString("callsign", "TAKPilot2 Go-Mini2") ?: "TAKPilot2 Go-Mini2"
+        // Same fallback as TakConnectActivity and TakDropMarkers, which read this identical
+        // key — a different default here meant a pilot who went straight to the flight screen
+        // without visiting TAK Setup first saw "TAKPilot2 Go-Mini2" in the HUD until they
+        // manually typed "sUAS" into that other screen, even though "sUAS" was always the
+        // documented first-launch default.
+        currentCallsign = prefs.getString("callsign", "sUAS") ?: "sUAS"
         TakBridgeHolder.start("$uid-DRONE", currentCallsign)
     }
 
