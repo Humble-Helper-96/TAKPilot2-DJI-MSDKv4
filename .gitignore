@@ -69,3 +69,7 @@ Thumbs.db
 
 # Import summary file
 import-summary.txt
+
+# Operator's own machine/device details (adb addresses, device serials, local paths).
+# Split out of the plan docs so those can be shared without carrying them along.
+docs/LOCAL_ENV.md
