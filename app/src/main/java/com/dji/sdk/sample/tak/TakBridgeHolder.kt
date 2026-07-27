@@ -2,11 +2,25 @@ package com.dji.sdk.sample.tak
 
 /** Process-wide holder so the bridge survives screen navigation. */
 object TakBridgeHolder {
+    // Declared first: the FOV properties below initialise from these, and Kotlin resolves
+    // object properties in declaration order.
+    const val DEFAULT_HFOV = 73.0
+    const val DEFAULT_VFOV = 45.0
+    const val MIN_FOV = 5.0
+    const val MAX_FOV = 170.0
+
     private var bridge: DroneTakBridge? = null
     // Remembered so it survives bridge restarts (reconnect) and a start-before-connect order.
     private var videoUrl: String? = null
     private var cameraPointEnabled = false
     private var zoomFactor: Double = 1.0
+
+    // Calibrated camera field of view (degrees at 1x). Defaults are the published Mini 2 specs
+    // (83 deg diagonal on a 16:9 frame); the real lens is whatever it is, which is what the 6D-D
+    // calibration measures. Held here so the published FOV cone and the AR projection always
+    // read the same numbers.
+    private var hFovBase: Double = DEFAULT_HFOV
+    private var vFovBase: Double = DEFAULT_VFOV
 
     fun start(droneUid: String, droneCallsign: String) {
         bridge?.stop()
@@ -51,6 +65,19 @@ object TakBridgeHolder {
     }
 
     val currentZoomFactor: Double get() = zoomFactor
+
+    /**
+     * Set the calibrated 1x field of view. Clamped to sane bounds so a mis-tap can't drive the
+     * projection somewhere absurd — an FOV near zero sends every marker to infinity.
+     */
+    fun setFovBase(hDeg: Double, vDeg: Double) {
+        hFovBase = hDeg.coerceIn(MIN_FOV, MAX_FOV)
+        vFovBase = vDeg.coerceIn(MIN_FOV, MAX_FOV)
+    }
+
+    val currentHFovBase: Double get() = hFovBase
+    val currentVFovBase: Double get() = vFovBase
+
 
     val isRunning: Boolean get() = bridge != null
 

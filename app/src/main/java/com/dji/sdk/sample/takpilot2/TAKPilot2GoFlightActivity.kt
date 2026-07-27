@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import com.taklite.util.AppLog
 import android.view.View
+import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -79,6 +80,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var exposureReadout: TextView
     private lateinit var zoomButton: TextView
     private lateinit var fpvFaaCeiling: TextView
+    private lateinit var fpvGimbalPitch: TextView
+    private lateinit var crosshairView: CrosshairView
     private lateinit var arOverlay: ArOverlayView
     private lateinit var arButton: TextView
 
@@ -140,6 +143,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // hide the "waiting for video" placeholder once the first frame arrives.
         fpvView.onFirstFrame = { runOnUiThread { noVideoCover.visibility = View.GONE } }
         val crosshair = findViewById<CrosshairView>(R.id.flightCrosshair)
+        crosshairView = crosshair
         arOverlay = findViewById(R.id.flightArOverlay)
         // Both consume the same video rectangle: the AR projection has to agree with the
         // crosshair about where the centre of the image is, or a marker dropped at the
@@ -154,6 +158,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvNotice = findViewById(R.id.fpvNotice)
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
+        fpvGimbalPitch = findViewById(R.id.fpvGimbalPitch)
         toolbarBattery = findViewById(R.id.toolbarBattery)
         toolbarGps = findViewById(R.id.toolbarGps)
         toolbarGpsIcon = findViewById(R.id.toolbarGpsIcon)
@@ -269,6 +274,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         zoomButton = findViewById(R.id.flightZoomButton)
         zoomButton.setOnClickListener { onZoomTapped() }
+
+        // Load the calibrated FOV before the overlay draws anything with it.
+        com.dji.sdk.sample.tak.ArSettings.loadFov(this)
 
         arButton = findViewById(R.id.flightArButton)
         arButton.setOnClickListener { onArToggleTapped() }
@@ -661,6 +669,36 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      * video, so it should be something the pilot switches on deliberately rather than something
      * they inherit from a previous session and have to notice.
      */
+    /**
+     * Gimbal pitch readout + the crosshair's accuracy tint.
+     *
+     * Both are driven from the same value so the number and the reticle can't disagree. The
+     * thresholds mark how much a marker drop can be trusted: ground error scales as
+     * 1/sin^2(pitch), so at ~40 m up it runs roughly 4.5 ft per degree of pointing error at
+     * -45 deg, 19 ft at -20 deg, and 65 ft at -10 deg. Steeper is dramatically better, and
+     * nothing else on screen tells the pilot that. Thresholds live in [CrosshairView].
+     */
+    private fun updateGimbalPitch(hud: com.dji.sdk.sample.tak.DroneTakBridge.Hud?) {
+        val pitch = hud?.gimbalPitch
+        crosshairView.setGimbalPitch(pitch)
+        if (pitch == null) {
+            fpvGimbalPitch.text = "GIMBAL —"
+            fpvGimbalPitch.setTextColor(android.graphics.Color.parseColor("#B0B0B0"))
+            return
+        }
+        // Sign dropped in favour of an explicit DOWN/UP word: "-20" reads as a negative number
+        // rather than as a look angle, and down is the only direction that matters for drops.
+        val label = when {
+            pitch <= -1.0 -> "GIMBAL %.0f° DOWN".format(-pitch)
+            pitch >= 1.0 -> "GIMBAL %.0f° UP".format(pitch)
+            else -> "GIMBAL LEVEL"
+        }
+        fpvGimbalPitch.text = label
+        // Shared classifier, not a second copy of the thresholds — these two displays drifting
+        // apart would be worse than having only one of them.
+        fpvGimbalPitch.setTextColor(CrosshairView.accuracyColorFor(pitch))
+    }
+
     private fun onArToggleTapped() {
         if (arOverlay.isRunning) arOverlay.stop() else arOverlay.start()
         AppLog.v(TAG, "tap: AR overlay -> ${if (arOverlay.isRunning) "ON" else "OFF"}")
@@ -689,6 +727,63 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 com.dji.sdk.sample.tak.ArSettings.setEnabled(this, categories[index], isChecked)
             }
             .setPositiveButton("Done", null)
+            .setNeutralButton("Calibrate FOV…") { _, _ -> onArCalibrateTapped() }
+            .show()
+    }
+
+    /**
+     * AR field-of-view calibration (6D-D).
+     *
+     * The base FOV is derived from published specs, not measured, and the projection is most
+     * sensitive to it at the FRAME EDGES — an FOV error is invisible dead centre and grows
+     * outward. So rather than a pass/fail sweep test, this lets the pilot put a marker on a
+     * known object near the edge and adjust until the icon sits on it, watching it converge
+     * live. Changes apply to the running overlay immediately and persist.
+     *
+     * Deliberately adjusts the 1x base: the zoom correction is applied on top of it, so
+     * calibrating at 1x fixes every zoom level at once.
+     */
+    private fun onArCalibrateTapped() {
+        AppLog.v(TAG, "AR FOV calibration opened")
+        val view = layoutInflater.inflate(R.layout.dialog_ar_fov, null)
+        val hValue = view.findViewById<TextView>(R.id.arFovHValue)
+        val vValue = view.findViewById<TextView>(R.id.arFovVValue)
+        val hint = view.findViewById<TextView>(R.id.arFovHint)
+
+        var h = TakBridgeHolder.currentHFovBase
+        var v = TakBridgeHolder.currentVFovBase
+
+        fun apply() {
+            com.dji.sdk.sample.tak.ArSettings.saveFov(this, h, v)
+            h = TakBridgeHolder.currentHFovBase
+            v = TakBridgeHolder.currentVFovBase
+            hValue.text = "%.1f°".format(h)
+            vValue.text = "%.1f°".format(v)
+            hint.text = if (TakBridgeHolder.currentZoomFactor > 1.0) {
+                "Effective at %.0fx zoom: %.1f° × %.1f°".format(
+                    TakBridgeHolder.currentZoomFactor,
+                    com.dji.sdk.sample.tak.DroneTakBridge.hFovDeg(TakBridgeHolder.currentZoomFactor),
+                    com.dji.sdk.sample.tak.DroneTakBridge.vFovDeg(TakBridgeHolder.currentZoomFactor),
+                )
+            } else {
+                "Marker too far OUT from centre → reduce. Too far IN → increase."
+            }
+        }
+        apply()
+
+        view.findViewById<Button>(R.id.arFovHMinus).setOnClickListener { h -= FOV_STEP_DEG; apply() }
+        view.findViewById<Button>(R.id.arFovHPlus).setOnClickListener { h += FOV_STEP_DEG; apply() }
+        view.findViewById<Button>(R.id.arFovVMinus).setOnClickListener { v -= FOV_STEP_DEG; apply() }
+        view.findViewById<Button>(R.id.arFovVPlus).setOnClickListener { v += FOV_STEP_DEG; apply() }
+
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Calibrate AR field of view")
+            .setView(view)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Reset") { _, _ ->
+                com.dji.sdk.sample.tak.ArSettings.resetFov(this)
+                Toast.makeText(this, "FOV reset to published specs", Toast.LENGTH_SHORT).show()
+            }
             .show()
     }
 
@@ -1145,6 +1240,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val aglReading = if (hud != null) com.dji.sdk.sample.tak.TerrainAgl.reading(this, hud)
             else com.dji.sdk.sample.tak.TerrainAgl.Reading(0.0, terrainCorrected = false, mslMeters = null)
 
+        updateGimbalPitch(hud)
+
         updateFaaCeiling(hud, aglReading)
 
         fpvOverlayText.text = buildString {
@@ -1337,6 +1434,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val REC_TAG = "TP2Record"
         private const val REQUEST_MEDIA_PROJECTION = 3001
         private const val HUD_INTERVAL_MS = 500L
+        /** FOV calibration step. 0.5 deg is finer than the eye can judge at the frame edge,
+         *  so it never limits how closely the pilot can converge. */
+        private const val FOV_STEP_DEG = 0.5
         private const val AIRCRAFT_ICON_ID = "aircraft-icon"
         private const val AIRCRAFT_SOURCE_ID = "aircraft-source"
         private const val AIRCRAFT_LAYER_ID = "aircraft-layer"

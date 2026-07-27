@@ -557,7 +557,10 @@ class ArOverlayView @JvmOverloads constructor(
                 groundDist, dz, pose.bearingDeg, bearing, dBearing,
             ) + "camPitch=%.1f pinElev=%.1f dElev=%.1f | fov=%.0fx%.0f | %s".format(
                 pose.pitchDeg, elevDeg, dElev,
-                DroneTakBridge.hFovDeg(), DroneTakBridge.vFovDeg(),
+                // EFFECTIVE fov, zoom included — printing the 1x base while zoomed is
+                // actively misleading during calibration, which is when this gets read.
+                DroneTakBridge.hFovDeg(TakBridgeHolder.currentZoomFactor),
+                DroneTakBridge.vFovDeg(TakBridgeHolder.currentZoomFactor),
                 if (xy == null) "OFF-FRAME (not drawn)"
                 else "drawn at %.0f,%.0f in rect %.0f,%.0f-%.0f,%.0f".format(
                     xy.first, xy.second,
