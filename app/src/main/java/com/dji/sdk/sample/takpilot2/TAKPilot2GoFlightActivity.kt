@@ -272,6 +272,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         arButton = findViewById(R.id.flightArButton)
         arButton.setOnClickListener { onArToggleTapped() }
+        // Same long-press idiom as RTH (reset home) and drop-pin (markers list).
+        arButton.setOnLongClickListener { onArOptionsTapped(); true }
         refreshArButton()
 
         findViewById<ImageButton>(R.id.flightDropPinButton).setOnClickListener { onDropPinTapped() }
@@ -659,6 +661,31 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         if (arOverlay.isRunning) arOverlay.stop() else arOverlay.start()
         AppLog.v(TAG, "tap: AR overlay -> ${if (arOverlay.isRunning) "ON" else "OFF"}")
         refreshArButton()
+    }
+
+    /**
+     * AR options — which categories the overlay is allowed to draw.
+     *
+     * A multi-choice dialog rather than a sequence of prompts: these are independent switches
+     * the pilot flips while looking at a cluttered picture, and they need to see the current
+     * state of all three at once. Applies live — the overlay reads [ArSettings] every frame, so
+     * turning a category off clears it from the video immediately rather than on next entry.
+     */
+    private fun onArOptionsTapped() {
+        AppLog.v(TAG, "long-press: AR options")
+        val categories = com.dji.sdk.sample.tak.ArSettings.Category.values()
+        val labels = categories.map { "${it.label}\n${it.description}" }.toTypedArray()
+        val checked = categories.map {
+            com.dji.sdk.sample.tak.ArSettings.isEnabled(this, it)
+        }.toBooleanArray()
+
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("Show in AR")
+            .setMultiChoiceItems(labels, checked) { _, index, isChecked ->
+                com.dji.sdk.sample.tak.ArSettings.setEnabled(this, categories[index], isChecked)
+            }
+            .setPositiveButton("Done", null)
+            .show()
     }
 
     private fun refreshArButton() {

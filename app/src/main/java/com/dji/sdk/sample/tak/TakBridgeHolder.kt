@@ -47,4 +47,9 @@ object TakBridgeHolder {
     /** Camera bearing + pitch for the AR overlay's projection — the same model that places
      *  dropped markers, see [DroneTakBridge.cameraPose]. Null until GPS/gimbal are ready. */
     fun cameraPose(): DroneTakBridge.CameraPose? = bridge?.cameraPose()
+
+    /** See [DroneTakBridge.isOwnPublishedUid]. False when the bridge isn't running — nothing is
+     *  being published then, so nothing coming back can be ours. */
+    fun isOwnPublishedUid(candidate: String?): Boolean =
+        bridge?.isOwnPublishedUid(candidate) ?: false
 }

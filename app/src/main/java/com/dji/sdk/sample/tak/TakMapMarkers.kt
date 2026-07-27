@@ -327,13 +327,26 @@ object TakMapMarkers {
     /**
      * MIL-STD-2525 affiliation MARKERS (a-{f,h,n,u}-G, NOT the …-G-U-… unit/PLI form) →
      * frame drawable. Null for PLI/units/drones (those keep the team-colored dot).
+     *
+     * Public because [com.dji.sdk.sample.takpilot2.ArOverlayView] classifies the same contacts
+     * for the FPV overlay. Shared deliberately rather than copied — the V5 reference duplicates
+     * this and [teamColor] into its AR view, which is how a map and an overlay end up
+     * disagreeing about what a contact is.
      */
-    private fun milMarkerRes(type: String?): Int? {
+    fun milMarkerRes(type: String?): Int? {
         if (type == null) return null
         val parts = type.split("-")
         if (parts.size < 3 || parts[0] != "a" || parts[2] != "G") return null
-        val isUnit = parts.size >= 4 && parts[3] == "U"
-        if (isUnit) return null
+        // EXACTLY three segments. A placed affiliation marker is bare `a-{f,h,n,u}-G` — that's
+        // what this app drops and what ATAK's generic markers use. Anything with a further
+        // segment is a typed entity reporting itself, and belongs on the team-dot path:
+        //   a-f-G-U-C    iTAK/ATAK person      (Unit)
+        //   a-f-G-E-V-C  CloudTAK console      (Equipment/Vehicle)
+        // The previous rule only excluded `-U-`, so CloudTAK users — which self-report as
+        // equipment, not units — rendered as generic 2525 rectangles instead of their team
+        // colour. Testing the segment COUNT rather than enumerating known suffixes avoids
+        // rediscovering this for every client that picks a different entity type.
+        if (parts.size != 3) return null
         return when (parts[1]) {
             "f" -> R.drawable.marker_friendly
             "h" -> R.drawable.marker_hostile
@@ -344,7 +357,7 @@ object TakMapMarkers {
     }
 
     /** TAK team-name → color, identical to taklite's getTeamColor(). */
-    private fun teamColor(team: String?): Int {
+    fun teamColor(team: String?): Int {
         if (team == null) return Color.GREEN
         return when (team.lowercase()) {
             "cyan" -> Color.parseColor("#00BCD4")
