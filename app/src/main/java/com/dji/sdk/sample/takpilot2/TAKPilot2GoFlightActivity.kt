@@ -1244,8 +1244,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         updateFaaCeiling(hud, aglReading)
 
+        // Five lines, not seven. The right-hand column has to hold the exposure block, this
+        // readout AND the mini-map inside one landscape screen height, and it overflowed on the
+        // Pixel once MSL and gimbal lines were added — it would be worse on a shorter phone.
+        // Callsign+speed and the two altitudes each pair naturally, so merging them costs no
+        // information and buys two lines of headroom.
         fpvOverlayText.text = buildString {
             append(currentCallsign)
+            append(if (hud != null) "   ${Units.mph(hud.speedMs)}" else "   — MPH")
             append('\n')
             if (hud != null && hud.hasFix) {
                 append("%.4f, %.4f".format(hud.lat, hud.lon))
@@ -1256,17 +1262,18 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             if (hud != null && hud.hasFix && hud.homeSet) {
                 val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
                 val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                append("%s  %03.0f°T".format(Units.feet(dist), bearing))
+                append("HOME %s  %03.0f°T".format(Units.feet(dist), bearing))
             } else {
-                append("— ft  —°T")
+                append("HOME — ft  —°T")
             }
             append('\n')
+            // Both heights on one line. "AGL" only when DTED actually corrected it to
+            // height-above-terrain-below; otherwise "ALT", which is what the raw number really
+            // is (height above the takeoff point) — labelling an uncorrected figure AGL is
+            // exactly the inaccuracy the terrain correction exists to remove, so the label moves
+            // with it. MSL is computed separately and can be present while the first still reads
+            // ALT. See TerrainAgl.
             if (hud != null && hud.hasFix) {
-                // "AGL" only when DTED actually corrected it to height-above-terrain-below;
-                // otherwise "ALT", which is what the raw number really is (height above the
-                // takeoff point). Labelling an uncorrected figure AGL is precisely the
-                // inaccuracy the terrain correction exists to remove, so the label has to move
-                // with it. See TerrainAgl.
                 append("%s %s".format(
                     Units.feet(aglReading.meters),
                     if (aglReading.terrainCorrected) "AGL" else "ALT",
@@ -1274,22 +1281,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             } else {
                 append("— ft AGL")
             }
-            append('\n')
-            // Height above sea level. Needs terrain data for the takeoff point, so it reads "—"
-            // until that's available — it is NOT derived from the line above and can be present
-            // while that one is still showing uncorrected ALT.
+            append("  ·  ")
             val msl = aglReading.mslMeters
-            if (msl != null) {
-                append("%s MSL".format(Units.feet(msl)))
-            } else {
-                append("— ft MSL")
-            }
-            append('\n')
-            if (hud != null) {
-                append(Units.mph(hud.speedMs))
-            } else {
-                append("— MPH")
-            }
+            append(if (msl != null) "%s MSL".format(Units.feet(msl)) else "— ft MSL")
             append('\n')
             if (hud != null) {
                 // Remaining time is the AIRCRAFT's own estimate (GoHomeAssessment), which models

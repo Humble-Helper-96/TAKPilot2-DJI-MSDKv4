@@ -15,4 +15,11 @@
     <dimen name="item_title_size">18sp</dimen>
     <dimen name="test_log_textsize">17sp</dimen>
     <dimen name="button_widget">200dp</dimen>
+    <!-- Flight-screen mini-map edge. The HUD's right-hand column is the tightest space in the
+         app: toolbar, exposure block, telemetry and map all share one landscape screen height,
+         and the map is the single largest item. This default is sized for SHORT screens (a
+         Samsung S21 is ~411dp tall in landscape); values-h440dp gives taller devices the bigger
+         map. Shrinking the map rather than the text keeps the readout legible in daylight,
+         which is the part that actually has to work in the field. -->
+    <dimen name="flight_map_size">130dp</dimen>
 </resources>
