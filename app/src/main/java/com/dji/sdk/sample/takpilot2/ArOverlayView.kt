@@ -296,7 +296,24 @@ class ArOverlayView @JvmOverloads constructor(
             } else {
                 null
             }
-            val dz = dzReported ?: dzTerrain
+            // AIR TRAFFIC BALLPARK (no DTED, category == AIRCRAFT only): we don't know our own
+            // MSL, but ADS-B still tells us roughly how high THEY are. Same "assume flat ground
+            // at our takeoff elevation" convention as dzTerrain's else-branch and the pin
+            // fallback above — their reported altitude, taken as height above that same assumed
+            // ground, minus how far above it we currently are. This silently assumes our
+            // takeoff point sits at the same true elevation their altimeter is referenced to,
+            // which is why [dzIsTrusted] is false here — good enough to place the icon in
+            // roughly the right place, not good enough to print a number and imply precision
+            // that isn't there. Placing an airliner at our own level (the old fallback here)
+            // was a worse approximation than this for the one category where altitude is the
+            // entire point of drawing it.
+            val dzAirBallpark = if (category == ArSettings.Category.AIRCRAFT &&
+                isUsableAltitude(reported)) reported - hud.alt else null
+            val dz = dzReported ?: dzAirBallpark ?: dzTerrain
+            // Only the fully DTED-backed computation is trustworthy enough to LABEL with a
+            // number — see drawAircraft. The ballpark above and the flat-terrain fallback both
+            // still drive where the icon is drawn; they just don't get printed as text.
+            val dzIsTrusted = dzReported != null
 
             if (kotlin.math.hypot(groundDist, dz) < MIN_RANGE_M) { skipped++; continue }
 
@@ -340,7 +357,7 @@ class ArOverlayView @JvmOverloads constructor(
             // start obscuring the video, which is a flight-safety regression rather than an
             // aesthetic one. Nearest are drawn first, so the ones that lose their label are the
             // furthest away.
-            drawContact(canvas, xy.first, xy.second, u, category, dz, withLabel = drawn < MAX_LABELS)
+            drawContact(canvas, xy.first, xy.second, u, category, dz, dzIsTrusted, withLabel = drawn < MAX_LABELS)
             drawn++
         }
 
@@ -360,11 +377,20 @@ class ArOverlayView @JvmOverloads constructor(
      * `hae`; the ADS-B gateway sources that from BAROMETRIC altitude, so treat it as good to a
      * couple of hundred feet rather than exact.
      *
+     * **The number is only printed when [dzIsTrusted]** — the DTED-backed computation, both our
+     * own MSL and theirs differenced properly. Without DTED, [dzMeters] still places the icon
+     * (the flat-ground ballpark in [drawContacts] beats pinning every aircraft to our own
+     * level), but that ballpark silently assumes our takeoff point sits at the same true
+     * elevation their altimeter is referenced to — close enough to point the icon at roughly the
+     * right spot, not close enough to print as a number implying precision that isn't there.
+     * Callsign only in that case.
+     *
      * No heading rotation: CotParser does not carry the CoT `course` field, so there is nothing
      * honest to rotate by, and a symmetric diamond does not imply a direction it does not know.
      */
     private fun drawAircraft(
-        canvas: Canvas, x: Float, y: Float, u: TakUser, dzMeters: Double?, withLabel: Boolean,
+        canvas: Canvas, x: Float, y: Float, u: TakUser, dzMeters: Double, dzIsTrusted: Boolean,
+        withLabel: Boolean,
     ) {
         val r = 8f * d
         arrowPath.reset()
@@ -382,9 +408,11 @@ class ArOverlayView @JvmOverloads constructor(
         // another aircraft, and unlike its MSL altitude it is self-checking: a track labelled
         // +2400 ft that renders near the horizon is visibly wrong, where "2900 ft" looks
         // plausible whatever the icon does.
-        val text = dzMeters?.let {
-            "%s  %s%s".format(callsign, if (it >= 0) "+" else "-", Units.feet(abs(it)))
-        } ?: callsign
+        val text = if (dzIsTrusted) {
+            "%s  %s%s".format(callsign, if (dzMeters >= 0) "+" else "-", Units.feet(abs(dzMeters)))
+        } else {
+            callsign
+        }
         drawLabel(canvas, x, y + r, text)
     }
 
@@ -407,11 +435,11 @@ class ArOverlayView @JvmOverloads constructor(
     /** 2525 frame for a placed marker; team-coloured dot for a PLI/unit. Grey when stale. */
     private fun drawContact(
         canvas: Canvas, x: Float, y: Float, u: TakUser, category: ArSettings.Category,
-        dzMeters: Double?, withLabel: Boolean,
+        dzMeters: Double, dzIsTrusted: Boolean, withLabel: Boolean,
     ) {
         val label = u.callsign ?: u.uid
         if (category == ArSettings.Category.AIRCRAFT) {
-            drawAircraft(canvas, x, y, u, dzMeters, withLabel)
+            drawAircraft(canvas, x, y, u, dzMeters, dzIsTrusted, withLabel)
             return
         }
         val milRes = TakMapMarkers.milMarkerRes(u.type)
