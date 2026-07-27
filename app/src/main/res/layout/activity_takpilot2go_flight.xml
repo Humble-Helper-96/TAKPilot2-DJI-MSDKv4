@@ -57,91 +57,96 @@
     <!-- ATAK-UAS-Tool-style telemetry overlay, stacked directly above the mini-map (same
          bottom|end corner/size/margin the map already had — "leave the mini map where it is").
          Plain text over video, no box, to match the reference look. -->
+    <!-- RIGHT-HAND HUD COLUMN.
+         Exposure + telemetry + map in ONE container, deliberately. These were previously two
+         independently-anchored children (exposure top|end, telemetry bottom|end); as the readout
+         grew they silently grew INTO each other and ISO/shutter printed over the lat/lon.
+         Nothing warns you about that — it just renders wrong. Stacked in one LinearLayout with a
+         weighted spacer, the layout engine guarantees they cannot overlap at any screen size and
+         the spacer absorbs whatever height is left over.
+
+         Sits over the pillarbox to the right of the 16:9 video, not over the image itself. -->
     <LinearLayout
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
         android:gravity="end"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingTop="60dp"
+        android:paddingBottom="12dp"
+        android:paddingEnd="14dp">
+
+        <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
+             ISO/shutter the camera actually chose beneath it. -->
+        <com.dji.sdk.sample.takpilot2.EvSliderView
+            android:id="@+id/evSlider"
+            android:layout_width="176dp"
+            android:layout_height="24dp" />
+
+        <LinearLayout
+            android:layout_width="176dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView style="@style/hudText" android:layout_width="0dp"
+                android:layout_weight="1" android:gravity="start" android:text="-2" />
+
+            <TextView style="@style/hudText" android:layout_width="0dp"
+                android:layout_weight="1" android:gravity="center"
+                android:letterSpacing="0.08" android:text="EV" android:textColor="#9AC4FF" />
+
+            <TextView style="@style/hudText" android:layout_width="0dp"
+                android:layout_weight="1" android:gravity="end" android:text="+2" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/exposureReadout"
+            style="@style/hudText"
+            android:layout_width="176dp"
+            android:gravity="center"
+            android:text="ISO —   —" />
+
+        <!-- Absorbs leftover height: exposure stays pinned to the top, the rest to the bottom,
+             and neither can run into the other. -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/fpvOverlayText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
+            style="@style/hudText"
+            android:layout_marginBottom="4dp"
             android:gravity="end"
-            android:shadowColor="#CC000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:text="" />
 
-        <!-- Gimbal look angle. Its own view so it can colour independently: marker placement
-             accuracy degrades as 1/sin^2(pitch), so a shallow angle is a real accuracy warning,
-             not decoration. See updateGimbalPitch. -->
+        <!-- Gimbal look angle, its own view so it can carry the same accuracy colour as the
+             crosshair centre ring: placement error scales as 1/sin^2(pitch), so a shallow angle
+             is a real accuracy warning rather than decoration. See updateGimbalPitch. -->
         <TextView
             android:id="@+id/fpvGimbalPitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
+            style="@style/hudText"
+            android:layout_marginBottom="4dp"
             android:gravity="end"
-            android:shadowColor="#CC000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:text="" />
 
-        <!-- Gimbal pitch. Its own view so it can carry the same accuracy colour as the crosshair
-             centre ring — the number and the reticle then reinforce each other rather than the
-             pilot having to map one onto the other. -->
-        <TextView
-            android:id="@+id/fpvGimbalPitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
-            android:gravity="end"
-            android:shadowColor="#CC000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <!-- FAA UASFM ceiling. Its own view rather than another line in fpvOverlayText above so
-             it can turn amber/red on its own when the aircraft exceeds the ceiling. Advisory
-             only — see UasfmStore. -->
+        <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
         <TextView
             android:id="@+id/fpvFaaCeiling"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/hudText"
             android:layout_marginBottom="6dp"
             android:gravity="end"
-            android:shadowColor="#CC000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
             android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold"
             android:visibility="gone" />
 
         <com.mapbox.mapboxsdk.maps.MapView
             android:id="@+id/flightMapView"
-            android:layout_width="160dp"
-            android:layout_height="160dp"
+            android:layout_width="@dimen/flight_map_size"
+            android:layout_height="@dimen/flight_map_size"
             app:mapbox_renderTextureMode="true" />
 
     </LinearLayout>
+
 
     <!-- Instrument toolbar: TAKPilot2's blue chrome, houses status readouts + flight actions.
          Solid bar overlaid on the video (not letterboxed space) — same overlay-on-FPV pattern
@@ -336,91 +341,6 @@
             android:layout_marginEnd="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop recording to SD (not wired yet)" />
-
-    </LinearLayout>
-
-    <!-- Exposure control: a bare EV compensation slider (-2..+2) biasing the shutter-priority
-         auto-ISO, with the live ISO/shutter the camera actually chose shown below. Upper-right,
-         below the toolbar; the video is left-aligned so this sits over the right-side margin.
-         No background box — text carries a drop shadow for legibility over video. -->
-    <LinearLayout
-        android:id="@+id/exposurePanel"
-        android:layout_width="200dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="60dp"
-        android:layout_marginEnd="16dp"
-        android:orientation="vertical">
-
-        <com.dji.sdk.sample.takpilot2.EvSliderView
-            android:id="@+id/evSlider"
-            android:layout_width="match_parent"
-            android:layout_height="28dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="start"
-                android:shadowColor="#CC000000"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="3"
-                android:text="-2"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:letterSpacing="0.08"
-                android:shadowColor="#CC000000"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="3"
-                android:text="EV"
-                android:textColor="#9AC4FF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="end"
-                android:shadowColor="#CC000000"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="3"
-                android:text="+2"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/exposureReadout"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:gravity="center"
-            android:shadowColor="#CC000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text="ISO —   —"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold" />
 
     </LinearLayout>
 

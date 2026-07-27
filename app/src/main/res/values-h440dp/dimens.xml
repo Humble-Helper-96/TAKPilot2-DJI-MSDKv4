@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Taller landscape screens (Pixel 8 Pro is ~448dp) can afford the larger mini-map. -->
+    <dimen name="flight_map_size">160dp</dimen>
+</resources>
