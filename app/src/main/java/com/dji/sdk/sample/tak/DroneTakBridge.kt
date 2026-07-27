@@ -318,6 +318,18 @@ class DroneTakBridge(
     data class CameraPose(val bearingDeg: Double, val pitchDeg: Double)
 
     /**
+     * True if [candidate] is a uid THIS app publishes — our own aircraft PLI or its sensor
+     * point. The server echoes both back and they arrive as ordinary contacts, but neither is a
+     * target: the aircraft is at its own position, and the SPI is by definition wherever the
+     * camera is pointing, so drawing it would pin a marker permanently under the crosshair.
+     *
+     * Note [TakManager] already drops self-originated CoT, but it matches on the TAK *client's*
+     * uid — the drone and SPI carry their own uids, so they get through that filter.
+     */
+    fun isOwnPublishedUid(candidate: String?): Boolean =
+        candidate != null && (candidate == droneUid || candidate == spiUid)
+
+    /**
      * Current camera pose, or null until GPS/gimbal state has arrived.
      *
      * Deliberately computed here from the SAME [cameraBearing] + [PITCH_OFFSET_DEG] model that

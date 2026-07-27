@@ -1,6 +1,7 @@
 package com.dji.sdk.sample.takpilot2
 
 import android.content.Context
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,10 +12,14 @@ import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
+import com.dji.sdk.sample.tak.ArSettings
 import com.dji.sdk.sample.tak.CameraSlantPoint
 import com.dji.sdk.sample.tak.DroneTakBridge
 import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakDropMarkers
+import com.dji.sdk.sample.tak.TakMapMarkers
+import com.taklite.client.tak.TakManager
+import com.taklite.client.tak.TakUser
 import com.taklite.util.AppLog
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -106,6 +111,17 @@ class ArOverlayView @JvmOverloads constructor(
     }
     private val labelBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 0, 0, 0) }
 
+    /** PLI contacts draw as a team-coloured dot with a dark ring, matching the mini-map. */
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val dotRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.BLACK
+        strokeWidth = 1.5f * Resources.getSystem().displayMetrics.density
+    }
+
+    /** Reused across edge arrows so the draw loop doesn't allocate a Path per frame. */
+    private val arrowPath = android.graphics.Path()
+
     private val iconCache = HashMap<Int, Bitmap>()
 
     // Throttled so a persistent "why is nothing drawing" condition logs once rather than at the
@@ -122,8 +138,13 @@ class ArOverlayView @JvmOverloads constructor(
         if (!hud.hasFix) return skipped("no GPS fix")
         lastSkipReason = null
 
-        val pins = TakDropMarkers.listPins()
-        if (pins.isEmpty()) return
+        // NOTE: no early-return when there are no dropped pins — inbound contacts are drawn
+        // below and are entirely independent of whether this pilot has placed anything.
+        val pins = if (ArSettings.isEnabled(context, ArSettings.Category.MY_MARKERS)) {
+            TakDropMarkers.listPins()
+        } else {
+            emptyList()
+        }
 
         // Throttle per DRAW PASS, not per pin — a per-call throttle only ever logs whichever pin
         // happens to be first in the list, which hid a second marker's trace entirely during
@@ -167,8 +188,217 @@ class ArOverlayView @JvmOverloads constructor(
 
             val xy = project(dBearing, dElev)
             if (logThisPass) diag(pin, pose, groundDist, dz, bearing, dBearing, elevDeg, dElev, xy)
-            if (xy == null) continue
-            drawPin(canvas, xy.first, xy.second, pin, groundDist)
+            if (xy == null) {
+                drawEdgeArrow(canvas, dBearing, dElev, ARROW_COLOR_PIN)
+                continue
+            }
+            drawPin(canvas, xy.first, xy.second, pin)
+        }
+
+        drawContacts(canvas, pose, hud, aircraftMsl, logThisPass)
+    }
+
+    /**
+     * Inbound TAK contacts — other operators' positions and the markers they've placed.
+     *
+     * Skips, in order: contacts with no position; ones the pilot has locally hidden (that hide
+     * is shared with the mini-map, so the two pictures agree); our own dropped pins echoed back
+     * by the server (already drawn from [TakDropMarkers]); and our own published aircraft/SPI
+     * uids, which are not targets at all.
+     */
+    private fun drawContacts(
+        canvas: Canvas,
+        pose: DroneTakBridge.CameraPose,
+        hud: DroneTakBridge.Hud,
+        aircraftMsl: Double?,
+        logThisPass: Boolean,
+    ) {
+        // Nearest first, so when the label budget runs out it's the distant contacts that lose
+        // their plate rather than whichever happened to arrive first.
+        val users = runCatching { TakManager.getInstance().takUsers }.getOrNull()
+            ?.sortedBy { CameraSlantPoint.distanceMeters(hud.lat, hud.lon, it.lat, it.lon) }
+            ?: return
+        var drawn = 0
+        var offFrame = 0
+        var skipped = 0
+        var detailed = 0
+
+        for (u in users) {
+            val lat = u.lat
+            val lon = u.lon
+            if (lat == 0.0 && lon == 0.0) { skipped++; continue }
+            if (TakMapMarkers.isHidden(u.uid)) { skipped++; continue }
+            if (TakDropMarkers.ownsUid(u.uid)) { skipped++; continue }
+            if (TakBridgeHolder.isOwnPublishedUid(u.uid)) { skipped++; continue }
+
+            // Category decides BOTH whether this is drawn and how far out it stays relevant —
+            // air traffic is worth seeing well past the range a ground marker is.
+            val category = ArSettings.categoryFor(u.uid, u.type)
+            if (!ArSettings.isEnabled(context, category)) { skipped++; continue }
+
+            val groundDist = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, lat, lon)
+            if (groundDist > category.maxRangeM) { skipped++; continue }
+
+            // Height of the contact relative to the aircraft. Two independent ways to get it,
+            // and they disagree — which one is right is an open field question (see below).
+            //
+            // REPORTED (primary, operator's call): the contact's own CoT altitude. TAK clients
+            // do know and publish their height, so using it is the obvious thing and it is the
+            // only option that can be right for a target NOT standing on the ground — an upper
+            // floor, a bridge, another aircraft.
+            //   Caveat: CotParser reads it from the `hae` attribute, i.e. height above the WGS84
+            //   ELLIPSOID, while aircraftMsl is MSL (DTED takeoff terrain + height climbed).
+            //   Subtracting one from the other carries the geoid separation — order 10-15 m
+            //   locally. That is nothing at 1 km and about 18 degrees at 30 m, so if contacts
+            //   render systematically LOW and worsen as you close on them, this is why.
+            //
+            // TERRAIN (fallback): ground elevation under the contact from DTED. Self-consistent
+            // in MSL with no datum mixing, and accurate to roughly a person's height for anyone
+            // on foot — but simply wrong for anything off the ground. This is also what the V5
+            // reference settled on after finding reported altitude made contacts "float in the
+            // sky and slew as the gimbal tilts".
+            val targetGroundMsl = com.dji.sdk.sample.tak.DtedIndex.elevationAt(context, lat, lon)
+            val dzTerrain = if (targetGroundMsl != null && aircraftMsl != null) {
+                targetGroundMsl - aircraftMsl
+            } else {
+                // No DTED under the target: assume it sits at our takeoff elevation, which is
+                // V5's flat-plane assumption.
+                -hud.alt
+            }
+            val reported = u.alt
+            val dzReported = if (aircraftMsl != null && isUsableAltitude(reported)) {
+                reported - aircraftMsl
+            } else {
+                null
+            }
+            val dz = dzReported ?: dzTerrain
+
+            if (kotlin.math.hypot(groundDist, dz) < MIN_RANGE_M) { skipped++; continue }
+
+            val bearing = CameraSlantPoint.initialBearingDeg(hud.lat, hud.lon, lat, lon)
+            val dBearing = ((bearing - pose.bearingDeg + 540.0) % 360.0) - 180.0
+            val dElev = Math.toDegrees(atan2(dz, groundDist)) - pose.pitchDeg
+
+            val xy = project(dBearing, dElev)
+
+            // Trace the first few in detail, showing BOTH height methods side by side. The
+            // whole point is that "reported" and "terrain" disagree by the geoid offset, and
+            // whichever one puts the marker on the actual person is the one to keep — that is
+            // an observation to make in the field, not a call to settle from a desk. The
+            // elevation angle each would produce is spelled out because degrees, not metres,
+            // are what moves the icon on screen.
+            if (logThisPass && detailed < CONTACT_DETAIL_LIMIT) {
+                detailed++
+                val elevRep = dzReported?.let { Math.toDegrees(atan2(it, groundDist)) }
+                val elevTer = Math.toDegrees(atan2(dzTerrain, groundDist))
+                AppLog.d(
+                    TAG,
+                    "contact='${u.callsign ?: u.uid}' type=${u.type} gDist=%.0fm | ".format(groundDist) +
+                        "dzReported=%s dzTerrain=%.1fm | elevReported=%s elevTerrain=%.1f | using=%s | %s".format(
+                            dzReported?.let { "%.1fm".format(it) } ?: "none",
+                            dzTerrain,
+                            elevRep?.let { "%.1f".format(it) } ?: "none",
+                            elevTer,
+                            if (dzReported != null) "reported" else "terrain",
+                            if (xy == null) "OFF-FRAME" else "drawn at %.0f,%.0f".format(xy.first, xy.second),
+                        ),
+                )
+            }
+
+            if (xy == null) {
+                offFrame++
+                drawEdgeArrow(canvas, dBearing, dElev, TakMapMarkers.teamColor(u.team))
+                continue
+            }
+            // Label budget: icons stay (they're the position information), but past this many
+            // on-screen contacts the name+range plates overlap into an unreadable mass and
+            // start obscuring the video, which is a flight-safety regression rather than an
+            // aesthetic one. Nearest are drawn first, so the ones that lose their label are the
+            // furthest away.
+            drawContact(canvas, xy.first, xy.second, u, category, withLabel = drawn < MAX_LABELS)
+            drawn++
+        }
+
+        // A count for the rest: a busy TAK picture is a dozen-plus contacts, and tracing every
+        // one at 1Hz would bury the per-pin detail that actually needs reading.
+        if (logThisPass && users.isNotEmpty()) {
+            AppLog.d(TAG, "contacts: ${users.size} known, $drawn drawn, $offFrame off-frame, $skipped skipped")
+        }
+    }
+
+    /**
+     * Air traffic: a diamond rather than a dot or a 2525 ground frame, so it cannot be confused
+     * with anything on the ground, plus its altitude in the label.
+     *
+     * **Altitude is the point** for an aircraft — the pilot's question is "how far above me is
+     * that" — so it earns label space where a ground contact's range did not. Taken from the CoT
+     * `hae`; the ADS-B gateway sources that from BAROMETRIC altitude, so treat it as good to a
+     * couple of hundred feet rather than exact.
+     *
+     * No heading rotation: CotParser does not carry the CoT `course` field, so there is nothing
+     * honest to rotate by, and a symmetric diamond does not imply a direction it does not know.
+     */
+    private fun drawAircraft(canvas: Canvas, x: Float, y: Float, u: TakUser, withLabel: Boolean) {
+        val r = 8f * d
+        arrowPath.reset()
+        arrowPath.moveTo(x, y - r)
+        arrowPath.lineTo(x + r, y)
+        arrowPath.lineTo(x, y + r)
+        arrowPath.lineTo(x - r, y)
+        arrowPath.close()
+        dotPaint.color = if (u.isStale) Color.GRAY else AIRCRAFT_COLOR
+        canvas.drawPath(arrowPath, dotPaint)
+        canvas.drawPath(arrowPath, dotRing)
+        if (!withLabel) return
+        val callsign = u.callsign ?: u.uid
+        val text = if (isUsableAltitude(u.alt)) "%s  %s".format(callsign, Units.feet(u.alt))
+                   else callsign
+        drawLabel(canvas, x, y + r, text)
+    }
+
+    /**
+     * Is a CoT-reported altitude actually a number we can use?
+     *
+     * **`9999999.0` is the TAK convention for "unknown"**, not a real height, and the operator's
+     * own gateways emit it: the METAR weather gateway sets `hae="9999999.0"` on every station
+     * marker, as does the seismic gateway. Taken literally that places a marker ~10,000 km
+     * overhead, which projects past [MAX_PROJECT_ANGLE] and turns every nearby weather station
+     * into a bogus edge arrow pinned to the top of the frame. Anchorage alone has several
+     * reporting stations inside AR range, so this was not a theoretical case.
+     *
+     * Also rejects exact 0.0, which CoT uses about as loosely — CloudTAK self-markers publish it
+     * (`"center": [lon, lat, 0]`) when they have no altitude fix.
+     */
+    private fun isUsableAltitude(alt: Double): Boolean =
+        alt.isFinite() && alt != 0.0 && abs(alt) < UNKNOWN_ALT_SENTINEL
+
+    /** 2525 frame for a placed marker; team-coloured dot for a PLI/unit. Grey when stale. */
+    private fun drawContact(
+        canvas: Canvas, x: Float, y: Float, u: TakUser, category: ArSettings.Category,
+        withLabel: Boolean,
+    ) {
+        val label = u.callsign ?: u.uid
+        if (category == ArSettings.Category.AIRCRAFT) {
+            drawAircraft(canvas, x, y, u, withLabel)
+            return
+        }
+        val milRes = TakMapMarkers.milMarkerRes(u.type)
+        if (milRes != null) {
+            val size = (ICON_DP * d).toInt()
+            val bmp = iconCache.getOrPut(milRes) {
+                TakMapMarkers.drawableToBitmap(context, milRes, size) ?: run {
+                    AppLog.w(TAG, "contact icon failed to rasterise — not drawn")
+                    return
+                }
+            }
+            canvas.drawBitmap(bmp, x - size / 2f, y - size / 2f, iconPaint)
+            if (withLabel) drawLabel(canvas, x, y + size / 2f, label)
+        } else {
+            val r = 7f * d
+            dotPaint.color = if (u.isStale) Color.GRAY else TakMapMarkers.teamColor(u.team)
+            canvas.drawCircle(x, y, r, dotPaint)
+            canvas.drawCircle(x, y, r, dotRing)
+            if (withLabel) drawLabel(canvas, x, y + r, label)
         }
     }
 
@@ -196,7 +426,7 @@ class ArOverlayView @JvmOverloads constructor(
         return x to y
     }
 
-    private fun drawPin(canvas: Canvas, x: Float, y: Float, pin: TakDropMarkers.PinInfo, dist: Double) {
+    private fun drawPin(canvas: Canvas, x: Float, y: Float, pin: TakDropMarkers.PinInfo) {
         val size = (ICON_DP * d).toInt()
         // MUST rasterise through the drawable, not BitmapFactory. The affiliation markers are
         // VectorDrawable XML, and BitmapFactory.decodeResource returns null for those — the
@@ -213,12 +443,70 @@ class ArOverlayView @JvmOverloads constructor(
                 }
         }
         canvas.drawBitmap(bmp, x - size / 2f, y - size / 2f, iconPaint)
+        drawLabel(canvas, x, y + size / 2f, pin.name)
+    }
 
+    /**
+     * Marker for something outside the frame, pinned to the edge in its direction.
+     *
+     * Worth having rather than just dropping off-frame targets: "there is a marker 40° to your
+     * left" is the cue that tells a pilot which way to yaw. Without it the overlay is silent
+     * about everything it can't currently see, which reads as "there is nothing there".
+     *
+     * Clamped into the video rect with a margin so an arrow never lands under the toolbar or
+     * outside the image, and drawn as a triangle pointing outward along the direction to the
+     * target rather than a plain dot, so the direction is readable at a glance.
+     */
+    private fun drawEdgeArrow(canvas: Canvas, dBearingDeg: Double, dElevDeg: Double, color: Int) {
+        // Normalised direction; clamped because a target directly behind produces a huge value
+        // that would otherwise dominate the angle.
+        val nx = (dBearingDeg / (DroneTakBridge.hFovDeg() / 2.0)).coerceIn(-1.0, 1.0)
+        val ny = (-dElevDeg / (DroneTakBridge.vFovDeg() / 2.0)).coerceIn(-1.0, 1.0)
+        val margin = 16f * d
+        val cx = videoRect.centerX()
+        val cy = videoRect.centerY()
+        val x = (cx + nx.toFloat() * (videoRect.width() / 2f - margin))
+            .coerceIn(videoRect.left + margin, videoRect.right - margin)
+        val y = (cy + ny.toFloat() * (videoRect.height() / 2f - margin))
+            .coerceIn(videoRect.top + margin, videoRect.bottom - margin)
+
+        val angle = atan2((y - cy).toDouble(), (x - cx).toDouble())
+        val r = 7f * d
+        arrowPath.reset()
+        arrowPath.moveTo(
+            x + (r * kotlin.math.cos(angle)).toFloat(),
+            y + (r * kotlin.math.sin(angle)).toFloat(),
+        )
+        val spread = Math.toRadians(140.0)
+        arrowPath.lineTo(
+            x + (r * kotlin.math.cos(angle + spread)).toFloat(),
+            y + (r * kotlin.math.sin(angle + spread)).toFloat(),
+        )
+        arrowPath.lineTo(
+            x + (r * kotlin.math.cos(angle - spread)).toFloat(),
+            y + (r * kotlin.math.sin(angle - spread)).toFloat(),
+        )
+        arrowPath.close()
+        dotPaint.color = color
+        canvas.drawPath(arrowPath, dotPaint)
+        canvas.drawPath(arrowPath, dotRing)
+    }
+
+    /**
+     * Name plate, hung just below the symbol. Shared by pins and contacts so the two can't
+     * drift apart visually. [symbolBottom] is the bottom edge of whatever was drawn.
+     *
+     * Name only — range was here initially and removed at the operator's call: it roughly
+     * doubles the plate width, and in a crowded picture the plates are the thing that overlaps
+     * and starts hiding the video. Range is still available on the mini-map and, for our own
+     * pins, in the markers list.
+     */
+    private fun drawLabel(canvas: Canvas, x: Float, symbolBottom: Float, name: String) {
         labelPaint.textSize = LABEL_SP * d
-        val text = "${pin.name}  ${Units.distance(dist)}"
+        val text = name
         val tw = labelPaint.measureText(text)
         val fm = labelPaint.fontMetrics
-        val top = y + size / 2f + 4 * d
+        val top = symbolBottom + 4 * d
         canvas.drawRoundRect(
             x - tw / 2 - 5 * d, top, x + tw / 2 + 5 * d, top + (fm.descent - fm.ascent) + 3 * d,
             3 * d, 3 * d, labelBg,
@@ -288,9 +576,20 @@ class ArOverlayView @JvmOverloads constructor(
         private const val MIN_RANGE_M = 2.0
         /** Beyond this a marker is a speck the pilot can't act on; also the first line of
          *  defence against a busy TAK picture carpeting the video. */
+        /** Per-category ranges now live in ArSettings.Category; this is only the pin cap. */
         private const val MAX_RANGE_M = 5000.0
+        /** TAK's "unknown altitude" sentinel — see isUsableAltitude. */
+        private const val UNKNOWN_ALT_SENTINEL = 999_999.0
+        /** Matches the magenta the ADS-B gateway tags its tracks with. */
+        private val AIRCRAFT_COLOR = 0xFFFF00FF.toInt()
         private const val MAX_PROJECT_ANGLE = 85.0
         /** Projection trace cadence — the draw loop runs at 10Hz, which is far too fast to log. */
         private const val DIAG_INTERVAL_MS = 1000L
+        /** How many contacts get a full trace line per pass; the rest are counted. */
+        private const val CONTACT_DETAIL_LIMIT = 3
+        /** On-screen contacts that get a name+range plate; the rest keep just their icon. */
+        private const val MAX_LABELS = 6
+        /** Edge arrows for our own pins use the app's marker-drop accent, not a team colour. */
+        private val ARROW_COLOR_PIN = 0xFF9AC4FF.toInt()
     }
 }
