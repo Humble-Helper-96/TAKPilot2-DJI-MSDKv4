@@ -283,11 +283,19 @@ class FpvTextureView @JvmOverloads constructor(
         /** Invoked with the real decoded video dimensions (from INFO_OUTPUT_FORMAT_CHANGED). */
         @Volatile var onVideoSize: ((Int, Int) -> Unit)? = null
 
-        /** Set by [requestResync] (pilot-tapped Video Re-Sync). Handled at the top of the decode
-         *  loop: drop the queue, go unsynced, and force the proven resetDecoder recovery now —
-         *  the manual failsafe to clear accumulated static-scene artifacting on demand. */
+        /** Set by [requestResync]. Handled at the top of the decode loop: drop the queue, go
+         *  unsynced, and force the proven resetDecoder recovery now. */
         @Volatile private var resyncRequested = false
-        fun requestResync() { resyncRequested = true }
+        /** Whether the pending [resyncRequested] came from the pilot's button rather than from
+         *  automatic frame-loss detection. Kept separate purely so the health counters stay
+         *  honest — conflating the two would make "how often did the PILOT have to intervene"
+         *  unanswerable, and that number is the whole measure of whether the auto-resync works. */
+        @Volatile private var resyncWasPilotInitiated = false
+
+        fun requestResync() {
+            resyncWasPilotInitiated = true
+            resyncRequested = true
+        }
 
         // ---- Annex-B assembler state (called on the DJI feed thread) ----
         private var pending = ByteArray(0)
@@ -509,14 +517,25 @@ class FpvTextureView @JvmOverloads constructor(
             }
             lastLossResync = now
             lossResyncs.incrementAndGet()
-            AppLog.w(TAG, "FPV: $lost frame(s) lost upstream — requesting keyframe to stop " +
-                "the corruption propagating")
-            // Same lever the pilot's Video Re-Sync uses. Deliberately NOT the full local
-            // requestResync() path: that also clears the queue and drops us to waitForSync,
-            // which would blank the picture. Here the decoder is healthy and still rendering —
-            // it just needs a clean reference to recover onto, so ask the aircraft for one and
-            // let the existing type==5 IDR handling pick it up when it arrives.
-            onHardResyncNeeded?.invoke()
+            AppLog.w(TAG, "FPV: $lost frame(s) lost upstream — forcing re-sync to stop the " +
+                "corruption propagating")
+            // MUST be the full requestResync() path, not a bare onHardResyncNeeded().
+            //
+            // Field-proven 2026-07-27, the hard way: the first cut called onHardResyncNeeded()
+            // alone, trying to avoid the brief picture glitch that clearing the queue causes.
+            // It fired correctly at 19:31:32 and produced NOTHING — no IDR ever arrived. That is
+            // exactly the behaviour IdrRequesterHolder.forceResync's own doc warns about:
+            // resetDecoder() is a documented NO-OP while DJI's decoder believes the stream is
+            // healthy, and by deliberately not going unsynced we had guaranteed it believed
+            // exactly that. The keyframe request was silently discarded.
+            //
+            // requestResync() is the path the pilot's button uses and the one field-proven to
+            // work (18:44:33 -> IDR at 18:44:34): it clears the queue and sets waitForSync, so
+            // the decoder IS genuinely unsynced when resetDecoder lands, which is the condition
+            // that makes the aircraft actually emit SPS/IDR. The brief glitch is the price of
+            // the request working at all, and it is far cheaper than the minutes of compounding
+            // corruption a lost reference frame otherwise causes.
+            resyncRequested = true      // NOT requestResync() — that would mark it pilot-initiated
         }
 
         /** Keyframe requests triggered by detected loss, and ones suppressed by the rate limit
@@ -641,8 +660,13 @@ class FpvTextureView @JvmOverloads constructor(
                         unsyncedSince = 0L
                         lastSyncReq = 0L        // let onSyncNeeded fire right away while unsynced
                         lastHardResync = now    // we're firing the hard resync now
-                        manualResyncs.incrementAndGet()
-                        AppLog.i(TAG, "FPV: manual re-sync requested by pilot")
+                        if (resyncWasPilotInitiated) {
+                            resyncWasPilotInitiated = false
+                            manualResyncs.incrementAndGet()
+                            AppLog.i(TAG, "FPV: manual re-sync requested by pilot")
+                        } else {
+                            AppLog.i(TAG, "FPV: re-sync from automatic frame-loss detection")
+                        }
                         onHardResyncNeeded?.invoke()
                     }
 
