@@ -341,6 +341,7 @@ class FpvTextureView @JvmOverloads constructor(
                 // static hover, the periodic anti-artifact refresh isn't working either.
                 AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
             }
+            nalsFed.incrementAndGet()
             if (!nalQueue.offer(nal)) {
                 // Queue full — the decoder fell persistently behind (rare now that transient
                 // stalls hold-and-retry instead of dropping). Reset latency by dropping the
@@ -350,8 +351,67 @@ class FpvTextureView @JvmOverloads constructor(
                 // lingering artifacting on demand.
                 nalQueue.clear()
                 nalQueue.offer(nal)
+                overflowDrops.incrementAndGet()
                 AppLog.w(TAG, "FPV: queue overflow — dropped backlog (no freeze), continuing")
             }
+        }
+
+        // ---- Video health telemetry ----
+        //
+        // Built 2026-07-27 to answer a question field data alone couldn't: some flights need
+        // repeated Video Re-Sync taps, some never artifact at all, and it was unclear whether
+        // that's real RF/link loss (nothing to fix in code), CPU contention from AR/RTSP running
+        // alongside decode (fixable), or something specific to a given decoder tier/device.
+        //
+        // These counters are cheap (an AtomicInteger increment at points the loop already visits)
+        // and get emitted as ONE low-volume summary line every [HEALTH_SUMMARY_INTERVAL_MS], own
+        // tag, so it survives log rotation/interleaving and is a single grep away from a clean
+        // time series — instead of reconstructing event frequency by hand from hundreds of
+        // interleaved per-event lines. AtomicInteger because [nalsFed]/[overflowDrops] are written
+        // from emitNal() on the DJI callback thread while everything else here runs on this
+        // decode thread; making all six uniformly atomic removes any doubt rather than mixing
+        // plain Int fields in by argument.
+        private val nalsFed = java.util.concurrent.atomic.AtomicInteger(0)
+        private val framesRendered = java.util.concurrent.atomic.AtomicInteger(0)
+        private val overflowDrops = java.util.concurrent.atomic.AtomicInteger(0)
+        /** The 3s/6s escalation firing because we've lost sync entirely — connect, or a real
+         *  signal dropout. Counted separately from [manualResyncs]: this is a different, more
+         *  severe event than the pilot noticing artifacting and tapping the button. */
+        private val autoResyncs = java.util.concurrent.atomic.AtomicInteger(0)
+        /** The pilot tapping Video Re-Sync — the direct, unambiguous signal for "this flight's
+         *  artifacting got bad enough to act on," which is the exact behavior under
+         *  investigation. */
+        private val manualResyncs = java.util.concurrent.atomic.AtomicInteger(0)
+        private val codecRecoveries = java.util.concurrent.atomic.AtomicInteger(0)
+        private var lastHealthSummary = 0L
+
+        /** Emits one summary line and resets the since-last-summary counters. Reads
+         *  [TakBridgeHolder]'s uplink signal, [ArOverlayView]'s and
+         *  [com.dji.sdk.sample.tak.VideoStreamerHolder]'s global state — none of which need a
+         *  view/streamer reference, the same "ask the singleton" pattern already used throughout
+         *  this codebase — so a weak-signal flight and a CPU-contended one (AR + RTSP both
+         *  running) leave a visibly different signature in this one line, instead of looking
+         *  identical from drop/resync counts alone. */
+        private fun logHealthSummary() {
+            val fed = nalsFed.getAndSet(0)
+            val rendered = framesRendered.getAndSet(0)
+            val drops = overflowDrops.getAndSet(0)
+            val autoR = autoResyncs.getAndSet(0)
+            val manualR = manualResyncs.getAndSet(0)
+            val recov = codecRecoveries.getAndSet(0)
+            val tier = when {
+                preferSoftwareDecoder -> "sw"
+                !useLowLatencyHint -> "hw-nolowlat"
+                else -> "hw-lowlat"
+            }
+            val sig = com.dji.sdk.sample.tak.TakBridgeHolder.hud()?.uplinkSignalPct
+            AppLog.i(
+                HEALTH_TAG,
+                "fed=$fed rendered=$rendered drops=$drops autoResync=$autoR " +
+                    "manualResync=$manualR codecRecover=$recov tier=$tier " +
+                    "sig=${sig?.let { "$it%" } ?: "—"} AR=${ArOverlayView.isRunningAnywhere} " +
+                    "RTSP=${com.dji.sdk.sample.tak.VideoStreamerHolder.isActive}",
+            )
         }
 
         /** Builds and starts a MediaCodec against this thread's [surface]. Used for the initial
@@ -400,6 +460,11 @@ class FpvTextureView @JvmOverloads constructor(
                 while (running.get()) {
                     val now = System.currentTimeMillis()
 
+                    if (now - lastHealthSummary >= HEALTH_SUMMARY_INTERVAL_MS) {
+                        lastHealthSummary = now
+                        logHealthSummary()
+                    }
+
                     // Pilot-tapped Video Re-Sync failsafe: clear the backlog, go unsynced, and
                     // fire the proven resetDecoder recovery immediately (don't wait out the 3s
                     // auto-escalation) to clear accumulated artifacting on demand.
@@ -411,6 +476,7 @@ class FpvTextureView @JvmOverloads constructor(
                         unsyncedSince = 0L
                         lastSyncReq = 0L        // let onSyncNeeded fire right away while unsynced
                         lastHardResync = now    // we're firing the hard resync now
+                        manualResyncs.incrementAndGet()
                         AppLog.i(TAG, "FPV: manual re-sync requested by pilot")
                         onHardResyncNeeded?.invoke()
                     }
@@ -432,6 +498,7 @@ class FpvTextureView @JvmOverloads constructor(
                         // same interval if still stuck after that.
                         if (now - unsyncedSince > HARD_RESYNC_AFTER_MS && now - lastHardResync > HARD_RESYNC_AFTER_MS) {
                             lastHardResync = now
+                            autoResyncs.incrementAndGet()
                             AppLog.w(TAG, "FPV: still unsynced after ${now - unsyncedSince}ms, forcing hard resync")
                             onHardResyncNeeded?.invoke()
                         }
@@ -496,6 +563,7 @@ class FpvTextureView @JvmOverloads constructor(
                         }
                         if (lastIdx >= 0) {
                             cd.releaseOutputBuffer(lastIdx, true)
+                            framesRendered.incrementAndGet()
                             // A frame actually rendered — whatever was wrong is no longer
                             // happening. Reset so the NEXT failure (if any) starts its backoff
                             // from scratch instead of inheriting an escalated delay from an
@@ -523,6 +591,7 @@ class FpvTextureView @JvmOverloads constructor(
                         // should still escalate to the outer catch rather than feed a recreate
                         // loop.
                         codecFailures++
+                        codecRecoveries.incrementAndGet()
                         AppLog.e(TAG, "FPV: codec error (failure #$codecFailures) — " +
                             "recreating decoder", e)
                         try { cd.stop() } catch (_: Throwable) {}
@@ -590,6 +659,15 @@ class FpvTextureView @JvmOverloads constructor(
             // retry rate instead of spin-looping. Resets to 0 on the next rendered frame.
             private const val RECREATE_BACKOFF_BASE_MS = 300L
             private const val RECREATE_BACKOFF_MAX_MS = 4000L
+
+            /** Own tag so a health-summary line is one grep away regardless of what else is
+             *  logging (TAK/CoT chatter, verbose UI events) or how the TAK-tags filter is set —
+             *  see [logHealthSummary]. */
+            private const val HEALTH_TAG = "TP2VideoHealth"
+            /** 5s: fine enough to localize a bad stretch within a 20-30 min flight (which
+             *  maneuver, how far into the flight), coarse enough that a full flight is a few
+             *  hundred lines, not thousands. */
+            private const val HEALTH_SUMMARY_INTERVAL_MS = 5000L
         }
     }
 
