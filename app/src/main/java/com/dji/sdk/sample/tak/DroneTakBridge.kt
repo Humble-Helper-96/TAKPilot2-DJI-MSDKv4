@@ -66,6 +66,26 @@ class DroneTakBridge(
     // RC-to-aircraft link quality, 0-100, from AirLink's uplink callback — the "controller
     // signal strength" a pilot cares about (distinct from downlink/video quality).
     @Volatile private var lastUplinkQuality: Int? = null
+
+    /**
+     * AIRCRAFT-to-RC link quality, 0-100 — the direction the VIDEO actually travels.
+     *
+     * Added 2026-07-27 during the FPV artifacting investigation, which had been reading
+     * [lastUplinkQuality] and concluding "signal was perfect, so RF is ruled out." That was the
+     * wrong channel: uplink carries control commands, downlink carries video, and a downlink
+     * dropout is completely invisible in the uplink number. Both frame losses caught by
+     * [com.dji.sdk.sample.takpilot2.FpvTextureView]'s frame_num detector happened while uplink
+     * read 100%, which says nothing either way about the link the frames were lost on.
+     */
+    @Volatile private var lastDownlinkQuality: Int? = null
+
+    /**
+     * OcuSync's own reported VIDEO data rate in Mbps — link CAPACITY, as distinct from the
+     * encoded bitrate we measure by counting bytes off the wire. If capacity sags while the
+     * encoder keeps pushing ~8 Mbps, that gap is where frames get lost, and neither number
+     * alone would show it. Null on aircraft without OcuSync, or before the first callback.
+     */
+    @Volatile private var lastVideoDataRateMbps: Float? = null
     @Volatile private var lastCameraState: SystemState? = null
     // Live exposure the camera actually chose (auto-ISO result under shutter-priority) — for
     // the on-screen ISO/shutter readout.
@@ -91,6 +111,9 @@ class DroneTakBridge(
     private val gimbalStateCallback = GimbalState.Callback { lastGimbal = it }
     private val batteryStateCallback = BatteryState.Callback { lastBattery = it }
     private val uplinkQualityCallback = SignalQualityCallback { lastUplinkQuality = it }
+    private val downlinkQualityCallback = SignalQualityCallback { lastDownlinkQuality = it }
+    private val videoDataRateCallback =
+        dji.sdk.airlink.OcuSyncLink.VideoDataRateCallback { lastVideoDataRateMbps = it }
     private val cameraStateCallback = SystemState.Callback {
         lastCameraState = it
         if (!exposureApplied) {
@@ -132,6 +155,19 @@ class DroneTakBridge(
             aircraft.gimbals?.firstOrNull()?.setStateCallback(gimbalStateCallback)
             aircraft.battery?.setStateCallback(batteryStateCallback)
             aircraft.airLink?.setUplinkSignalQualityCallback(uplinkQualityCallback)
+            // Downlink is the direction video travels — see lastDownlinkQuality's doc for why
+            // watching only uplink misled the artifacting investigation.
+            aircraft.airLink?.setDownlinkSignalQualityCallback(downlinkQualityCallback)
+            // OcuSync's own video-link data rate. Guarded: only OcuSync aircraft have this, and
+            // asking a non-OcuSync product for the link would throw or return null.
+            try {
+                if (aircraft.airLink?.isOcuSyncLinkSupported == true) {
+                    aircraft.airLink?.ocuSyncLink?.setVideoDataRateCallback(videoDataRateCallback)
+                    AppLog.i(TAG, "OcuSync video-data-rate callback registered")
+                }
+            } catch (t: Throwable) {
+                AppLog.w(TAG, "OcuSync video-data-rate callback unavailable: ${t.message}")
+            }
             aircraft.camera?.setSystemStateCallback(cameraStateCallback)
             aircraft.camera?.setExposureSettingsCallback(exposureSettingsCallback)
             // TODO: resolve the real aircraft serial (BaseProduct.getSerialNumber) as a
@@ -151,12 +187,16 @@ class DroneTakBridge(
         try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.battery?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.airLink?.setUplinkSignalQualityCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.airLink?.setDownlinkSignalQualityCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.airLink?.ocuSyncLink?.setVideoDataRateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.camera?.setSystemStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.camera?.setExposureSettingsCallback(null) } catch (_: Throwable) {}
         lastState = null
         lastGimbal = null
         lastBattery = null
         lastUplinkQuality = null
+        lastDownlinkQuality = null
+        lastVideoDataRateMbps = null
         lastCameraState = null
         lastExposure = null
         exposureApplied = false
@@ -288,6 +328,12 @@ class DroneTakBridge(
          *  this replaced, which ignored both. Null on the ground / before the first
          *  assessment. */
         val remainingFlightTimeSec: Int?,
+        /** AIRCRAFT-to-RC link quality — the direction VIDEO travels. See
+         *  [lastDownlinkQuality]; not surfaced on the pilot HUD (which shows the control link),
+         *  this is for the video-health diagnostics. */
+        val downlinkSignalPct: Int? = null,
+        /** OcuSync's reported video-link capacity in Mbps, or null off OcuSync aircraft. */
+        val videoDataRateMbps: Float? = null,
     )
 
     fun hud(): Hud {
@@ -318,6 +364,8 @@ class DroneTakBridge(
             // and a HUD that reads "0 min remaining" while sitting on a full battery would be
             // both wrong and exactly the kind of wrong that erodes trust in the readout.
             state?.goHomeAssessment?.remainingFlightTime?.takeIf { it > 0 },
+            lastDownlinkQuality,
+            lastVideoDataRateMbps,
         )
     }
 
