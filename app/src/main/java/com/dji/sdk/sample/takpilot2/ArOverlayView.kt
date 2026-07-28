@@ -83,6 +83,7 @@ class ArOverlayView @JvmOverloads constructor(
     fun start() {
         if (running) return
         running = true
+        isRunningAnywhere = true
         visibility = VISIBLE
         handler.removeCallbacks(tick)
         handler.post(tick)
@@ -92,6 +93,7 @@ class ArOverlayView @JvmOverloads constructor(
     fun stop() {
         if (!running) return
         running = false
+        isRunningAnywhere = false
         handler.removeCallbacks(tick)
         visibility = GONE
         AppLog.i(TAG, "AR overlay OFF")
@@ -632,6 +634,15 @@ class ArOverlayView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "TP2Ar"
+
+        /** Process-wide mirror of [isRunning] — only one ArOverlayView instance exists at a
+         *  time (the flight screen's), but callers elsewhere in the app (video-health logging)
+         *  shouldn't need a view reference just to ask "is AR compositing over the video right
+         *  now," the same way [com.dji.sdk.sample.tak.VideoStreamerHolder]'s state is queried
+         *  from anywhere without a streamer reference. */
+        @Volatile
+        var isRunningAnywhere: Boolean = false
+
         private const val REFRESH_MS = 100L
         private const val ICON_DP = 26f
         private const val LABEL_SP = 11f
