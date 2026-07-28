@@ -343,6 +343,7 @@ class FpvTextureView @JvmOverloads constructor(
                 AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
             }
             nalsFed.incrementAndGet()
+            bytesFed.addAndGet(nal.size.toLong())
             inspectForFrameLoss(nal, hdr, type)
             if (!nalQueue.offer(nal)) {
                 // Queue full — the decoder fell persistently behind (rare now that transient
@@ -374,6 +375,18 @@ class FpvTextureView @JvmOverloads constructor(
         // decode thread; making all six uniformly atomic removes any doubt rather than mixing
         // plain Int fields in by argument.
         private val nalsFed = java.util.concurrent.atomic.AtomicInteger(0)
+        /**
+         * BYTES fed, not just NAL count — a second blind spot found 2026-07-27 after a third
+         * flight artifacted heavily during LANDING with every existing counter clean.
+         *
+         * Two reasons this matters. First, the Annex-B assembler splits on start codes, so if
+         * bytes are lost *inside* a NAL it still emerges as one NAL, merely shorter — byte-level
+         * loss is invisible to a NAL counter by construction. Second, landing is a high-motion
+         * phase that should demand markedly MORE bytes per frame; if throughput instead flattens
+         * out exactly when the scene gets busy, that points at the link saturating, which is a
+         * different failure from either "picture lost" or "bits corrupted".
+         */
+        private val bytesFed = java.util.concurrent.atomic.AtomicLong(0)
         private val framesRendered = java.util.concurrent.atomic.AtomicInteger(0)
         private val overflowDrops = java.util.concurrent.atomic.AtomicInteger(0)
         /** The 3s/6s escalation firing because we've lost sync entirely — connect, or a real
@@ -471,6 +484,7 @@ class FpvTextureView @JvmOverloads constructor(
          *  identical from drop/resync counts alone. */
         private fun logHealthSummary() {
             val fed = nalsFed.getAndSet(0)
+            val bytes = bytesFed.getAndSet(0)
             val rendered = framesRendered.getAndSet(0)
             val drops = overflowDrops.getAndSet(0)
             val autoR = autoResyncs.getAndSet(0)
@@ -489,7 +503,9 @@ class FpvTextureView @JvmOverloads constructor(
             val sig = com.dji.sdk.sample.tak.TakBridgeHolder.hud()?.uplinkSignalPct
             AppLog.i(
                 HEALTH_TAG,
-                "fed=$fed rendered=$rendered drops=$drops autoResync=$autoR " +
+                "fed=$fed kbps=${bytes * 8 / (HEALTH_SUMMARY_INTERVAL_MS / 1000) / 1000} " +
+                    "avgNal=${if (fed > 0) bytes / fed else 0} " +
+                    "rendered=$rendered drops=$drops autoResync=$autoR " +
                     "manualResync=$manualR codecRecover=$recov tier=$tier " +
                     "sig=${sig?.let { "$it%" } ?: "—"} AR=${ArOverlayView.isRunningAnywhere} " +
                     "RTSP=${com.dji.sdk.sample.tak.VideoStreamerHolder.isActive} " +
