@@ -9,8 +9,10 @@ import dji.common.airlink.SignalQualityCallback
 import dji.common.battery.BatteryState
 import dji.common.camera.ExposureSettings
 import dji.common.camera.SystemState
+import dji.common.error.DJIError
 import dji.common.flightcontroller.FlightControllerState
 import dji.common.gimbal.GimbalState
+import dji.common.util.CommonCallbacks
 import kotlin.math.sqrt
 
 /**
@@ -115,6 +117,7 @@ class DroneTakBridge(
         if (!gimbalRangeApplied) {
             gimbalRangeApplied = true
             applyPitchRangeExtension()
+            applyPitchSpeed()
         }
     }
 
@@ -149,6 +152,63 @@ class DroneTakBridge(
             if (err == null) AppLog.i(TAG, "gimbal pitch range extended — camera can now look up")
             else AppLog.w(TAG, "gimbal pitch range extension refused: ${err.description}")
         }
+    }
+
+    /**
+     * Speeds up how fast the gimbal pitches in response to the RC dial — the stock rate was
+     * reported as far too slow to work with in the field (2026-07-27).
+     *
+     * Reads the aircraft's CURRENT max speed and raises it by [PITCH_SPEED_BOOST], rather than
+     * writing a fixed number: the valid range is model-specific, and a hardcoded value that
+     * happens to suit the Mini 2 could be far too fast (or silently rejected) on the next
+     * airframe this app is pointed at. Clamped to the range the aircraft itself reports via
+     * [dji.common.gimbal.CapabilityKey.PITCH_CONTROLLER_MAX_SPEED], so it can only ask for
+     * something the gimbal has said it accepts.
+     *
+     * Logs the before/after values — with a percentage applied to an unknown starting point,
+     * the actual resulting speed is the only number that means anything, and if the pilot wants
+     * it faster or slower still, that log line is where the next adjustment starts from.
+     */
+    private fun applyPitchSpeed() {
+        val gimbal = DJISampleApplication.getAircraftInstance()?.gimbals?.firstOrNull() ?: return
+        val range = try {
+            gimbal.capabilities?.get(dji.common.gimbal.CapabilityKey.PITCH_CONTROLLER_MAX_SPEED)
+                as? dji.common.util.DJIParamMinMaxCapability
+        } catch (t: Throwable) {
+            AppLog.w(TAG, "gimbal pitch-speed capability check failed: ${t.message}")
+            null
+        }
+        if (range == null) {
+            AppLog.i(TAG, "gimbal does not report PITCH_CONTROLLER_MAX_SPEED — leaving speed alone")
+            return
+        }
+        val min = range.min?.toInt() ?: return
+        val max = range.max?.toInt() ?: return
+        gimbal.getControllerMaxSpeed(
+            dji.common.gimbal.Axis.PITCH,
+            object : CommonCallbacks.CompletionCallbackWith<Int> {
+                override fun onSuccess(current: Int) {
+                    val target = (current * PITCH_SPEED_BOOST).toInt().coerceIn(min, max)
+                    if (target == current) {
+                        AppLog.i(TAG, "gimbal pitch speed already at $current (range $min..$max) " +
+                            "— no change")
+                        return
+                    }
+                    gimbal.setControllerMaxSpeed(dji.common.gimbal.Axis.PITCH, target) { err ->
+                        if (err == null) {
+                            AppLog.i(TAG, "gimbal pitch speed $current -> $target " +
+                                "(range $min..$max)")
+                        } else {
+                            AppLog.w(TAG, "gimbal pitch speed change refused: ${err.description}")
+                        }
+                    }
+                }
+
+                override fun onFailure(err: DJIError) {
+                    AppLog.w(TAG, "could not read gimbal pitch speed: ${err.description}")
+                }
+            },
+        )
     }
     private val batteryStateCallback = BatteryState.Callback { lastBattery = it }
     private val uplinkQualityCallback = SignalQualityCallback { lastUplinkQuality = it }
@@ -485,6 +545,12 @@ class DroneTakBridge(
 
     companion object {
         private const val TAG = "DroneTakBridge"
+
+        /** Gimbal pitch-rate multiplier applied on connect — see [applyPitchSpeed]. 1.5 = the
+         *  requested +50%. Applied to whatever the aircraft currently reports and clamped to its
+         *  own advertised range, so this stays meaningful across airframes rather than encoding
+         *  one model's units. */
+        private const val PITCH_SPEED_BOOST = 1.5
 
         // NOT YET FIELD-CALIBRATED for the Mini 2. V5's BEARING_OFFSET_DEG=105.0 was tuned
         // against the M30T's specific gimbal-to-airframe mounting by comparing the FOV cone
