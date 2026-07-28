@@ -159,6 +159,20 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 arOverlay.setVideoRect(rect)
             }
         }
+        // Tell the AR overlay how much of the video our own chrome covers, so an off-frame edge
+        // arrow can't be parked underneath the toolbar or the HUD column where it's invisible —
+        // the exact case a pilot needs most (aircraft directly overhead). Measured from the real
+        // views after layout rather than hardcoded dp, so a toolbar/HUD change can't silently
+        // break it. Re-read on every layout pass: rotation, or the h440dp map-size override,
+        // both change these.
+        val toolbarView = findViewById<View>(R.id.flightToolbar)
+        val hudColumn = findViewById<View>(R.id.flightHudColumn)
+        toolbarView.viewTreeObserver.addOnGlobalLayoutListener {
+            arOverlay.setChromeInsets(
+                top = toolbarView.height.toFloat(),
+                right = hudColumn.width.toFloat(),
+            )
+        }
 
         fpvNotice = findViewById(R.id.fpvNotice)
         fpvOverlayText = findViewById(R.id.fpvOverlayText)

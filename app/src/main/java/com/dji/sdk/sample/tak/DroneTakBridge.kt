@@ -108,7 +108,48 @@ class DroneTakBridge(
             }
         }
     }
-    private val gimbalStateCallback = GimbalState.Callback { lastGimbal = it }
+    private val gimbalStateCallback = GimbalState.Callback {
+        lastGimbal = it
+        // Same one-shot-per-connect pattern as exposure/limits: first gimbal state is the
+        // reliable "gimbal is actually up" signal.
+        if (!gimbalRangeApplied) {
+            gimbalRangeApplied = true
+            applyPitchRangeExtension()
+        }
+    }
+
+    @Volatile private var gimbalRangeApplied = false
+
+    /**
+     * Lets the gimbal tilt UP past level, not just down.
+     *
+     * DJI ships with the upward range disabled: the gimbal stops at 0 (horizon), so anything
+     * above the horizon simply cannot be looked at. Requested 2026-07-27 so a pilot can visually
+     * acquire air traffic overhead — the AR overlay will happily draw an aircraft above the
+     * frame, and until now the camera physically could not be pointed at it.
+     *
+     * Capability-gated rather than assumed: not every airframe supports the extension, and
+     * `setPitchRangeExtensionEnabled` on one that doesn't is at best a wasted call. Failure is
+     * logged and otherwise ignored — this is a nice-to-have, and an aircraft that refuses it
+     * should still fly normally.
+     */
+    private fun applyPitchRangeExtension() {
+        val gimbal = DJISampleApplication.getAircraftInstance()?.gimbals?.firstOrNull() ?: return
+        val supported = try {
+            gimbal.capabilities?.containsKey(dji.common.gimbal.CapabilityKey.PITCH_RANGE_EXTENSION) == true
+        } catch (t: Throwable) {
+            AppLog.w(TAG, "gimbal capability check failed: ${t.message}")
+            false
+        }
+        if (!supported) {
+            AppLog.i(TAG, "gimbal does not report PITCH_RANGE_EXTENSION — leaving pitch range alone")
+            return
+        }
+        gimbal.setPitchRangeExtensionEnabled(true) { err ->
+            if (err == null) AppLog.i(TAG, "gimbal pitch range extended — camera can now look up")
+            else AppLog.w(TAG, "gimbal pitch range extension refused: ${err.description}")
+        }
+    }
     private val batteryStateCallback = BatteryState.Callback { lastBattery = it }
     private val uplinkQualityCallback = SignalQualityCallback { lastUplinkQuality = it }
     private val downlinkQualityCallback = SignalQualityCallback { lastDownlinkQuality = it }
@@ -201,6 +242,7 @@ class DroneTakBridge(
         lastExposure = null
         exposureApplied = false
         limitsApplied = false
+        gimbalRangeApplied = false
         AppLog.i(TAG, "DroneTakBridge stopped")
     }
 

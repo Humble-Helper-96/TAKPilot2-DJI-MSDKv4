@@ -80,6 +80,27 @@ class ArOverlayView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * How much of the video the app's own chrome covers: the toolbar across the top, the HUD
+     * column (exposure/readouts/mini-map) down the right. Only [drawEdgeArrow] uses these —
+     * projected markers themselves stay pinned to their true position even if chrome partly
+     * covers them (moving a marker off its target would be worse than briefly hiding it), but an
+     * EDGE ARROW has no true position; it is purely a "look this way" cue, so one parked
+     * underneath the toolbar conveys nothing at all.
+     *
+     * Fed from the flight screen's real measured view bounds rather than hardcoded dp, so this
+     * can't drift out of step with a toolbar or HUD layout change.
+     */
+    fun setChromeInsets(top: Float, right: Float) {
+        if (chromeInsetTop == top && chromeInsetRight == right) return
+        chromeInsetTop = top
+        chromeInsetRight = right
+        invalidate()
+    }
+
+    private var chromeInsetTop = 0f
+    private var chromeInsetRight = 0f
+
     fun start() {
         if (running) return
         running = true
@@ -529,10 +550,16 @@ class ArOverlayView @JvmOverloads constructor(
         val margin = 16f * d
         val cx = videoRect.centerX()
         val cy = videoRect.centerY()
+        // Clamp into the VISIBLE part of the video, not the whole video rect. The toolbar is
+        // drawn on top of the video, and the HUD column (exposure, readouts, mini-map) sits over
+        // the right side — an arrow clamped to the raw rect lands underneath them and is simply
+        // invisible. Reported from the field 2026-07-27: air traffic directly overhead produced
+        // an above-frame arrow the pilot could never see, which is the one case the indicator
+        // matters most.
         val x = (cx + nx.toFloat() * (videoRect.width() / 2f - margin))
-            .coerceIn(videoRect.left + margin, videoRect.right - margin)
+            .coerceIn(videoRect.left + margin, videoRect.right - chromeInsetRight - margin)
         val y = (cy + ny.toFloat() * (videoRect.height() / 2f - margin))
-            .coerceIn(videoRect.top + margin, videoRect.bottom - margin)
+            .coerceIn(videoRect.top + chromeInsetTop + margin, videoRect.bottom - margin)
 
         val angle = atan2((y - cy).toDouble(), (x - cx).toDouble())
         val r = 7f * d
