@@ -56,6 +56,30 @@ projected onto the live FPV video and pinned to the world. Details in
 
 ### Open items — nothing is blocking, pick by interest
 
+0. **⚠ RTH FAILED IN FLIGHT 2026-07-27 — SAFETY-RELEVANT, NOT YET INVESTIGATED.** On the RT3,
+   at the end of the 17:29–17:43 test flight, `startGoHome()` failed **three consecutive times**
+   and the operator had to fly the aircraft home manually. Straight from the log:
+   ```
+   17:41:53  RTH confirmed — sending startGoHome
+   17:41:56  Returning home -> Execution of this process has timed out
+   17:41:59  RTH confirmed — sending startGoHome
+   17:42:04  Returning home -> Execution of this process has timed out
+   17:42:22  RTH confirmed — sending startGoHome
+   17:42:27  Returning home -> Execution of this process has timed out
+   ```
+   "Execution of this process has timed out" is DJI's own `DJIError` text coming back through
+   `FlightController.startGoHome`'s callback — i.e. the SDK call was made and the **aircraft**
+   didn't acknowledge it, ~3s each time. Not obviously an app bug, but the app is the thing the
+   pilot taps, so it needs to be understood before this is trusted in the field.
+   Unknowns to settle: does it reproduce; is it specific to the RT3 (a slow/marginal
+   USB-to-RC-N1 command path on weak hardware) or to aircraft state (it was at/near critical
+   battery, already in a low-battery condition, which may already have had its own RTH logic
+   engaged and rejected a redundant command); and does the toolbar RTH button correctly reflect
+   that the command did NOT take. Note the aircraft's own **failsafe** RTH
+   (`setConnectionFailSafeBehavior`, applied on connect) is a *separate* mechanism from this
+   pilot-initiated `startGoHome` and is not implicated by these timeouts.
+   Full log: `app-2026-07-27-17-25-24.log`.
+
 1. **FOV calibration values have never been measured.** 6D-D shipped the *tool* (adjustable
    1x H/V FOV, persisted, with reset) but `hFovBase`/`vFovBase` still sit at the published
    Mini 2 specs, 73° × 45°. An FOV error is invisible at frame centre and grows outward, so
