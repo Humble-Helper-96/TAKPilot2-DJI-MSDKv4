@@ -544,6 +544,65 @@ class FpvTextureView @JvmOverloads constructor(
         private val lossResyncSuppressed = java.util.concurrent.atomic.AtomicInteger(0)
         private var lastLossResync = 0L
 
+        // ---- Downlink-recovery resync ----
+        //
+        // The frame_num detector above only catches WHOLE lost pictures. Flight 19:54-20:00
+        // showed the more common and more damaging case it cannot see:
+        //
+        //   19:56:48-19:57:03  downlink sags to 80%, bitrate collapses 8000 -> 4084 kbps
+        //   19:57:10           operator reports EXTREME artifacting
+        //   19:57:13 onward    link fully recovered: sigDown 100%, kbps back to ~8000
+        //   19:58:32           still corrupt 75s later; only a MANUAL resync cleared it
+        //
+        // Throughout, pics stayed at ~150/5s with gaps=0 — no whole picture was lost. The damage
+        // is INSIDE frames: when the link sags, parts of a frame don't survive, but the slice
+        // header carrying frame_num sits at the very start of the NAL and still parses cleanly,
+        // so the sequence looks perfect while the payload is wrecked. Those damaged frames become
+        // references, and since P-frames encode only DIFFERENCES from a reference, restoring full
+        // bandwidth cannot undo it — the corruption is latched in until a keyframe replaces the
+        // reference outright. That is exactly why full bitrate for 75s changed nothing and one
+        // resync fixed it instantly.
+        //
+        // So: watch the downlink, and when it RECOVERS from a sag, ask for a keyframe. Firing
+        // during the sag would be worse than useless — there is no bandwidth to carry a keyframe
+        // and it would likely arrive damaged too. Rate of ~2 sags per flight in the observed data
+        // means this fires about as often as the operator was manually resyncing anyway; it just
+        // does it within a second instead of after a minute of degraded video.
+        //
+        // This is inference from strong correlation, not proof: sub-frame damage is not something
+        // we can observe directly. linkRecoveryResync in the health line plus the operator no
+        // longer needing the manual button is what will confirm or refute it.
+        @Volatile private var linkWasDegraded = false
+        private var worstDownlinkInSag = 100
+        private var lastLinkCheck = 0L
+        private val linkRecoveryResyncs = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Polls downlink quality and fires one resync per sag, on recovery. */
+        private fun checkDownlinkRecovery(now: Long) {
+            if (now - lastLinkCheck < LINK_CHECK_INTERVAL_MS) return
+            lastLinkCheck = now
+            val dn = com.dji.sdk.sample.tak.TakBridgeHolder.hud()?.downlinkSignalPct ?: return
+            if (dn < LINK_DEGRADED_PCT) {
+                if (!linkWasDegraded) worstDownlinkInSag = dn
+                else worstDownlinkInSag = minOf(worstDownlinkInSag, dn)
+                linkWasDegraded = true
+                return
+            }
+            if (!linkWasDegraded) return
+            linkWasDegraded = false
+            val worst = worstDownlinkInSag
+            worstDownlinkInSag = 100
+            if (now - lastLossResync < MIN_LOSS_RESYNC_INTERVAL_MS) {
+                lossResyncSuppressed.incrementAndGet()
+                return
+            }
+            lastLossResync = now
+            linkRecoveryResyncs.incrementAndGet()
+            AppLog.w(TAG, "FPV: downlink recovered (sagged to $worst%) — forcing re-sync; any " +
+                "frame damaged during the sag is latched into the reference chain until a keyframe")
+            resyncRequested = true   // NOT requestResync() — that would mark it pilot-initiated
+        }
+
         /** Emits one summary line and resets the since-last-summary counters. Reads
          *  [TakBridgeHolder]'s uplink signal, [ArOverlayView]'s and
          *  [com.dji.sdk.sample.tak.VideoStreamerHolder]'s global state — none of which need a
@@ -594,6 +653,7 @@ class FpvTextureView @JvmOverloads constructor(
                     // suppressed > 0 means loss is arriving faster than the rate limit allows
                     // recovery — i.e. a genuinely degrading link, not an isolated glitch.
                     "lossResync=${lossResyncs.getAndSet(0)} " +
+                    "linkRecoveryResync=${linkRecoveryResyncs.getAndSet(0)} " +
                     "lossSuppressed=${lossResyncSuppressed.getAndSet(0)}",
             )
         }
@@ -648,6 +708,7 @@ class FpvTextureView @JvmOverloads constructor(
                         lastHealthSummary = now
                         logHealthSummary()
                     }
+                    checkDownlinkRecovery(now)
 
                     // Pilot-tapped Video Re-Sync failsafe: clear the backlog, go unsynced, and
                     // fire the proven resetDecoder recovery immediately (don't wait out the 3s
@@ -866,6 +927,17 @@ class FpvTextureView @JvmOverloads constructor(
              * escalation already uses, so the two recovery paths can't fight each other.
              */
             private const val MIN_LOSS_RESYNC_INTERVAL_MS = 3000L
+
+            /**
+             * Downlink quality at or above this is "healthy". DJI reports this coarsely — only
+             * 100/80/60 were ever observed — so anything below full is a real sag, not noise.
+             */
+            private const val LINK_DEGRADED_PCT = 100
+
+            /** How often to poll downlink quality. 1s is far finer than the 5s health summary
+             *  (a brief sag could start and end inside one summary window and be missed
+             *  entirely) while costing one volatile read per second. */
+            private const val LINK_CHECK_INTERVAL_MS = 1000L
         }
     }
 
