@@ -67,6 +67,7 @@
 
          Sits over the pillarbox to the right of the 16:9 video, not over the image itself. -->
     <LinearLayout
+        android:id="@+id/flightHudColumn"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="end"
