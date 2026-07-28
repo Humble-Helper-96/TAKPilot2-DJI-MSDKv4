@@ -10,6 +10,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.AttributeSet
 import com.dji.sdk.sample.tak.FpvDecoderHealth
+import com.dji.sdk.sample.tak.H264SliceParser
 import com.dji.sdk.sample.tak.IdrRequesterHolder
 import com.taklite.util.AppLog
 import android.view.Surface
@@ -342,6 +343,7 @@ class FpvTextureView @JvmOverloads constructor(
                 AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
             }
             nalsFed.incrementAndGet()
+            inspectForFrameLoss(nal, hdr, type)
             if (!nalQueue.offer(nal)) {
                 // Queue full — the decoder fell persistently behind (rare now that transient
                 // stalls hold-and-retry instead of dropping). Reset latency by dropping the
@@ -385,6 +387,81 @@ class FpvTextureView @JvmOverloads constructor(
         private val codecRecoveries = java.util.concurrent.atomic.AtomicInteger(0)
         private var lastHealthSummary = 0L
 
+        // ---- Frame-loss detection (the "why does it artifact" instrument) ----
+        //
+        // Counting NALs proved we aren't dropping them ourselves, but it CANNOT see small
+        // upstream loss: throughput sits at ~600 NALs per 5s window with ±3-4 of jitter from
+        // window alignment alone, so one or two missing slices is arithmetically invisible. The
+        // stream runs ~4 NALs per picture (multi-slice), and losing one slice corrupts one
+        // horizontal band — exactly the reported symptom. `frame_num` is the field that settles
+        // it: it increments once per reference picture, so a jump >1 is proof a picture never
+        // arrived, no matter what the RF signal metric says. See [H264SliceParser].
+        /** Slice NALs seen (type 1/5) — distinguishes slices from total NALs, confirming the
+         *  slices-per-picture ratio directly rather than inferring it from fed/rendered. */
+        private val sliceNals = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Pictures seen, counted by `first_mb_in_slice == 0` (the first slice of a picture). */
+        private val picturesSeen = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Times frame_num jumped by more than one — each is one or more lost pictures. */
+        private val frameNumGaps = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Total pictures estimated lost across those gaps (a gap can skip several). */
+        private val framesLost = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Slice headers that wouldn't parse — tracked so a parser problem can never be
+         *  mistaken for a clean stream. A non-zero count here invalidates the gap numbers. */
+        private val sliceParseFails = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** From the SPS: how many bits wide `frame_num` is. Null until an SPS is parsed, which
+         *  is also why gap detection can't start until the first sync. */
+        private var log2MaxFrameNum: Int? = null
+        private var lastFrameNum = -1
+
+        /**
+         * Diagnosis only — counts, never changes decode behaviour. Runs on the DJI callback
+         * thread, so [H264SliceParser] is written to return null rather than throw.
+         */
+        private fun inspectForFrameLoss(nal: ByteArray, hdr: Int, type: Int) {
+            if (type == 7) {
+                H264SliceParser.parseSpsLog2MaxFrameNum(nal, hdr)?.let {
+                    if (log2MaxFrameNum != it) {
+                        log2MaxFrameNum = it
+                        AppLog.i(TAG, "FPV: SPS parsed — frame_num is $it bits " +
+                            "(max ${1 shl it}); frame-loss detection active")
+                    }
+                }
+                // An IDR restarts the sequence at 0, and an SPS always precedes one here.
+                lastFrameNum = -1
+                return
+            }
+            if (type != 1 && type != 5) return   // not a coded slice
+            val bits = log2MaxFrameNum ?: return // no SPS yet — can't read frame_num
+            sliceNals.incrementAndGet()
+
+            val h = H264SliceParser.parseSliceHeader(nal, hdr, bits)
+            if (h == null) {
+                sliceParseFails.incrementAndGet()
+                return
+            }
+            // Only the first slice of a picture advances the sequence; the rest repeat the same
+            // frame_num, so counting every slice would manufacture false "no gap" evidence.
+            if (h.firstMbInSlice != 0) return
+            picturesSeen.incrementAndGet()
+
+            val max = 1 shl bits
+            if (type == 5) {           // IDR — frame_num resets, a jump here is expected
+                lastFrameNum = h.frameNum
+                return
+            }
+            if (lastFrameNum >= 0) {
+                val delta = ((h.frameNum - lastFrameNum) + max) % max
+                // delta 1 = normal. delta 0 = a non-reference picture (doesn't advance the
+                // counter) — legitimate, not loss. Anything more means pictures went missing.
+                if (delta > 1) {
+                    frameNumGaps.incrementAndGet()
+                    framesLost.addAndGet(delta - 1)
+                }
+            }
+            lastFrameNum = h.frameNum
+        }
+
         /** Emits one summary line and resets the since-last-summary counters. Reads
          *  [TakBridgeHolder]'s uplink signal, [ArOverlayView]'s and
          *  [com.dji.sdk.sample.tak.VideoStreamerHolder]'s global state — none of which need a
@@ -404,13 +481,22 @@ class FpvTextureView @JvmOverloads constructor(
                 !useLowLatencyHint -> "hw-nolowlat"
                 else -> "hw-lowlat"
             }
+            val slices = sliceNals.getAndSet(0)
+            val pics = picturesSeen.getAndSet(0)
+            val gaps = frameNumGaps.getAndSet(0)
+            val lost = framesLost.getAndSet(0)
+            val parseFail = sliceParseFails.getAndSet(0)
             val sig = com.dji.sdk.sample.tak.TakBridgeHolder.hud()?.uplinkSignalPct
             AppLog.i(
                 HEALTH_TAG,
                 "fed=$fed rendered=$rendered drops=$drops autoResync=$autoR " +
                     "manualResync=$manualR codecRecover=$recov tier=$tier " +
                     "sig=${sig?.let { "$it%" } ?: "—"} AR=${ArOverlayView.isRunningAnywhere} " +
-                    "RTSP=${com.dji.sdk.sample.tak.VideoStreamerHolder.isActive}",
+                    "RTSP=${com.dji.sdk.sample.tak.VideoStreamerHolder.isActive} " +
+                    // The frame-loss instrument. lost>0 = pictures genuinely missing upstream.
+                    // lost=0 while artifacts build = they're arriving corrupt instead, which is
+                    // a different root cause entirely. parseFail>0 invalidates gaps/lost.
+                    "slices=$slices pics=$pics gaps=$gaps lost=$lost parseFail=$parseFail",
             )
         }
 
