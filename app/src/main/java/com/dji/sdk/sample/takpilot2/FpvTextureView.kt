@@ -470,10 +470,60 @@ class FpvTextureView @JvmOverloads constructor(
                 if (delta > 1) {
                     frameNumGaps.incrementAndGet()
                     framesLost.addAndGet(delta - 1)
+                    onFrameLossDetected(delta - 1)
                 }
             }
             lastFrameNum = h.frameNum
         }
+
+        /**
+         * **The fix this whole investigation was for.** A lost reference frame breaks the
+         * prediction chain, and because the Mini 2 emits NO periodic IDR, every later frame is
+         * predicted from a corrupted reference — so a single lost frame produces corruption that
+         * persists and compounds until something forces a keyframe. Field-measured 2026-07-27:
+         * two lost frames in one 8-minute flight produced roughly five minutes of degraded video
+         * across two separate build-ups, each ending only when the pilot manually tapped
+         * Video Re-Sync 30-70 seconds after first noticing it.
+         *
+         * Requesting the keyframe here closes that loop: recovery starts ~30ms after the loss
+         * instead of when a human notices. The pilot's button stays exactly as it is — this
+         * doesn't replace it, it just means the common case no longer needs it.
+         *
+         * **Why this is safe where the old periodic resync was not.** A 15s blind timer was
+         * field-rejected in 2026-07 because it cost a 0.6-3s freeze every 15 seconds regardless
+         * of whether anything was wrong. This fires only on measured loss — twice in 8 minutes
+         * in the reference flight, i.e. ~30x rarer — and each occurrence replaces minutes of
+         * accumulating corruption rather than interrupting a perfectly good stream.
+         *
+         * **[MIN_LOSS_RESYNC_INTERVAL_MS] is load-bearing, not defensive.** On a genuinely bad
+         * link (long range, interference) losses can arrive continuously, and a resync per loss
+         * would then be exactly the every-few-seconds freeze that was already rejected — worse
+         * than the artifacting it is trying to fix. Rate-limited, a degrading link converges on
+         * "one brief recovery attempt every few seconds" and the pilot still has manual control.
+         */
+        private fun onFrameLossDetected(lost: Int) {
+            val now = System.currentTimeMillis()
+            if (now - lastLossResync < MIN_LOSS_RESYNC_INTERVAL_MS) {
+                lossResyncSuppressed.incrementAndGet()
+                return
+            }
+            lastLossResync = now
+            lossResyncs.incrementAndGet()
+            AppLog.w(TAG, "FPV: $lost frame(s) lost upstream — requesting keyframe to stop " +
+                "the corruption propagating")
+            // Same lever the pilot's Video Re-Sync uses. Deliberately NOT the full local
+            // requestResync() path: that also clears the queue and drops us to waitForSync,
+            // which would blank the picture. Here the decoder is healthy and still rendering —
+            // it just needs a clean reference to recover onto, so ask the aircraft for one and
+            // let the existing type==5 IDR handling pick it up when it arrives.
+            onHardResyncNeeded?.invoke()
+        }
+
+        /** Keyframe requests triggered by detected loss, and ones suppressed by the rate limit
+         *  — the suppressed count is what shows a link degrading faster than we can recover. */
+        private val lossResyncs = java.util.concurrent.atomic.AtomicInteger(0)
+        private val lossResyncSuppressed = java.util.concurrent.atomic.AtomicInteger(0)
+        private var lastLossResync = 0L
 
         /** Emits one summary line and resets the since-last-summary counters. Reads
          *  [TakBridgeHolder]'s uplink signal, [ArOverlayView]'s and
@@ -500,19 +550,32 @@ class FpvTextureView @JvmOverloads constructor(
             val gaps = frameNumGaps.getAndSet(0)
             val lost = framesLost.getAndSet(0)
             val parseFail = sliceParseFails.getAndSet(0)
-            val sig = com.dji.sdk.sample.tak.TakBridgeHolder.hud()?.uplinkSignalPct
+            val hud = com.dji.sdk.sample.tak.TakBridgeHolder.hud()
+            val sig = hud?.uplinkSignalPct
+            // Downlink is the direction video travels — the uplink number says nothing about
+            // whether a video frame survived the trip. See DroneTakBridge.lastDownlinkQuality.
+            val dn = hud?.downlinkSignalPct
+            val linkMbps = hud?.videoDataRateMbps
             AppLog.i(
                 HEALTH_TAG,
                 "fed=$fed kbps=${bytes * 8 / (HEALTH_SUMMARY_INTERVAL_MS / 1000) / 1000} " +
                     "avgNal=${if (fed > 0) bytes / fed else 0} " +
                     "rendered=$rendered drops=$drops autoResync=$autoR " +
                     "manualResync=$manualR codecRecover=$recov tier=$tier " +
-                    "sig=${sig?.let { "$it%" } ?: "—"} AR=${ArOverlayView.isRunningAnywhere} " +
+                    "sigUp=${sig?.let { "$it%" } ?: "—"} " +
+                    "sigDown=${dn?.let { "$it%" } ?: "—"} " +
+                    "linkMbps=${linkMbps?.let { "%.1f".format(it) } ?: "—"} " +
+                    "AR=${ArOverlayView.isRunningAnywhere} " +
                     "RTSP=${com.dji.sdk.sample.tak.VideoStreamerHolder.isActive} " +
                     // The frame-loss instrument. lost>0 = pictures genuinely missing upstream.
                     // lost=0 while artifacts build = they're arriving corrupt instead, which is
                     // a different root cause entirely. parseFail>0 invalidates gaps/lost.
-                    "slices=$slices pics=$pics gaps=$gaps lost=$lost parseFail=$parseFail",
+                    "slices=$slices pics=$pics gaps=$gaps lost=$lost parseFail=$parseFail " +
+                    // lossResync = auto keyframe requests from detected loss (the new fix).
+                    // suppressed > 0 means loss is arriving faster than the rate limit allows
+                    // recovery — i.e. a genuinely degrading link, not an isolated glitch.
+                    "lossResync=${lossResyncs.getAndSet(0)} " +
+                    "lossSuppressed=${lossResyncSuppressed.getAndSet(0)}",
             )
         }
 
@@ -770,6 +833,15 @@ class FpvTextureView @JvmOverloads constructor(
              *  maneuver, how far into the flight), coarse enough that a full flight is a few
              *  hundred lines, not thousands. */
             private const val HEALTH_SUMMARY_INTERVAL_MS = 5000L
+
+            /**
+             * Floor between loss-triggered keyframe requests. See [onFrameLossDetected] — this
+             * is what stops a badly degrading link from turning recovery into a continuous
+             * freeze, which is precisely the failure mode that got the old periodic resync
+             * rejected in the field. 3s matches [HARD_RESYNC_AFTER_MS], the interval the sync
+             * escalation already uses, so the two recovery paths can't fight each other.
+             */
+            private const val MIN_LOSS_RESYNC_INTERVAL_MS = 3000L
         }
     }
 
