@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import com.taklite.client.tak.TakManager
 import com.taklite.util.AppLog
 import androidx.core.app.NotificationCompat
 import com.dji.sdk.sample.R
@@ -36,6 +37,30 @@ class TakForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         AppLog.i(TAG, "TAK foreground service stopped")
+    }
+
+    /**
+     * Fires ONLY when the whole app task is swiped away from recents — not on ordinary
+     * backgrounding, not on screen-off, both of which this service exists specifically to
+     * survive (see the class doc). A task removal is a much stronger signal: it is the one
+     * thing short of the Home screen's explicit STOP/QUIT that unambiguously means "the pilot
+     * is done with this app."
+     *
+     * Field-reported 2026-07-27: without this, removing the app from recents did not disconnect
+     * TAK at all — [START_STICKY] just let Android restart the service, silently re-establishing
+     * the very connection the pilot thought they'd closed, and the operator's own presence stayed
+     * showing as connected on the TAK server indefinitely. STOP/QUIT was the only thing that
+     * actually disconnected, and it is a separate, easy-to-miss button under a "nuclear option"
+     * label — not what most pilots would reach for or expect to need.
+     *
+     * stopSelf() after disconnecting so the notification doesn't linger claiming "connected"
+     * once it no longer is, and so START_STICKY has nothing left to restart.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        AppLog.i(TAG, "app removed from recents — disconnecting TAK before the service stops")
+        runCatching { TakManager.getInstance().disconnect() }
+        stopSelf()
     }
 
     private fun buildNotification(callsign: String): Notification {
