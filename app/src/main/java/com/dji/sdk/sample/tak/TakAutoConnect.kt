@@ -96,7 +96,7 @@ object TakAutoConnect {
         val droneUid = "$uid-DRONE"
         Thread {
             TakManager.getInstance().connect(
-                uid, username, "Cyan", "Team Member",
+                uid, callsign, "Cyan", "Team Member",
                 host, cotPort, ts, "atakatak", cc, "atakatak",
             )
             TakChannelsStore.saveSelected(context, TakChannelsStore.selected(context))
