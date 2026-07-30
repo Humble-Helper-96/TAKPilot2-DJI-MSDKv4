@@ -588,7 +588,7 @@ class TakConnectActivity : AppCompatActivity() {
     ) {
         val certPw = "atakatak"
         TakManager.getInstance().connect(
-            uid, username, "Cyan", "Team Member",
+            uid, droneCallsign, "Cyan", "Team Member",
             host, cotPort, trustStorePath, certPw, clientCertPath, certPw,
         )
         runOnUiThread {
