@@ -32,9 +32,23 @@ public class CotBuilder {
         COT_DATE_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
     }
 
+    /**
+     * @param takvPlatform the client-identity string that becomes {@code <takv platform="...">}
+     *   — what a TAK server's "Connected Users" panel shows as the client type. Pass whatever
+     *   the calling app actually is; this class stays sibling-agnostic on purpose (shared with
+     *   the Autel port, which is a different app and must not be labeled as this one).
+     * @param takvDevice   the {@code device} attribute — real hardware identity (and whatever
+     *   else the caller wants folded in, e.g. the current callsign) helps a teammate tell two
+     *   otherwise-identical installs apart in the server's connected-users list.
+     * @param takvOs       the {@code os} attribute.
+     * @param takvVersion  the {@code version} attribute — the caller's real app version, not a
+     *   string owned by this shared class (which has no version of its own to report).
+     */
     public static String buildPLI(String uid, String callsign, String team, String role,
                                    double lat, double lon, double alt,
-                                   double bearing, double speed, int battery) {
+                                   double bearing, double speed, int battery,
+                                   String takvPlatform, String takvDevice,
+                                   String takvOs, String takvVersion) {
         long now = System.currentTimeMillis();
         String time = formatTime(now);
         String start = time;
@@ -62,8 +76,10 @@ public class CotBuilder {
         sb.append("<track course=\"").append(bearing).append("\"");
         sb.append(" speed=\"").append(speed).append("\" />");
         sb.append("<precisionlocation geopointsrc=\"GPS\" altsrc=\"GPS\" />");
-        sb.append("<takv device=\"TAKLite\" os=\"Android\"");
-        sb.append(" platform=\"TAK Lite\" version=\"1.0\" />");
+        sb.append("<takv device=\"").append(escapeXml(takvDevice)).append("\"");
+        sb.append(" os=\"").append(escapeXml(takvOs)).append("\"");
+        sb.append(" platform=\"").append(escapeXml(takvPlatform)).append("\"");
+        sb.append(" version=\"").append(escapeXml(takvVersion)).append("\" />");
         sb.append("<uid Droid=\"").append(escapeXml(callsign)).append("\" />");
         sb.append("</detail>");
         sb.append("</event>");
