@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Registers the app with the DJI SDK and starts the product connection directly from
  * TAKPilot2's own launcher activity, instead of requiring the stock sample's
  * MainActivity/MainContent "Register App" + "Open" screen first (see
- * DJI/TAKPILOT2_V4_PORT_PLAN.md for why that screen existed).
+ * docs/TAKPILOT2_V4_PORT_SUMMARY.md for why that screen existed).
  *
  * DJISDKManager is a process-wide singleton — registerApp()/startConnectionToProduct()
  * only need to run once per process, from any Context. This is a straight extraction of

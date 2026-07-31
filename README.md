@@ -39,10 +39,8 @@ ends, the field-measured findings, and the things that look like bugs but aren't
 
 | Doc | Read when |
 |---|---|
-| `TAKPILOT2_V4_PORT_PLAN.md` | **Start here.** Current status, architecture reference, environment, open items |
-| `TAKPILOT2_V4_PORT_SUMMARY.md` | Shorter narrative overview of the whole port |
-| `TAKPILOT2_PHASE6_PLAN.md` | Markers / dropped pins |
-| `TAKPILOT2_PHASE6D_PLAN.md` | AR overlay — read before touching `ArOverlayView` |
+| `TAKPILOT2_V4_PORT_SUMMARY.md` | **Start here.** The full project reference — why it's built this way, architecture, status, known limitations |
+| `TAKPILOT2_FPV_ARTIFACTING_OPTIONS.md` | Active research on the one significant unresolved issue — read before touching video decode |
 
 They are snapshots, not a live view. `git log --oneline` is the reliable changelog; re-verify
 any claim against the source before writing code against it.
@@ -89,7 +87,7 @@ Archive section explains what was already tried there and ruled out.
 
 Phases 1–6 complete and field-confirmed, including the AR overlay. Known open items — FOV
 calibration, a residual SPoI bearing error, ADS-B latency, and the contact-altitude question —
-are listed with context at the top of `docs/TAKPILOT2_V4_PORT_PLAN.md`.
+are listed with context in `docs/TAKPILOT2_V4_PORT_SUMMARY.md` (§10).
 
 ## License
 

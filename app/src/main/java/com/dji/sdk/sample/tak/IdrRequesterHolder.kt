@@ -10,7 +10,7 @@ import dji.sdk.codec.DJICodecManager
  * [com.dji.sdk.sample.takpilot2.FpvTextureView] uses purely as a "send me a keyframe" lever
  * (it never renders anything itself — see that class's doc for the full FPV pipeline).
  *
- * Root-caused 2026-07-23 (in-flight FPV freeze, see TAKPILOT2_V4_PORT_PLAN.md): this used to
+ * Root-caused 2026-07-23 (in-flight FPV freeze, see docs/TAKPILOT2_V4_PORT_SUMMARY.md §6): this used to
  * be created fresh in every FpvTextureView.onSurfaceTextureAvailable() and torn down in
  * onSurfaceTextureDestroyed() — i.e. once per screen-lock/unlock or Home<->Flight navigation.
  * DJI's underlying native video engine (logcat tag "Lightbridge") doesn't tolerate that churn:

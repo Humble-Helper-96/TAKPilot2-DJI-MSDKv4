@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Live FPV view decoding the DJI primary video feed with OUR OWN low-latency MediaCodec
  * pipeline, replacing DJI's DJICodecManager rendering entirely (see
- * TAKPILOT2_V4_PORT_PLAN.md "Video debugging journal" for the full root-cause history).
+ * docs/TAKPILOT2_V4_PORT_SUMMARY.md §6 for the full root-cause history).
  *
  * Two things DJICodecManager doesn't handle that this does:
  *  - The Mini 2 emits NO SPS/PPS/IDR in steady state — it sends a keyframe only when asked.
@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * to drain them: a permanently frozen frame with the app otherwise fully responsive, "queue
  * overflow" spamming the log, and no recovery short of leaving and re-entering the flight
  * screen (the only thing that rebuilds the TextureView surface). See
- * `docs/TAKPILOT2_V4_PORT_PLAN.md` for the full diagnosis.
+ * `docs/TAKPILOT2_V4_PORT_SUMMARY.md` §6 for the full diagnosis.
  *
  * Now a codec-level exception during the per-iteration feed/drain is caught locally: the dead
  * `MediaCodec` is stopped/released and a fresh one is created against the SAME [Surface] (the

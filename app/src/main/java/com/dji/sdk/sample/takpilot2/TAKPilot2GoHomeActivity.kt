@@ -32,7 +32,7 @@ import dji.sdk.sdkmanager.DJISDKManager
  *
  * Registers with the DJI SDK and starts the product connection itself on launch via
  * [DjiSdkBridge] — no more visiting the stock MainActivity/MainContent "Register App" +
- * "Open" screen first (see DJI/TAKPILOT2_V4_PORT_PLAN.md). [updateStatus] already polled
+ * "Open" screen first (see docs/TAKPILOT2_V4_PORT_SUMMARY.md). [updateStatus] already polled
  * [DJISampleApplication.getProductInstance] and rendered "Not connected" gracefully before
  * this change, so no new connecting-state UI was needed — it just needed something to
  * actually trigger the registration/connection.

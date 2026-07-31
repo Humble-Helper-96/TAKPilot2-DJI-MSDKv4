@@ -6,7 +6,7 @@ package com.dji.sdk.sample.tak
  *
  * Deliberately a standalone duplicate of [FpvTextureView.DecoderThread]'s proven start-code
  * scanning logic, not a shared refactor of it — that decoder is the single most fragile piece
- * of this app (see TAKPILOT2_V4_PORT_PLAN.md), and coupling a brand-new RTSP push feature into
+ * of this app (see docs/TAKPILOT2_V4_PORT_SUMMARY.md §6), and coupling a brand-new RTSP push feature into
  * its code path risks regressing on-screen video for a feature change unrelated to it. The
  * algorithm is intentionally identical; if either needs to change, change both deliberately.
  *
