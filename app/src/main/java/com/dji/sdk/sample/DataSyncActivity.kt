@@ -124,7 +124,7 @@ class DataSyncActivity : AppCompatActivity() {
     }
 
     private fun confirmDelete(name: String) {
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
             .setTitle("Delete feed?")
             .setMessage("Delete \"$name\" from the TAK Server for everyone? This can't be undone.")
             .setNegativeButton("Cancel", null)
@@ -142,8 +142,10 @@ class DataSyncActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = "Feed password"
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#777777"))
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
             .setTitle("Join $name")
             .setView(input)
             .setPositiveButton("Join") { _, _ -> doJoin(name, input.text.toString()) }
@@ -159,14 +161,32 @@ class DataSyncActivity : AppCompatActivity() {
         }
     }
 
+    /** `simple_spinner_dropdown_item` doesn't reliably inherit the dialog theme's white text
+     *  color on this device (same Material-You attr-override issue noted on [R.style.TakDialogTheme]) —
+     *  force it explicitly on both the collapsed and dropdown views. */
+    private fun whiteSpinnerAdapter(items: List<String>): android.widget.ArrayAdapter<String> {
+        val adapter = object : android.widget.ArrayAdapter<String>(
+            this, android.R.layout.simple_spinner_dropdown_item, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup)
+                = super.getView(position, convertView, parent).also { (it as TextView).setTextColor(Color.WHITE) }
+            override fun getDropDownView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup)
+                = super.getDropDownView(position, convertView, parent).also { (it as TextView).setTextColor(Color.WHITE) }
+        }
+        return adapter
+    }
+
     private fun showCreateDialog() {
         val d = resources.displayMetrics.density
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
         }
-        val nameIn = EditText(this).apply { hint = "Feed name" }
-        val descIn = EditText(this).apply { hint = "Description (optional)" }
+        val nameIn = EditText(this).apply {
+            hint = "Feed name"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#777777"))
+        }
+        val descIn = EditText(this).apply {
+            hint = "Description (optional)"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#777777"))
+        }
         col.addView(nameIn); col.addView(descIn)
 
         // Default role for users who join this feed.
@@ -179,8 +199,7 @@ class DataSyncActivity : AppCompatActivity() {
         val roleLabels = arrayOf("Subscriber (add/edit items)", "Read-Only (view only)", "Owner (full admin)")
         val roleValues = arrayOf("MISSION_SUBSCRIBER", "MISSION_READONLY_SUBSCRIBER", "MISSION_OWNER")
         val roleSpinner = android.widget.Spinner(this).apply {
-            adapter = android.widget.ArrayAdapter(this@DataSyncActivity,
-                android.R.layout.simple_spinner_dropdown_item, roleLabels)
+            adapter = whiteSpinnerAdapter(roleLabels.toList())
             setSelection(0)
         }
         col.addView(roleSpinner)
@@ -197,14 +216,13 @@ class DataSyncActivity : AppCompatActivity() {
         // Populate with the cert's channels; first entry = default scope (no group param).
         val chanValues = ArrayList<String?>().apply { add(null) }
         val chanNames = ArrayList<String>().apply { add("Default (my scope)") }
-        chanSpinner.adapter = android.widget.ArrayAdapter(this,
-            android.R.layout.simple_spinner_dropdown_item, chanNames)
+        chanSpinner.adapter = whiteSpinnerAdapter(chanNames)
         TakMissionManager.listGroups { groups ->
             for (g in groups) { chanValues.add(g); chanNames.add(g) }
             (chanSpinner.adapter as android.widget.ArrayAdapter<*>).notifyDataSetChanged()
         }
 
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.TakDialogTheme)
             .setTitle("Create Feed")
             .setView(col)
             .setPositiveButton("Create") { _, _ ->
