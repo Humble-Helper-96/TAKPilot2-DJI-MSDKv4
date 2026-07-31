@@ -104,7 +104,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
      *  kill this process outright, so a relaunch starts completely clean — for clearing out
      *  any stuck state found mid-operation without having to know which subsystem is wedged. */
     private fun confirmQuit() {
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
             .setTitle("Stop & Quit")
             .setMessage("Force-stop TAKPilot2 Go and all its background processes (video stream, TAK connection, telemetry)? You'll need to relaunch the app.")
             .setPositiveButton("Stop & Quit") { _, _ -> doQuit() }
