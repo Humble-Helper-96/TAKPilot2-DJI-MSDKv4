@@ -55,14 +55,13 @@
                 android:resource="@xml/file_paths" />
         </provider>
         <!--
-            ADD API_KEY HERE and make sure you
-            are connected to the Internet before
-            the app is launched
+            Key comes from app/dji-key.properties (gitignored, NOT in version control — see
+            dji-key.properties.example). Make sure the device is connected to the Internet
+            before the app is launched, so the SDK can validate it.
         -->
-        <!-- personal key -->
         <meta-data
             android:name="com.dji.sdk.API_KEY"
-            android:value="a4ba511f9e353083fa5672e3"/>
+            android:value="${djiApiKey}"/>
         <!-- Required for receiving accessory attachment events.
             This is necessary for product when connecting over USB. -->
 
