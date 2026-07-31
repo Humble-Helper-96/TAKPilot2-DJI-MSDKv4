@@ -1,0 +1,12 @@
+# DJI SDK registration key — copy to app/dji-key.properties and fill in.
+#
+# dji-key.properties is GITIGNORED and must stay that way: it holds the key that identifies
+# this app to DJI's SDK. Never commit it.
+#
+# The key is registered to a specific applicationId (see the "DO NOT CHANGE" note on
+# applicationId in app/build.gradle) — a suffix, flavor, or side-by-side variant with a
+# different applicationId breaks aircraft registration outright.
+#
+# Get a key at https://developer.dji.com (App Key, tied to this package name).
+
+DJI_API_KEY=

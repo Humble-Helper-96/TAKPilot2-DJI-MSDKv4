@@ -16,6 +16,17 @@ if (keystorePropsFile.exists()) {
     keystorePropsFile.withInputStream { keystoreProps.load(it) }
 }
 
+// DJI SDK registration key, kept OUT of git — it's registered to this exact applicationId (see
+// the DO NOT CHANGE note below) and shouldn't be public. Create app/dji-key.properties from
+// dji-key.properties.example and fill it in; without it the manifest placeholder resolves to an
+// empty string and the SDK registration call fails fast with a clear error, rather than the build
+// silently breaking.
+def djiKeyPropsFile = rootProject.file('app/dji-key.properties')
+def djiKeyProps = new Properties()
+if (djiKeyPropsFile.exists()) {
+    djiKeyPropsFile.withInputStream { djiKeyProps.load(it) }
+}
+
 android {
     compileSdkVersion 33
     useLibrary 'org.apache.http.legacy'
@@ -43,6 +54,7 @@ android {
         multiDexEnabled true
         versionCode 2
         versionName "1.0"
+        manifestPlaceholders = [djiApiKey: djiKeyProps['DJI_API_KEY'] ?: '']
         ndk {
             // On x86 devices that run Android API 23 or above, if the application is targeted with API 23 or
             // above, FFmpeg lib might lead to runtime crashes or warnings.

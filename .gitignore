@@ -77,5 +77,8 @@ docs/LOCAL_ENV.md
 # Release signing. keystore.properties holds the signing passwords; the keystore itself should
 # live outside the repo entirely. keystore.properties.example IS tracked, as the template.
 app/keystore.properties
+
+# DJI SDK registration key. dji-key.properties.example IS tracked, as the template.
+app/dji-key.properties
 *.jks
 *.keystore
