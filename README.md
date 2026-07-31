@@ -90,3 +90,11 @@ Archive section explains what was already tried there and ruled out.
 Phases 1–6 complete and field-confirmed, including the AR overlay. Known open items — FOV
 calibration, a residual SPoI bearing error, ADS-B latency, and the contact-altitude question —
 are listed with context at the top of `docs/TAKPILOT2_V4_PORT_PLAN.md`.
+
+## License
+
+The TAKPilot2 additions are MIT-licensed — see `LICENSE`. This project is built on DJI's
+Mobile SDK for Android Sample Code, which DJI itself releases under MIT (Copyright (c) 2019
+DJI) — that original notice is preserved in `LICENSE-DJI-SAMPLE`. The DJI Mobile SDK binary
+itself (`com.dji:dji-sdk`, resolved as a build-time Maven dependency, not bundled here) is
+separately licensed under [DJI's End User License Agreement](https://developer.dji.com/policies/eula/).
