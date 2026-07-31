@@ -2,7 +2,7 @@
 
 *Written 2026-07-30, after a web-research session prompted by "why do other Mini 2 apps
 not have this problem?" This is a side-plan to try later, not active work. It builds on
-(and partly revises) the artifacting conclusions in `TAKPILOT2_V4_PORT_PLAN.md`'s Archive —
+(and partly revises) the artifacting conclusions in `TAKPILOT2_V4_PORT_SUMMARY.md` (§6) —
 notably, it reopens the Option-1/DJICodecManager question on new evidence, but ONLY for
 non-Tensor hardware. Read the Archive's Option-1 dead-end entry alongside this.*
 
