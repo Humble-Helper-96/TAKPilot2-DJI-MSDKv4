@@ -149,7 +149,7 @@
              first. -->
         <activity
             android:name="com.dji.sdk.sample.takpilot2.TAKPilot2GoHomeActivity"
-            android:label="TAKPilot2 Go"
+            android:label="@string/sample_app_name"
             android:theme="@style/AppTheme.NoActionBar.SolidStatusBar"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
@@ -168,7 +168,7 @@
         </activity>
         <activity
             android:name="com.dji.sdk.sample.takpilot2.TAKPilot2GoFlightActivity"
-            android:label="TAKPilot2 Go"
+            android:label="@string/sample_app_name"
             android:theme="@style/AppTheme.NoActionBar"
             android:screenOrientation="landscape"
             android:configChanges="orientation|keyboardHidden|screenSize"
