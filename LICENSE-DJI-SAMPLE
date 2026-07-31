@@ -1,6 +1,18 @@
+This project is built on DJI's Mobile SDK for Android "Sample Code" application
+(https://github.com/dji-sdk/Mobile-SDK-Android), which DJI releases under the MIT
+License below. Per its terms, that original notice is preserved here alongside
+this project's own LICENSE (also MIT, covering the TAKPilot2 additions).
+
+Note: this covers DJI's Sample Code only. The DJI Mobile SDK binary itself
+(the `com.dji:dji-sdk` Maven dependency this project builds against) is
+separately licensed under DJI's End User License Agreement
+(https://developer.dji.com/policies/eula/) and is not bundled in this repo.
+
+---
+
 MIT License
 
-Copyright (c) 2026 AnchorTAK LLC
+Copyright (c) 2019 DJI
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,14 +31,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project is built on DJI's Mobile SDK for Android (Sample Code) and depends
-on the proprietary DJI Mobile SDK (com.dji:dji-sdk), which is NOT covered by
-this license and is subject to DJI's own SDK license terms
-(https://developer.dji.com). This repository does not bundle DJI's SDK binary;
-it is resolved as a build-time Maven dependency.
-
-DJI releases the Sample Code itself under MIT License (Copyright (c) 2019 DJI);
-that original notice is preserved, per its terms, in LICENSE-DJI-SAMPLE.
