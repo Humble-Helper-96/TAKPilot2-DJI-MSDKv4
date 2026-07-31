@@ -1590,7 +1590,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // which is why it looked "stuck" zoomed out rather than just starting there.
         private const val MAP_ZOOM = 15.0
 
-        // Where the mini-map centers before the drone has a GPS fix (operator's home area).
-        private val DEFAULT_CENTER = LatLng(61.2182, -149.8963)
+        // Where the mini-map centers before the drone has a GPS fix. Town Square Park in
+        // downtown Anchorage: a neutral public landmark, chosen deliberately so the default
+        // view isn't an operator's home area or a public-safety facility.
+        private val DEFAULT_CENTER = LatLng(61.2170, -149.8925)
     }
 }

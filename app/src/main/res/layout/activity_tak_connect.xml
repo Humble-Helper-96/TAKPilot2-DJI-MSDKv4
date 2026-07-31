@@ -606,7 +606,7 @@
                 <EditText
                     android:id="@+id/uasfmLat"
                     style="@style/takFieldStyle"
-                    android:hint="61.2181"
+                    android:hint="61.2170"
                     android:inputType="numberDecimal|numberSigned" />
             </LinearLayout>
 
@@ -615,7 +615,7 @@
                 <EditText
                     android:id="@+id/uasfmLon"
                     style="@style/takFieldStyle"
-                    android:hint="-149.9003"
+                    android:hint="-149.8925"
                     android:inputType="numberDecimal|numberSigned" />
             </LinearLayout>
 
