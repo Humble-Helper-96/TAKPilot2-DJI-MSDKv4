@@ -179,6 +179,48 @@ class TakConnectActivity : AppCompatActivity() {
         listOf(maxAlt, maxRadius, rthAlt).forEach { it.addTextChangedListener(watcher) }
 
         setupFailsafe()
+        setupAvoidance()
+    }
+
+    /**
+     * Obstacle-avoidance toggles.
+     *
+     * Different in kind from the limits above: those are offered to the aircraft, these are
+     * ENFORCED on it at every connect (see [DjiObstacleState.applyAtConnect]). The status line
+     * therefore reports what the AIRCRAFT currently says, not what the checkbox says — the whole
+     * hazard being addressed is a pilot who believes avoidance is on because a box is ticked.
+     */
+    private fun setupAvoidance() {
+        val system = findViewById<android.widget.CheckBox>(R.id.avoidSystem)
+        val rth = findViewById<android.widget.CheckBox>(R.id.avoidRth)
+        val landing = findViewById<android.widget.CheckBox>(R.id.avoidLanding)
+        val status = findViewById<TextView>(R.id.avoidStatus)
+
+        system.isChecked = DjiObstacleState.savedSystem(this)
+        rth.isChecked = DjiObstacleState.savedRth(this)
+        landing.isChecked = DjiObstacleState.savedLanding(this)
+
+        val save = {
+            DjiObstacleState.saveIntent(this, system.isChecked, rth.isChecked, landing.isChecked)
+            AppLog.i("TP2Obstacle", "pre-flight avoidance intent: system=${system.isChecked} " +
+                "rth=${rth.isChecked} landing=${landing.isChecked} (applies on next connect)")
+            status.text = avoidanceStatusText()
+        }
+        listOf(system, rth, landing).forEach { it.setOnCheckedChangeListener { _, _ -> save() } }
+        status.text = avoidanceStatusText()
+    }
+
+    /** Says what the aircraft actually reports, and is explicit when it has told us nothing —
+     *  "not read yet" and "disabled" are different facts and must never be shown as the same one. */
+    private fun avoidanceStatusText(): String {
+        fun s(v: Boolean?) = when (v) {
+            true -> "on"
+            false -> "OFF"
+            null -> "not read yet"
+        }
+        return "Aircraft currently reports: avoidance ${s(DjiObstacleState.collisionAvoidance)}, " +
+            "RTH avoidance ${s(DjiObstacleState.rthAvoidance)}, " +
+            "landing protection ${s(DjiObstacleState.landingProtection)}."
     }
 
     /** Signal-loss failsafe picker. Like the numeric limits above it's saved locally and pushed

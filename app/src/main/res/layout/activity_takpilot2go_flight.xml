@@ -24,6 +24,16 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Obstacle proximity arcs/chevrons on the edges of the VIDEO (not the view — it sizes
+         itself from the same videoRect the crosshair uses, so nothing lands under the HUD
+         column). Above the crosshair so a close-range warning is never occluded by it, below
+         the toolbar and diagnostics banner. Draws nothing at all on an aircraft without
+         obstacle sensors (Mini 2). -->
+    <com.dji.sdk.sample.takpilot2.ObstacleEdgeView
+        android:id="@+id/flightObstacles"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <TextView
         android:id="@+id/flightNoVideoCover"
         android:layout_width="match_parent"
