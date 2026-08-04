@@ -92,6 +92,15 @@ class DebugActivity : AppCompatActivity() {
             AppLog.i(TAG, "TAK/CoT logs ${if (on) "INCLUDED" else "HIDDEN"}")
         }
 
+        val obstacleToggle = findViewById<CheckBox>(R.id.debugObstacleToggle)
+        obstacleToggle.isChecked = AppLog.obstacleLogging
+        obstacleToggle.setOnCheckedChangeListener { _, on ->
+            AppLog.obstacleLogging = on
+            // Logged from DebugActivity (an app-side tag) so this line survives either way — it
+            // marks the point in the log where the filter changed.
+            AppLog.i(TAG, "obstacle distance logs ${if (on) "INCLUDED" else "HIDDEN"}")
+        }
+
         findViewById<android.widget.Button>(R.id.debugExportButton).setOnClickListener {
             AppLog.v(TAG, "export tapped")
             exportLog()
@@ -126,7 +135,7 @@ class DebugActivity : AppCompatActivity() {
         val file = AppLog.activeLogFile()
         if (!file.exists()) {
             if (lastRenderedLength != 0L) {
-                logText.text = "(no log yet — enable logging to start capturing)"
+                logText.text = "(No log yet. Turn on Logging enabled to start.)"
                 lastRenderedLength = 0
             }
             meta.text = ""
@@ -144,7 +153,7 @@ class DebugActivity : AppCompatActivity() {
                 raf.readFully(bytes)
                 String(bytes)
             }
-        }.getOrDefault("(failed to read log file)")
+        }.getOrDefault("(The app cannot read the log file.)")
 
         logText.text = tail
         meta.text = "${file.name} — ${length / 1024} KB"

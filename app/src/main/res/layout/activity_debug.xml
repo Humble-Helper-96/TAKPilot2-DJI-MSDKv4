@@ -65,7 +65,28 @@
             <TextView
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:paddingStart="8dp" android:paddingTop="2dp"
-                android:text="Uncheck to hide the TAK bridge/CoT chatter (2s telemetry push, TakManager, CotParser) and leave only app logs — video, camera, DTED, UI."
+                android:text="Clear this box to hide the TAK messages and show only the app."
+                android:textColor="#7A7A7A" android:textSize="12sp" />
+
+            <!-- Obstacle-distance filter, ported from the Autel build's radar toggle. The vision
+                 sensors report continuously, so these are the highest-volume lines the app
+                 writes; off by default. The help text promises that avoidance changes and
+                 warnings survive the filter — that promise is kept structurally, by putting the
+                 noisy readout on its own log tag (see AppLog.OBSTACLE_TAGS). -->
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <CheckBox android:id="@+id/debugObstacleToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Include obstacle distance logs" android:textColor="#DDDDDD" android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="2dp"
+                android:text="The sensors fill the log. Select this box only to examine obstacle avoidance. Avoidance changes and warnings stay in the log."
                 android:textColor="#7A7A7A" android:textSize="12sp" />
 
             <Button

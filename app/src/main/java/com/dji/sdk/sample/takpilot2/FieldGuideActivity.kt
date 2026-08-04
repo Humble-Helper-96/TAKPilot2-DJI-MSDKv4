@@ -123,6 +123,20 @@ class FieldGuideActivity : AppCompatActivity() {
             "Home.")
         note("To keep the value that is already in the aircraft, leave the field empty.")
 
+        body("Obstacle avoidance has three boxes. The app sends these three settings to the " +
+            "aircraft at each connection.")
+        bullet("Obstacle avoidance enabled - the aircraft looks for obstacles and stops before " +
+            "it hits them.")
+        bullet("Avoid obstacles during Return to Home - the aircraft looks for obstacles also " +
+            "when it flies home on its own.")
+        bullet("Landing protection - the aircraft looks at the ground before it lands. If the " +
+            "ground is not safe, it does not land.")
+        body("Below the boxes, the app shows what the aircraft reports now. Read this line. " +
+            "The boxes show what you selected, but this line shows the aircraft.")
+        note("The app sends these settings only when the aircraft is on the ground. If the " +
+            "aircraft is armed or in the air, the app does not change them.")
+        note("The Mini 2 has no obstacle sensors. These settings do nothing on a Mini 2.")
+
         sub("2. Map Display")
         body("This sets the map type for the small map on the flight screen. Select Street, " +
             "Hybrid (satellite images), or a custom map of your team. Then touch Save Map " +
@@ -379,6 +393,42 @@ class FieldGuideActivity : AppCompatActivity() {
                 "The app uses the terrain data at the current position of the aircraft. If " +
                     "you fly out of the area of your data, the ring changes to the angles for " +
                     "no terrain data.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "Obstacle distances",
+            "If the aircraft sees an obstacle, the app draws a mark at the edge of the video " +
+                "nearest to it. The mark shows the distance in feet.\n\n" +
+                "A curved line at the left or the right edge shows an obstacle at that side. " +
+                "An arrow with the word FWD shows an obstacle in front. An arrow with the word " +
+                "REAR shows an obstacle behind. The camera cannot show you what is behind, so " +
+                "read the REAR arrow with care.\n\n" +
+                "The marks are yellow first. They become red, thicker and brighter as the " +
+                "aircraft gets nearer. Red is 13 ft or less.",
+            listOf(
+                "An edge with no mark does not mean the direction is clear. It can also mean " +
+                    "the aircraft has no sensor for that direction. The Air 2S has sensors in " +
+                    "front, behind, up and down, but none at the sides. The Mini 2 has no " +
+                    "obstacle sensors, and this display always stays empty.",
+                "The app does not show the distance up or down yet.",
+                "These marks are an aid. They do not replace your eyes. Keep the aircraft in " +
+                    "sight.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "Red message under the toolbar",
+            "If the aircraft has a problem, the app shows a red message at the top left of the " +
+                "video. The message comes from the aircraft, not from the app.\n\n" +
+                "Examples: \"Cannot takeoff in a no-fly zone\", a compass problem, or a request " +
+                "to calibrate. If the motors do not start, read this message first.\n\n" +
+                "The message goes away when the aircraft corrects the problem.",
+            listOf(
+                "The app shows all messages from the aircraft. Some are only reminders, such " +
+                    "as a request to examine the propellers.",
             ),
         )
 
