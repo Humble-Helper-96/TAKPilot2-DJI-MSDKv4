@@ -33,9 +33,23 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    destroyed/recreated on every surface cycle (screen lock/unlock, screen navigation); see
  *    the holder's doc for the in-flight black-FPV incident that fix addressed.
  *  - VideoFeeder.onReceive() bytes are transport-sized chunks (~2 KB), NOT NAL-aligned. An
- *    assembler splits the Annex-B stream (3- or 4-byte start codes) into whole NALs, queues
- *    them boundedly (dumping + resyncing at the next SPS on overflow, so latency can never
- *    accumulate), and a decode thread renders only the newest ready frame each pass.
+ *    assembler splits the Annex-B stream (3- or 4-byte start codes) into whole NALs, regroups
+ *    those into whole ACCESS UNITS (one picture each), queues the pictures boundedly (dumping
+ *    the backlog on overflow, so latency can never accumulate), and a decode thread renders
+ *    only the newest ready frame each pass.
+ *
+ * **Pictures are multi-slice, and that has to be reassembled before the decoder sees them.**
+ * A VCL NAL is one SLICE — a horizontal band — not a frame; the Mini 2 sends ~4 NALs per
+ * picture and the Air 2 exactly 5 slices per picture. MediaCodec's contract is one complete
+ * access unit per input buffer, so feeding it a slice at a time (with `pts` advancing a full
+ * frame interval per slice, as this originally did) tells it every band is its own frame. Field
+ * evidence, Air 2 on a Pixel 10a, 2026-08-03: the decoder emitted at least 270 output buffers
+ * for 149 transmitted pictures — partial pictures, one band fresh and the rest stale — while
+ * `gaps=0 lost=0 parseFail=0` and signal sat at 100%, i.e. the corruption was ours, not the
+ * link's. Two failures compounded it: the NAL-counted queue held only 0.24s of a 246 NAL/s
+ * stream (the "~2s at 30fps" comment silently assumed one NAL per frame), and its overflow
+ * `clear()` then dumped slices from the middle of pictures several times a second. Assembly
+ * fixes the tearing; counting the queue in pictures fixes the overflow that fed it.
  *
  * **The decode loop recovers from a codec that dies mid-stream, not just from a codec that
  * never got a keyframe.** Found on an Oukitel RT3 (MediaTek MT6762): its hardware AVC decoder
@@ -216,7 +230,10 @@ class FpvTextureView @JvmOverloads constructor(
     ) : Thread("FpvDecoder") {
 
         private val running = AtomicBoolean(true)
-        private val nalQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+        /** Whole ACCESS UNITS (one complete picture each), not individual NALs — see
+         *  [flushAccessUnit] for why that distinction is the difference between a clean picture
+         *  and a torn one. */
+        private val auQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
         @Volatile private var waitForSync = true // drop everything until an SPS arrives
 
         /**
@@ -339,31 +356,103 @@ class FpvTextureView @JvmOverloads constructor(
             if (waitForSync) {
                 if (type == 7) {
                     waitForSync = false
+                    // Whatever partial picture was mid-assembly belongs to the pre-resync
+                    // stream and can only tear the first decoded frame. Drop it here — this is
+                    // the one point both threads agree the stream restarts.
+                    discardPartialAccessUnit()
                     AppLog.i(TAG, "FPV: SPS received — decoder syncing")
                 } else return // drop until the requested keyframe burst arrives
-            } else if (type == 5) {
+            }
+            nalsFed.incrementAndGet()
+            bytesFed.addAndGet(nal.size.toLong())
+            inspectForFrameLoss(nal, hdr, type)
+
+            // ---- Access-unit assembly ----
+            //
+            // A VCL NAL (type 1-5) is a SLICE, not a picture. Both aircraft send multi-slice
+            // pictures (Mini 2 ~4 NALs/picture, Air 2 measured at exactly 5 slices/picture), and
+            // MediaCodec's contract is one complete ACCESS UNIT — every NAL of one picture — per
+            // input buffer. Feeding it a slice at a time told it each fifth of the image was its
+            // own frame: field-measured on the Air 2, the decoder emitted at least 270 output
+            // buffers for 149 transmitted pictures, i.e. partial pictures with one band updated
+            // and the rest stale. That is the "corrupted FPV" symptom, and it is self-inflicted,
+            // not RF loss (gaps=0 lost=0 throughout, signal 100%).
+            //
+            // Boundary rule is the standard one (H.264 7.4.1.2.4): once the current AU holds at
+            // least one slice, a new AU starts at either the first slice of the next picture
+            // (first_mb_in_slice == 0) or any of the NAL types that may only PRECEDE a picture.
+            val isVcl = type in 1..5
+            val firstMb = if (isVcl) H264SliceParser.parseFirstMbInSlice(nal, hdr) else null
+            if (isVcl && firstMb == null) auBoundaryParseFails.incrementAndGet()
+            val startsNewAu = auHasVcl &&
+                if (isVcl) firstMb == 0 else type in AU_PREFIX_NAL_TYPES
+            if (startsNewAu) flushAccessUnit()
+
+            if (type == 5 && firstMb == 0) {
                 // IDR arriving while already synced — should only happen right after a
                 // periodic-refresh or hard-resync request. Logged (rare, request-only) to
                 // verify from the field whether those requests are actually landing, since
                 // resetKeyFrame() has shown itself unreliable beyond a session's first use
                 // (see IdrRequesterHolder doc) — if this line never appears during a long
                 // static hover, the periodic anti-artifact refresh isn't working either.
+                // Gated on first_mb_in_slice == 0 so a 5-slice IDR logs ONCE, as one picture,
+                // instead of five times — that flood is what made the Air 2 log read as a
+                // resync storm when the real event rate was a quarter of it.
                 AppLog.i(TAG, "FPV: IDR received post-sync (periodic/hard-resync refresh landed)")
             }
-            nalsFed.incrementAndGet()
-            bytesFed.addAndGet(nal.size.toLong())
-            inspectForFrameLoss(nal, hdr, type)
-            if (!nalQueue.offer(nal)) {
-                // Queue full — the decoder fell persistently behind (rare now that transient
-                // stalls hold-and-retry instead of dropping). Reset latency by dropping the
-                // backlog and keeping the newest NAL, but do NOT force a resync/freeze: keep
-                // decoding (brief concealed corruption, no freeze — the Mini 2 sends no keyframe
-                // to recover to on its own anyway). The pilot's Video Re-Sync button clears any
-                // lingering artifacting on demand.
-                nalQueue.clear()
-                nalQueue.offer(nal)
+
+            auNals.add(nal)
+            auBytes += nal.size
+            if (isVcl) auHasVcl = true
+        }
+
+        // ---- Access-unit assembly state (feed thread only) ----
+        /** NALs accumulated for the picture currently being assembled, in stream order. Each
+         *  already carries its own Annex-B start code (emitNal copies from the start code), so
+         *  concatenating them yields a valid access unit with no fixups. */
+        private val auNals = ArrayList<ByteArray>(16)
+        private var auBytes = 0
+        /** Whether [auNals] holds at least one slice yet. Without this, the leading SPS/PPS/SEI
+         *  of the very first picture would each look like a boundary and flush empty AUs. */
+        private var auHasVcl = false
+
+        private fun discardPartialAccessUnit() {
+            auNals.clear()
+            auBytes = 0
+            auHasVcl = false
+        }
+
+        /**
+         * Concatenates the assembled picture into one buffer and queues it for the decoder.
+         *
+         * Queue depth is now counted in PICTURES, which is what [QUEUE_CAP] always claimed to
+         * mean. Counting NALs made it a per-aircraft lie: 60 NALs is ~2s of Mini 2 but only 0.24s
+         * of the Air 2's 246 NAL/s. Dropping is likewise per-picture — the old `clear()` dumped
+         * whatever slices happened to be queued, which tore the pictures either side of the drop
+         * on top of the latency it was trying to reclaim.
+         */
+        private fun flushAccessUnit() {
+            if (auNals.isEmpty()) return
+            val au = ByteArray(auBytes)
+            var o = 0
+            for (n in auNals) {
+                System.arraycopy(n, 0, au, o, n.size)
+                o += n.size
+            }
+            val slices = auNals.size
+            discardPartialAccessUnit()
+            accessUnits.incrementAndGet()
+            nalsPerAu.addAndGet(slices)
+            if (!auQueue.offer(au)) {
+                // Queue full — the decoder fell persistently behind. Reset latency by dropping
+                // the backlog and keeping the newest PICTURE, but do NOT force a resync/freeze:
+                // keep decoding (brief concealed corruption, no freeze — the Mini 2 sends no
+                // keyframe to recover to on its own anyway). The pilot's Video Re-Sync button
+                // clears any lingering artifacting on demand.
+                auQueue.clear()
+                auQueue.offer(au)
                 overflowDrops.incrementAndGet()
-                AppLog.w(TAG, "FPV: queue overflow — dropped backlog (no freeze), continuing")
+                AppLog.w(TAG, "FPV: queue overflow — dropped backlog (whole pictures), continuing")
             }
         }
 
@@ -406,6 +495,21 @@ class FpvTextureView @JvmOverloads constructor(
          *  investigation. */
         private val manualResyncs = java.util.concurrent.atomic.AtomicInteger(0)
         private val codecRecoveries = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Complete pictures handed to the decoder, one per input buffer. `aus` vs `pics` is the
+         *  direct check that assembly is keeping up with the stream (they should match), and
+         *  `rendered` can no longer legitimately exceed it — that it DID (270 vs 149 pics) is
+         *  what identified the torn-picture bug in the first place. */
+        private val accessUnits = java.util.concurrent.atomic.AtomicInteger(0)
+        /** NALs consumed into those access units — `nalsPerAu / aus` is the stream's real
+         *  slices-per-picture, the number every queue/throughput assumption here depends on and
+         *  which differs per aircraft (Mini 2 ~4, Air 2 exactly 5). */
+        private val nalsPerAu = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Slices whose first_mb_in_slice wouldn't parse, so a boundary may have been missed and
+         *  two pictures merged into one AU. Non-zero invalidates `aus`. */
+        private val auBoundaryParseFails = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Pictures too large for the codec's input buffer — see the feed path. Should be 0;
+         *  anything else means KEY_MAX_INPUT_SIZE needs raising for that device. */
+        private val auOversize = java.util.concurrent.atomic.AtomicInteger(0)
         private var lastHealthSummary = 0L
 
         // ---- Frame-loss detection (the "why does it artifact" instrument) ----
@@ -649,6 +753,12 @@ class FpvTextureView @JvmOverloads constructor(
                     // lost=0 while artifacts build = they're arriving corrupt instead, which is
                     // a different root cause entirely. parseFail>0 invalidates gaps/lost.
                     "slices=$slices pics=$pics gaps=$gaps lost=$lost parseFail=$parseFail " +
+                    // Access-unit assembly. aus should track pics 1:1 and rendered must not
+                    // exceed aus; nalPerAu is the stream's slices-per-picture (per aircraft).
+                    "aus=${accessUnits.getAndSet(0)} " +
+                    "nalPerAu=${nalsPerAu.getAndSet(0)} " +
+                    "auBoundaryFail=${auBoundaryParseFails.getAndSet(0)} " +
+                    "auOversize=${auOversize.getAndSet(0)} " +
                     // lossResync = auto keyframe requests from detected loss (the new fix).
                     // suppressed > 0 means loss is arriving faster than the rate limit allows
                     // recovery — i.e. a genuinely degrading link, not an isolated glitch.
@@ -678,6 +788,10 @@ class FpvTextureView @JvmOverloads constructor(
             return base.apply {
                 val fmt = MediaFormat.createVideoFormat(MIME, 1280, 720)
                 fmt.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = realtime
+                // Input buffers now carry a whole picture, not one slice — an IDR access unit is
+                // an order of magnitude larger than any single NAL this used to feed. Ask for
+                // headroom rather than discover a device's default was too small mid-flight.
+                fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_SIZE)
                 if (useLowLatencyHint && android.os.Build.VERSION.SDK_INT >= 30) {
                     fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
                 }
@@ -693,10 +807,11 @@ class FpvTextureView @JvmOverloads constructor(
                 codec = createCodec()
                 val info = MediaCodec.BufferInfo()
                 var pts = 0L
-                // A NAL we polled but couldn't feed yet because the codec's input was momentarily
-                // full. Held (not dropped) and retried next iteration after draining output frees
-                // a buffer — so a transient decoder stall no longer manufactures artifacting.
-                var pendingNal: ByteArray? = null
+                // A picture we polled but couldn't feed yet because the codec's input was
+                // momentarily full. Held (not dropped) and retried next iteration after draining
+                // output frees a buffer — so a transient decoder stall no longer manufactures
+                // artifacting.
+                var pendingAu: ByteArray? = null
                 // Consecutive codec-level failures since the last successfully rendered frame —
                 // drives the recreate backoff below and resets to 0 the moment a frame renders.
                 var codecFailures = 0
@@ -715,8 +830,8 @@ class FpvTextureView @JvmOverloads constructor(
                     // auto-escalation) to clear accumulated artifacting on demand.
                     if (resyncRequested) {
                         resyncRequested = false
-                        pendingNal = null
-                        nalQueue.clear()
+                        pendingAu = null
+                        auQueue.clear()
                         waitForSync = true
                         unsyncedSince = 0L
                         lastSyncReq = 0L        // let onSyncNeeded fire right away while unsynced
@@ -770,24 +885,42 @@ class FpvTextureView @JvmOverloads constructor(
                     // rebuilding the MediaCodec in place, below.
                     val cd = codec!!
                     try {
-                        // Feed one NAL if the codec has room (SPS/PPS ride in-band). Prefer a NAL
-                        // we were holding from a prior stalled iteration; otherwise poll a fresh
-                        // one.
-                        val nal = pendingNal ?: nalQueue.poll(10, TimeUnit.MILLISECONDS)
-                        pendingNal = null
-                        if (nal != null) {
+                        // Feed one complete PICTURE if the codec has room (SPS/PPS ride in-band,
+                        // inside the same access unit). Prefer one we were holding from a prior
+                        // stalled iteration; otherwise poll a fresh one.
+                        val au = pendingAu ?: auQueue.poll(10, TimeUnit.MILLISECONDS)
+                        pendingAu = null
+                        if (au != null) {
                             val inIdx = cd.dequeueInputBuffer(10_000)
                             if (inIdx >= 0) {
-                                cd.getInputBuffer(inIdx)?.apply { clear(); put(nal) }
-                                cd.queueInputBuffer(inIdx, 0, nal.size, pts, 0)
-                                pts += 33_333
+                                val ib = cd.getInputBuffer(inIdx)
+                                if (ib != null && ib.capacity() >= au.size) {
+                                    ib.clear()
+                                    ib.put(au)
+                                    cd.queueInputBuffer(inIdx, 0, au.size, pts, 0)
+                                    // One picture, one timestamp. Advancing per NAL (as this did
+                                    // while feeding slices) claimed 5 frames' worth of time for
+                                    // every real frame.
+                                    pts += 33_333
+                                } else {
+                                    // A whole picture no longer fits the codec's input buffer.
+                                    // Queue empty rather than letting ByteBuffer.put throw — the
+                                    // catch below would read that as a codec failure and escalate
+                                    // this device all the way to software decode over a sizing
+                                    // problem. Drop the picture; the next one is 33ms away.
+                                    auOversize.incrementAndGet()
+                                    cd.queueInputBuffer(inIdx, 0, 0, pts, 0)
+                                    AppLog.w(TAG, "FPV: picture ${au.size}B exceeds codec input " +
+                                        "buffer ${ib?.capacity() ?: 0}B — dropped")
+                                }
                             } else {
-                                // Codec input momentarily full — HOLD this NAL (don't drop it) and
-                                // retry next iteration once draining output below frees a buffer.
-                                // Dropping here used to manufacture persistent artifacting on any
-                                // transient stall (GPU contention w/ the map/HUD); the overflow
-                                // failsafe below still bounds latency if we fall behind for real.
-                                pendingNal = nal
+                                // Codec input momentarily full — HOLD this picture (don't drop it)
+                                // and retry next iteration once draining output below frees a
+                                // buffer. Dropping here used to manufacture persistent artifacting
+                                // on any transient stall (GPU contention w/ the map/HUD); the
+                                // overflow failsafe still bounds latency if we fall behind for
+                                // real.
+                                pendingAu = au
                             }
                         }
 
@@ -825,7 +958,7 @@ class FpvTextureView @JvmOverloads constructor(
                         }
                     } catch (e: InterruptedException) {
                         // NOT a codec failure — this is shutdown() (running.set(false) then
-                        // interrupt()) interrupting the blocked nalQueue.poll() above. Field-
+                        // interrupt()) interrupting the blocked auQueue.poll() above. Field-
                         // observed 2026-07-27: without this separate clause, a screen
                         // navigation tearing down the surface mid-decode got misread as a codec
                         // error, wastefully rebuilt a MediaCodec that was immediately discarded,
@@ -877,8 +1010,8 @@ class FpvTextureView @JvmOverloads constructor(
                         // A new codec has no decode state — it needs a full SPS/PPS/IDR burst
                         // before it can produce anything, same as first sync. Anything queued
                         // for the old instance is stale.
-                        pendingNal = null
-                        nalQueue.clear()
+                        pendingAu = null
+                        auQueue.clear()
                         waitForSync = true
                         unsyncedSince = 0L
                         lastSyncReq = 0L
@@ -902,7 +1035,22 @@ class FpvTextureView @JvmOverloads constructor(
 
         companion object {
             private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
-            private const val QUEUE_CAP = 60 // ~2s at 30fps before we dump + resync
+            /** Depth in PICTURES — ~1s at 30fps before we dump the backlog. Was 60 and counted
+             *  NALs, which made the real depth depend on the aircraft's slices-per-picture: the
+             *  same 60 slots were ~2s of Mini 2 but 0.24s of the Air 2, which is why the Air 2
+             *  overflowed several times a second. Counting pictures makes this aircraft-agnostic
+             *  and halves worst-case latency at the same time. */
+            private const val QUEUE_CAP = 30
+
+            /** Input-buffer size hint, ample for a 1080p IDR access unit (largest thing the
+             *  aircraft sends) with room to spare. */
+            private const val MAX_INPUT_SIZE = 512 * 1024
+
+            /** NAL types that may only appear BEFORE the slices of a picture, never between
+             *  them — so meeting one while slices are already assembled marks a new access unit.
+             *  AUD(9), SEI(6), SPS(7), PPS(8) and the prefix/subset-SPS/slice-extension
+             *  types(14/15/20) of H.264 7.4.1.2.4. */
+            private val AU_PREFIX_NAL_TYPES = setOf(6, 7, 8, 9, 14, 15, 20)
             private const val HARD_RESYNC_AFTER_MS = 3000L // escalate if still unsynced this long
             // Codec-recreate backoff: delay = min(BASE * consecutive failures, MAX). One-off
             // failure recovers in 300ms; a decoder that's persistently broken settles at a 4s
