@@ -111,11 +111,24 @@ object ExposureController {
      *  exposure-mode/EV push is [applyExposureSettings] — factored out so [onShootPhotoTapped]
      *  in the flight screen can apply the IDENTICAL settings after switching to PHOTO_SINGLE to
      *  shoot, so a snapped photo's total EV always matches what the live video was showing. */
-    fun applyDefaults(context: Context, camera: Camera) {
+    /**
+     * @param onVideoMode reports whether the camera actually accepted VIDEO mode. Callers that
+     *   switch modes around a still (see the flight screen's shutter handler) need this: the
+     *   camera rejects a mode change while it is still writing a photo, and without the result
+     *   the failure is invisible and the camera silently stays in photo mode.
+     */
+    fun applyDefaults(
+        context: Context,
+        camera: Camera,
+        onVideoMode: (DJIError?) -> Unit = {},
+    ) {
         AppLog.i(TAG, "applyDefaults: VIDEO mode -> ${MeteringMode.CENTER}, PROGRAM (full auto), ev=${savedEv(context)}")
         val afterVideoMode = CommonCallbacks.CompletionCallback<DJIError> { mErr ->
             AppLog.i(TAG, "set VIDEO mode: ${mErr?.description ?: "OK"}")
-            applyExposureSettings(context, camera)
+            // Only chase exposure if the mode switch landed. When it didn't, every one of these
+            // fails too and buries the ONE line that mattered under three more "Undefined Error"s.
+            if (mErr == null) applyExposureSettings(context, camera)
+            onVideoMode(mErr)
         }
         if (camera.isFlatCameraModeSupported) {
             camera.setFlatMode(FlatCameraMode.VIDEO_NORMAL, afterVideoMode)
