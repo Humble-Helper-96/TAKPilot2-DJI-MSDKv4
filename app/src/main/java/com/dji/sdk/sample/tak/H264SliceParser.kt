@@ -20,8 +20,11 @@ package com.dji.sdk.sample.tak
  * is inside them (bit errors surviving DJI's transport), which is a completely different root
  * cause needing a completely different fix.
  *
- * **Diagnosis only.** Nothing here changes decode behaviour; it only counts. Deciding what to
- * do about the answer comes after the answer.
+ * **No longer diagnosis-only.** It started that way, but the numbers it produced turned out to
+ * name a decode bug rather than an RF one (multi-slice pictures were being fed to MediaCodec one
+ * slice at a time), so [parseFirstMbInSlice] is now on the decode path itself, driving
+ * access-unit assembly in `FpvTextureView`. [parseSliceHeader] and [parseSpsLog2MaxFrameNum]
+ * remain instrumentation.
  *
  * Scope is deliberately tiny — it parses the first few fields of a header and stops. It does not
  * decode anything, and it must never throw into the DJI callback thread it runs on, so every
@@ -81,6 +84,22 @@ object H264SliceParser {
             r.ue()                   // pic_parameter_set_id
             SliceHeader(frameNum = r.u(log2MaxFrameNum), firstMbInSlice = firstMb)
         }.getOrNull()
+
+    /**
+     * `first_mb_in_slice` alone, from a coded-slice NAL — the field that marks where one picture
+     * ends and the next begins (0 = first slice of a new picture).
+     *
+     * Separate from [parseSliceHeader] because access-unit assembly needs this on EVERY slice,
+     * including before any SPS has been seen: it is the very first field of the slice header, so
+     * unlike `frame_num` it costs no knowledge of `log2_max_frame_num`. Making AU assembly wait
+     * for an SPS would leave the decoder fed with torn pictures for the whole pre-sync window.
+     *
+     * @param payloadStart index of the NAL HEADER byte (i.e. just past the start code).
+     */
+    fun parseFirstMbInSlice(nal: ByteArray, payloadStart: Int): Int? = runCatching {
+        // 8 bytes covers a 64-bit-worst-case Exp-Golomb code; real values are ~27 bits at 1080p.
+        BitReader(unescape(nal, payloadStart + 1, 8)).ue()
+    }.getOrNull()
 
     /**
      * Strips H.264 emulation-prevention bytes (a 0x03 inserted after two 0x00s so the payload can
