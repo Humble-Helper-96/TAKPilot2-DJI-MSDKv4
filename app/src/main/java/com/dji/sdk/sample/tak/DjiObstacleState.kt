@@ -40,7 +40,19 @@ import dji.sdk.flightcontroller.FlightAssistant
  * centimetre assumption became load-bearing before anyone had checked it, and that one got lucky.
  */
 object DjiObstacleState {
+    /** Avoidance settings, enforcement and warnings. ALWAYS logged — these are the lines someone
+     *  diagnosing an avoidance problem needs, and they must not be filterable by accident. */
     private const val TAG = "TP2Obstacle"
+
+    /**
+     * The repeating per-sample distance readout, and the vertical-perception dump. Its own tag so
+     * the Debug screen can hide the volume WITHOUT hiding the settings lines above.
+     *
+     * The Autel build filters its equivalent by matching the message text (`startsWith("radar(")`)
+     * because both kinds of line share one tag there, and its comment notes that rewording the
+     * log line silently breaks the filter. A second tag has no such coupling.
+     */
+    private const val RANGE_TAG = "TP2ObstacleRange"
 
     /** Per-face nearest obstacle in METRES, keyed by sensor position. Absent = that face has not
      *  reported, which is not the same as clear. */
@@ -175,7 +187,7 @@ object DjiObstacleState {
         if (now - lastNearLogMs < NEAR_MIN_GAP_MS && kotlin.math.abs(m - lastLoggedNear) < 0.5f) return
         lastNearLogMs = now
         lastLoggedNear = m
-        AppLog.i(TAG, "obstacle $pos ${"%.1f".format(m)}m warn=${state.systemWarning} " +
+        AppLog.i(RANGE_TAG, "obstacle $pos ${"%.1f".format(m)}m warn=${state.systemWarning} " +
             "sectors=${state.detectionSectors?.size ?: 0}")
     }
 
@@ -194,7 +206,7 @@ object DjiObstacleState {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastPerceptionLogMs < PERCEPTION_GAP_MS) return
         lastPerceptionLogMs = now
-        AppLog.i(TAG, "perception (UNITS UNVERIFIED — not displayed): " +
+        AppLog.i(RANGE_TAG, "perception (UNITS UNVERIFIED — not displayed): " +
             "up=${info.upwardObstacleDistance} down=${info.downwardObstacleDistance}")
     }
 

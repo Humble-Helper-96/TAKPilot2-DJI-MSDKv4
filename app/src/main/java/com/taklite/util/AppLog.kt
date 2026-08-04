@@ -36,6 +36,7 @@ object AppLog {
     private const val KEY_ENABLED = "debug_logging_enabled"
     private const val KEY_VERBOSE = "debug_logging_verbose"
     private const val KEY_TAK = "debug_logging_tak"
+    private const val KEY_OBSTACLE = "debug_logging_obstacle"
     private const val ACTIVE_FILE_NAME = "app.log"
     private const val MAX_FILE_SIZE_BYTES = 1L * 1024 * 1024
     private const val RETENTION_MS = 2L * 60 * 60 * 1000
@@ -100,6 +101,21 @@ object AppLog {
         }
 
     /**
+     * Whether obstacle-distance lines (see [OBSTACLE_TAGS]) reach the log file. Default **false**
+     * — the sensors report continuously and would otherwise dominate every flight log. Turn it on
+     * deliberately when obstacle avoidance is the thing under investigation.
+     *
+     * Avoidance switch changes, enforcement and warnings are NOT affected: they use a different
+     * tag and are always logged.
+     */
+    @JvmStatic
+    var obstacleLogging: Boolean
+        get() = initialized && prefs.getBoolean(KEY_OBSTACLE, false)
+        set(value) {
+            if (initialized) prefs.edit().putBoolean(KEY_OBSTACLE, value).apply()
+        }
+
+    /**
      * Tags owned by the TAK/CoT side of the app, suppressed when [takLogging] is off.
      *
      * Deliberately an explicit set rather than a "starts with Tak" prefix test: several
@@ -124,6 +140,24 @@ object AppLog {
         "TakMapMarkers",
         "TakDropMarkers",
     )
+
+    /**
+     * Obstacle-distance tags, hidden from the log file unless [obstacleLogging] is on.
+     *
+     * The vision sensors report continuously while the aircraft is powered, so these are the
+     * highest-volume lines the app produces — enough to bury everything else in the tail view.
+     * Off by default because obstacle range is almost never what is being diagnosed.
+     *
+     * **A SEPARATE TAG, not a message-prefix match.** The Autel build filters the equivalent
+     * lines with `msg.startsWith("radar(")`, because there the distances and the avoidance
+     * switch state share one tag — and its own comment warns that rewording that log line
+     * silently breaks the filter. Splitting the noisy readout onto its own tag removes that
+     * coupling entirely: the avoidance switch, enforcement and warning lines keep [TAG-visible]
+     * tags and survive the filter by construction rather than by careful wording.
+     *
+     * Same contract as [takLogging]: FILE sink only, logcat still receives everything.
+     */
+    private val OBSTACLE_TAGS = setOf("TP2ObstacleRange")
 
     /** Verbose-tier detail log: UI actions, navigation, per-tick internals. Only written
      * to file when both [enabled] and [verbose] are on; always forwarded to Log.d. */
@@ -193,6 +227,7 @@ object AppLog {
         // FATAL (crash traces) is never filtered — losing a crash to a log-noise setting
         // would be the worst possible failure mode for this switch.
         if (level != "FATAL" && !takLogging && tag in TAK_TAGS) return
+        if (level != "FATAL" && !obstacleLogging && tag in OBSTACLE_TAGS) return
         val line = buildString {
             append(timestampFormat.format(Date()))
             append(' ').append(level)
