@@ -20,6 +20,7 @@ import com.dji.sdk.sample.R
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.ArSettings
 import com.dji.sdk.sample.tak.CameraSlantPoint
+import com.dji.sdk.sample.tak.DjiObstacleState
 import com.dji.sdk.sample.tak.DjiSdkBridge
 import com.dji.sdk.sample.tak.ExposureController
 import com.dji.sdk.sample.tak.TakBridgeHolder
@@ -109,6 +110,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private var homeLineLayer: LineLayer? = null
     private lateinit var fpvNotice: TextView
     private lateinit var flightDiagnostics: TextView
+    private lateinit var obstacles: ObstacleEdgeView
     // Edge-triggers the "Home Point Set" notice only on the false->true transition (not every
     // tick while it's already set), and only once per bridge session.
     private var lastHomeSet = false
@@ -160,6 +162,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             runOnUiThread {
                 crosshair.setVideoRect(rect)
                 arOverlay.setVideoRect(rect)
+                obstacles.setVideoRect(rect)
             }
         }
         // Tell the AR overlay how much of the video our own chrome covers, so an off-frame edge
@@ -179,6 +182,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         fpvNotice = findViewById(R.id.fpvNotice)
         flightDiagnostics = findViewById(R.id.flightDiagnostics)
+        obstacles = findViewById(R.id.flightObstacles)
+        obstacles.update(DjiObstacleState.faces)
+        DjiObstacleState.onChanged = { runOnUiThread { obstacles.update(DjiObstacleState.faces) } }
         // Render whatever is ALREADY standing before subscribing — the callback is change-only,
         // so entering the flight screen with a fault already active would otherwise show nothing
         // until the fault happened to change.
@@ -1624,6 +1630,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // Same reason as the line above: DjiSdkBridge is a process-wide singleton and would
         // otherwise hold this Activity alive through its diagnostics callback.
         DjiSdkBridge.onDiagnostics = null
+        DjiObstacleState.onChanged = null
         TakDropMarkers.ui = null
         com.dji.sdk.sample.tak.TakMapMarkers.onMapDestroyed()
         mapView.onDestroy()

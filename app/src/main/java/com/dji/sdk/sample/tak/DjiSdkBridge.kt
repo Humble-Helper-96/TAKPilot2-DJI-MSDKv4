@@ -135,6 +135,9 @@ object DjiSdkBridge {
                 // Stale faults from a disconnected aircraft must not stay on the pilot's screen.
                 diagnostics = emptyList()
                 runCatching { onDiagnostics?.invoke(emptyList()) }
+                // Same reasoning, and more urgent: a stale obstacle distance reads as a live
+                // clearance measurement. It must go the instant the aircraft does.
+                DjiObstacleState.onProductDisconnected()
             }
 
             override fun onProductConnect(baseProduct: BaseProduct?) {
@@ -142,6 +145,12 @@ object DjiSdkBridge {
                 if (baseProduct != null) {
                     addAppActivationListenerIfNeeded()
                     subscribeDiagnostics(baseProduct)
+                    // Obstacle sensing is armed here, process-wide, NOT on the flight screen:
+                    // avoidance settings are enforced pre-flight, which happens while the pilot
+                    // is still on the home screen. Self-limits to airframes that have sensors.
+                    activityRef?.get()?.applicationContext?.let {
+                        DjiObstacleState.onProductConnected(it)
+                    }
                 }
             }
 

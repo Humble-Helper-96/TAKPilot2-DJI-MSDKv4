@@ -102,6 +102,55 @@
             android:textSize="12sp"
             android:paddingTop="6dp" />
 
+        <!-- Obstacle avoidance. Unlike everything above it, these are ENFORCED on the aircraft at
+             every connect rather than merely offered: leaving avoidance in whatever state DJI Fly
+             last set is not neutral, it is unknown, and a pilot cannot tell a disabled avoidance
+             system from an enabled one until it fails to stop. Pushing is only safe because the
+             flight screen now shows the live obstacle readout, so what was applied is visible.
+             Defaults are all ON — an install nobody configured must err toward protection.
+             Aircraft without obstacle sensors (Mini 2) ignore all of this. -->
+        <TextView
+            style="@style/takLabelStyle"
+            android:text="Obstacle avoidance"
+            android:paddingTop="18dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Applied to the aircraft every time it connects, so you always fly the settings shown here rather than whatever another app left behind. Never changed while the aircraft is armed or flying. The Mini 2 has no obstacle sensors and is unaffected."
+            android:textColor="#909090"
+            android:textSize="12sp"
+            android:paddingBottom="6dp" />
+
+        <CheckBox
+            android:id="@+id/avoidSystem"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Obstacle avoidance enabled"
+            android:textColor="#E0E0E0" />
+
+        <CheckBox
+            android:id="@+id/avoidRth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Avoid obstacles during Return to Home"
+            android:textColor="#E0E0E0" />
+
+        <CheckBox
+            android:id="@+id/avoidLanding"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Landing protection"
+            android:textColor="#E0E0E0" />
+
+        <TextView
+            android:id="@+id/avoidStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#909090"
+            android:textSize="12sp"
+            android:paddingTop="6dp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
