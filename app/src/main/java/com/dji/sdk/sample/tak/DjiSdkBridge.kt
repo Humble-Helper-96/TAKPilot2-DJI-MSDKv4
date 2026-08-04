@@ -38,6 +38,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 object DjiSdkBridge {
 
     private const val TAG = "DjiSdkBridge"
+
+    /** Aircraft health/readiness. Its own tag so it greps cleanly, and — importantly — one that
+     *  is NOT in AppLog's TAK_TAGS, so it stays in the file when TAK logging is filtered off. */
+    private const val DIAG_TAG = "TP2Diag"
     const val PERMISSION_REQUEST_CODE = 1001
     private const val ACTIVATION_DELAY_MS = 3000L
 
@@ -127,12 +131,17 @@ object DjiSdkBridge {
 
             override fun onProductDisconnect() {
                 AppLog.d(TAG, "onProductDisconnect")
+                lastDiagnostics = ""
+                // Stale faults from a disconnected aircraft must not stay on the pilot's screen.
+                diagnostics = emptyList()
+                runCatching { onDiagnostics?.invoke(emptyList()) }
             }
 
             override fun onProductConnect(baseProduct: BaseProduct?) {
                 AppLog.d(TAG, "onProductConnect: $baseProduct")
                 if (baseProduct != null) {
                     addAppActivationListenerIfNeeded()
+                    subscribeDiagnostics(baseProduct)
                 }
             }
 
@@ -156,6 +165,84 @@ object DjiSdkBridge {
                 }
             }
         })
+    }
+
+    /**
+     * Subscribes to the aircraft's own health/diagnostics stream — DJI's answer to "why won't it
+     * do the thing", the same content DJI Fly prints as red banner text (compass error, IMU
+     * calibration required, restricted zone, battery fault, and the rest).
+     *
+     * Added 2026-08-03 after a motors-won't-start investigation ran out of evidence twice: the
+     * app configured the aircraft, logged every call as OK, and then had nothing whatsoever to
+     * say about why the aircraft declined to arm, because it never asked. Every hypothesis was
+     * therefore a guess, and guesses are expensive when the answer is one subscription away.
+     *
+     * Logged under [DIAG_TAG], deliberately NOT a TAK tag: the readiness picture must survive the
+     * Debug screen's "TAK logging off" filter, which is exactly the setting an operator turns on
+     * while diagnosing something else — that filter is what hid the telemetry the first time.
+     *
+     * Deduped against the last rendered set: this callback re-fires continuously with the same
+     * content, so logging unconditionally would bury the log in repeats of one steady condition.
+     */
+    private var lastDiagnostics = ""
+
+    /**
+     * Current aircraft faults/warnings in pilot-readable form, newest snapshot wins. Empty when
+     * the aircraft is happy or nothing is connected. Read this on screen entry — the callback
+     * only fires on CHANGE, so a screen opened while a fault is already standing would otherwise
+     * show nothing.
+     */
+    @Volatile
+    var diagnostics: List<String> = emptyList()
+        private set
+
+    /** Notified (on DJI's callback thread — marshal to the UI yourself) whenever [diagnostics]
+     *  changes. Single slot: the flight screen owns it while it's up. */
+    @Volatile
+    var onDiagnostics: ((List<String>) -> Unit)? = null
+
+    /**
+     * DJI hands back an untranslated enum token instead of a sentence for conditions it has no
+     * localized string for (field-observed: `SHOULD_CHECK_BLADE_INSTALL` alongside the perfectly
+     * readable "Cannot takeoff in a no-fly zone"). Showing a pilot SCREAMING_SNAKE is worse than
+     * not showing it, so tokens get turned back into words. Anything already containing lowercase
+     * is a real message and passes through untouched.
+     */
+    private fun humanReason(reason: String?): String? {
+        val raw = reason?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        if (!raw.matches(Regex("[A-Z0-9_]{4,}"))) return raw
+        return raw.split('_')
+            .filter { it.isNotEmpty() }
+            .joinToString(" ") { w -> w.lowercase().replaceFirstChar { c -> c.uppercase() } }
+    }
+
+    private fun subscribeDiagnostics(product: BaseProduct) {
+        runCatching {
+            product.setDiagnosticsInformationCallback { list ->
+                val items = list.orEmpty()
+                val rendered = if (items.isEmpty()) "none" else items.joinToString(" | ") {
+                    "[${it.type}/${it.code}] ${it.reason}${it.solution?.let { s -> " -> $s" } ?: ""}"
+                }
+                if (rendered == lastDiagnostics) return@setDiagnosticsInformationCallback
+                lastDiagnostics = rendered
+                AppLog.i(DIAG_TAG, "aircraft diagnostics: $rendered")
+                // Distinct: the same condition is reported once per affected component (the
+                // no-fly-zone refusal arrived on both 8012 and 8018), and a pilot does not need
+                // to read it twice.
+                val readable = items.mapNotNull { d ->
+                    humanReason(d.reason)?.let { r ->
+                        val fix = humanReason(d.solution)
+                        if (fix.isNullOrEmpty()) r else "$r — $fix"
+                    }
+                }.distinct()
+                diagnostics = readable
+                runCatching { onDiagnostics?.invoke(readable) }
+            }
+            AppLog.i(DIAG_TAG, "diagnostics subscription active")
+        }.onFailure {
+            AppLog.w(DIAG_TAG, "could not subscribe to diagnostics: ${it.message}")
+        }
     }
 
     private fun addAppActivationListenerIfNeeded() {

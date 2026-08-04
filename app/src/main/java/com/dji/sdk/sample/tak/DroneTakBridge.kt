@@ -306,11 +306,39 @@ class DroneTakBridge(
         AppLog.i(TAG, "DroneTakBridge stopped")
     }
 
+    /**
+     * One-line flight-readiness snapshot, logged only when something in it CHANGES.
+     *
+     * Answers "why won't it arm" from the aircraft's own state rather than by hypothesis — the
+     * fields that actually gate motor start: GPS quality and whether a home point exists (the
+     * max-radius geofence this app enables is measured from it), IMU warm-up, and what mode the
+     * controller thinks it is in. `motors`/`flying` make the arming attempt itself visible.
+     *
+     * Two deliberate choices. It rides the state this bridge ALREADY subscribes to, because DJI
+     * permits one `setStateCallback` and a second subscriber would silently steal it. And it logs
+     * under [READY_TAG], not [TAG], so it survives the Debug screen's "TAK logging off" filter —
+     * [TAG] is in AppLog's TAK_TAGS, which is precisely why two flights' worth of telemetry was
+     * missing from the logs during this investigation.
+     */
+    private var lastReadiness: String? = null
+
+    private fun logReadinessIfChanged(state: dji.common.flightcontroller.FlightControllerState) {
+        val line = "mode=${state.flightMode} motors=${state.areMotorsOn()} " +
+            "flying=${state.isFlying} sats=${state.satelliteCount} " +
+            "gps=${state.getGPSSignalLevel()} homeSet=${state.isHomeLocationSet} " +
+            "imuPreheat=${state.isIMUPreheating}"
+        if (line != lastReadiness) {
+            lastReadiness = line
+            AppLog.i(READY_TAG, line)
+        }
+    }
+
     private fun pushOnce() {
         val state = lastState ?: run {
             AppLog.d(TAG, "tick: no FlightControllerState pushed yet")
             return
         }
+        logReadinessIfChanged(state)
 
         val loc = state.aircraftLocation
         val lat = loc?.latitude ?: Double.NaN
@@ -438,6 +466,30 @@ class DroneTakBridge(
         val videoDataRateMbps: Float? = null,
     )
 
+    /**
+     * Whether the camera is still busy taking or WRITING a still.
+     *
+     * Read from the [SystemState] this bridge already subscribes to — DJI permits exactly one
+     * `setSystemStateCallback`, so anything else needing camera state has to come through here
+     * rather than registering its own and silently stealing this one.
+     *
+     * `isStoringPhoto` is the load-bearing half: `startShootPhoto`'s completion callback fires
+     * when the shutter has fired, NOT when the file is written, and the camera rejects a mode
+     * change in between. Field-observed 2026-08-03 on the Air 2 — the post-photo restore ran 14ms
+     * after the shoot callback and every call came back "Undefined Error", leaving the camera
+     * stuck in photo mode. Null state (no callback yet) reads as "not busy": a missing
+     * subscription must not deadlock the caller into waiting forever.
+     */
+    fun photoInProgress(): Boolean = lastCameraState?.let {
+        it.isStoringPhoto ||
+            it.isShootingSinglePhoto ||
+            it.isShootingBurstPhoto ||
+            it.isShootingRAWBurstPhoto ||
+            it.isShootingIntervalPhoto ||
+            it.isShootingPanoramaPhoto ||
+            it.isShootingShallowFocusPhoto
+    } ?: false
+
     fun hud(): Hud {
         val state = lastState
         val loc = state?.aircraftLocation
@@ -545,6 +597,11 @@ class DroneTakBridge(
 
     companion object {
         private const val TAG = "DroneTakBridge"
+
+        /** Flight-readiness snapshots. Separate from [TAG] on purpose — [TAG] is in AppLog's
+         *  TAK_TAGS and disappears when an operator filters TAK logging off, which is exactly
+         *  when they're diagnosing something and need this most. See [logReadinessIfChanged]. */
+        private const val READY_TAG = "TP2Ready"
 
         /** Gimbal pitch-rate multiplier applied on connect — see [applyPitchSpeed]. 1.5 = the
          *  requested +50%. Applied to whatever the aircraft currently reports and clamped to its

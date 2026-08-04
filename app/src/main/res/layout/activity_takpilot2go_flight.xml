@@ -54,6 +54,33 @@
         android:textStyle="bold"
         android:visibility="gone" />
 
+    <!-- Aircraft diagnostics banner: the aircraft's OWN reasons it won't do something (no-fly
+         zone, compass error, IMU calibration, battery fault) — the red text DJI Fly shows and
+         this app previously showed nowhere at all. Added 2026-08-03 after a motors-won't-start
+         investigation cost two flights guessing, when the aircraft had been reporting "Cannot
+         takeoff in a no-fly zone" the whole time with nothing listening.
+
+         Sits below fpvNotice (64dp) rather than sharing its slot so the two can never overlap,
+         and on the LEFT half only: the right side of this screen is the HUD/map instrument
+         column, and the centre is the crosshair. maxWidth keeps a long multi-fault message
+         wrapping into the video area instead of running under the HUD. -->
+    <TextView
+        android:id="@+id/flightDiagnostics"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="88dp"
+        android:layout_marginStart="16dp"
+        android:background="@drawable/bg_diagnostics"
+        android:maxWidth="380dp"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="6dp"
+        android:text=""
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <!-- ATAK-UAS-Tool-style telemetry overlay, stacked directly above the mini-map (same
          bottom|end corner/size/margin the map already had — "leave the mini map where it is").
          Plain text over video, no box, to match the reference look. -->

@@ -88,6 +88,10 @@ object TakBridgeHolder {
     /** Latest telemetry snapshot for the on-screen HUD, or null if the bridge isn't running. */
     fun hud(): DroneTakBridge.Hud? = bridge?.hud()
 
+    /** See [DroneTakBridge.photoInProgress]. False when the bridge isn't running — with no camera
+     *  state to consult, a caller waiting on this must proceed rather than block forever. */
+    fun photoInProgress(): Boolean = bridge?.photoInProgress() ?: false
+
     /** Camera bearing + pitch for the AR overlay's projection — the same model that places
      *  dropped markers, see [DroneTakBridge.cameraPose]. Null until GPS/gimbal are ready. */
     fun cameraPose(): DroneTakBridge.CameraPose? = bridge?.cameraPose()

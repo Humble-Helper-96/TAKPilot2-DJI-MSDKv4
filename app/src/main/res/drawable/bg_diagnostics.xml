@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backing for the aircraft-diagnostics banner on the flight screen (compass errors, no-fly
+     zone, IMU calibration — what DJI Fly shows as red banner text). Mostly-opaque dark red
+     rather than the flat #EF5350 of bg_button_red: this sits ON TOP OF LIVE VIDEO, so it needs
+     enough opacity to keep white text legible over an arbitrary bright scene, while still
+     reading as an overlay rather than a solid panel covering the feed. Same red family as the
+     rest of the app's warning UI, one step darker. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#E6B71C1C" />
+    <corners android:radius="6dp" />
+    <stroke android:width="1dp" android:color="#8E0000" />
+</shape>

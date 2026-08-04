@@ -20,6 +20,7 @@ import com.dji.sdk.sample.R
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.ArSettings
 import com.dji.sdk.sample.tak.CameraSlantPoint
+import com.dji.sdk.sample.tak.DjiSdkBridge
 import com.dji.sdk.sample.tak.ExposureController
 import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakDropMarkers
@@ -50,6 +51,7 @@ import com.taklite.client.tak.TakManager
 import dji.common.camera.SettingsDefinitions
 import dji.common.error.DJIError
 import dji.common.util.CommonCallbacks
+import dji.sdk.camera.Camera
 import java.util.UUID
 
 /**
@@ -106,6 +108,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private var homeLineSource: GeoJsonSource? = null
     private var homeLineLayer: LineLayer? = null
     private lateinit var fpvNotice: TextView
+    private lateinit var flightDiagnostics: TextView
     // Edge-triggers the "Home Point Set" notice only on the false->true transition (not every
     // tick while it's already set), and only once per bridge session.
     private var lastHomeSet = false
@@ -175,6 +178,12 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
 
         fpvNotice = findViewById(R.id.fpvNotice)
+        flightDiagnostics = findViewById(R.id.flightDiagnostics)
+        // Render whatever is ALREADY standing before subscribing — the callback is change-only,
+        // so entering the flight screen with a fault already active would otherwise show nothing
+        // until the fault happened to change.
+        renderDiagnostics(DjiSdkBridge.diagnostics)
+        DjiSdkBridge.onDiagnostics = { items -> runOnUiThread { renderDiagnostics(items) } }
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
         fpvGimbalPitch = findViewById(R.id.fpvGimbalPitch)
@@ -1264,8 +1273,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 val msg = if (error == null) "Photo saved to aircraft SD card" else "Photo failed: ${error.description}"
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
-            AppLog.i(REC_TAG, "photo: restoring VIDEO_NORMAL + PROGRAM auto-exposure")
-            ExposureController.applyDefaults(applicationContext, camera)
+            restoreVideoModeAfterPhoto(camera)
         }
         val shootAfterMode = CommonCallbacks.CompletionCallback<DJIError> { modeError ->
             AppLog.i(REC_TAG, "photo: set PHOTO_SINGLE mode: ${modeError?.description ?: "OK"}")
@@ -1286,6 +1294,67 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             camera.setFlatMode(SettingsDefinitions.FlatCameraMode.PHOTO_SINGLE, shootAfterMode)
         } else {
             camera.setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, shootAfterMode)
+        }
+    }
+
+    /**
+     * Puts the camera back in VIDEO_NORMAL after a still — but only once it is actually willing
+     * to change mode, and verified rather than assumed.
+     *
+     * `startShootPhoto`'s completion callback means "the shutter fired", NOT "the camera is
+     * done". While the still is still being written the camera rejects a mode change outright.
+     * Field-observed 2026-08-03 on the Air 2: the restore ran 14ms after the shoot callback and
+     * every call returned "Undefined Error", so the camera stayed in photo mode for the rest of
+     * the flight with nothing on screen saying so — the live FPV is this screen's primary job, so
+     * that is not a cosmetic failure.
+     *
+     * So: wait for [TakBridgeHolder.photoInProgress] to clear, then switch, then retry if the
+     * switch itself is still refused. Both waits share one attempt budget — after
+     * [PHOTO_RESTORE_MAX_ATTEMPTS] it tries anyway rather than waiting forever on a camera state
+     * that may never arrive, and if that final attempt fails the pilot is TOLD, because a camera
+     * silently left in photo mode is exactly the failure this is here to prevent.
+     */
+    /** Paints the aircraft's own fault list, or hides the banner when it has nothing to say.
+     *  Purely a mirror of [DjiSdkBridge.diagnostics] — it deliberately does not filter by
+     *  severity: deciding on the pilot's behalf which aircraft warning isn't worth seeing is how
+     *  "Cannot takeoff in a no-fly zone" stayed invisible through two flights. */
+    private fun renderDiagnostics(items: List<String>) {
+        if (items.isEmpty()) {
+            flightDiagnostics.visibility = View.GONE
+            return
+        }
+        flightDiagnostics.text = items.joinToString("\n")
+        flightDiagnostics.visibility = View.VISIBLE
+    }
+
+    private fun restoreVideoModeAfterPhoto(camera: Camera, attempt: Int = 1) {
+        if (TakBridgeHolder.photoInProgress() && attempt < PHOTO_RESTORE_MAX_ATTEMPTS) {
+            handler.postDelayed(
+                { restoreVideoModeAfterPhoto(camera, attempt + 1) }, PHOTO_RESTORE_RETRY_MS)
+            return
+        }
+        AppLog.i(REC_TAG, "photo: restoring VIDEO_NORMAL + PROGRAM auto-exposure (attempt $attempt)")
+        ExposureController.applyDefaults(applicationContext, camera) { err ->
+            if (err == null) {
+                if (attempt > 1) AppLog.i(REC_TAG, "photo: VIDEO mode restored on attempt $attempt")
+                return@applyDefaults
+            }
+            if (attempt < PHOTO_RESTORE_MAX_ATTEMPTS) {
+                AppLog.w(REC_TAG, "photo: VIDEO mode restore refused (${err.description}) — " +
+                    "camera still busy, retrying (attempt $attempt)")
+                handler.postDelayed(
+                    { restoreVideoModeAfterPhoto(camera, attempt + 1) }, PHOTO_RESTORE_RETRY_MS)
+            } else {
+                AppLog.e(REC_TAG, "photo: VIDEO mode restore FAILED after $attempt attempts " +
+                    "(${err.description}) — camera left in PHOTO mode")
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        "Camera stuck in photo mode — tap Video Re-Sync or re-enter flight screen",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
         }
     }
 
@@ -1552,6 +1621,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // would otherwise keep firing against a dead Activity.
         arOverlay.stop()
         VideoStreamerHolder.onStateChanged = null
+        // Same reason as the line above: DjiSdkBridge is a process-wide singleton and would
+        // otherwise hold this Activity alive through its diagnostics callback.
+        DjiSdkBridge.onDiagnostics = null
         TakDropMarkers.ui = null
         com.dji.sdk.sample.tak.TakMapMarkers.onMapDestroyed()
         mapView.onDestroy()
@@ -1570,6 +1642,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val REC_TAG = "TP2Record"
         private const val REQUEST_MEDIA_PROJECTION = 3001
         private const val HUD_INTERVAL_MS = 500L
+        /** Post-still VIDEO-mode restore: poll interval and total attempts (~3.6s of patience).
+         *  Comfortably longer than the Air 2 takes to write a still, while still giving up in
+         *  time to warn the pilot rather than retrying silently forever. */
+        private const val PHOTO_RESTORE_RETRY_MS = 300L
+        private const val PHOTO_RESTORE_MAX_ATTEMPTS = 12
         /** FOV calibration step. 0.5 deg is finer than the eye can judge at the frame edge,
          *  so it never limits how closely the pilot can converge. */
         private const val FOV_STEP_DEG = 0.5
