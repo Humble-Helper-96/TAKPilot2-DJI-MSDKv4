@@ -287,9 +287,14 @@ class DroneTakBridge(
         try { aircraft?.flightController?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.battery?.setStateCallback(null) } catch (_: Throwable) {}
-        try { aircraft?.airLink?.setUplinkSignalQualityCallback(null) } catch (_: Throwable) {}
-        try { aircraft?.airLink?.setDownlinkSignalQualityCallback(null) } catch (_: Throwable) {}
-        try { aircraft?.airLink?.ocuSyncLink?.setVideoDataRateCallback(null) } catch (_: Throwable) {}
+        // ⚠ The three AirLink callbacks are DELIBERATELY NOT removed. On the Autel port,
+        // removing the RC info listener at TAK stop killed the RC signal indicator for the
+        // life of the process — an SDK asymmetry where removal detaches the underlying
+        // packet subscription and re-registration does not re-attach it (found in flight,
+        // 2026-08-06; see AutelTakBridge.unsubscribe in that tree). Whether MSDK v4 shares
+        // the defect is unverified, but keeping the callbacks armed costs nothing — they
+        // only write @Volatile caches — and start() re-arming replaces them in place. The
+        // signal bars on the flight screen must never depend on a TAK toggle.
         try { aircraft?.camera?.setSystemStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.camera?.setExposureSettingsCallback(null) } catch (_: Throwable) {}
         lastState = null
