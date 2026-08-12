@@ -372,21 +372,21 @@
                 style="@style/takColumnRadio"
                 android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
-                android:text="Low\n480p · 10fps\n1.3 Mbps" />
+                android:text="Low\n480p · 10fps\n375 kbps" />
 
             <RadioButton
                 android:id="@+id/videoProfileStandard"
                 style="@style/takColumnRadio"
                 android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
-                android:text="Standard\n720p · 15fps\n2.7 Mbps" />
+                android:text="Standard\n720p · 15fps\n800 kbps" />
 
             <RadioButton
                 android:id="@+id/videoProfileHigh"
                 style="@style/takColumnRadio"
                 android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
-                android:text="High\n1080p · 15fps\n6 Mbps" />
+                android:text="High\n1080p · 15fps\n1.8 Mbps" />
 
         </RadioGroup>
 

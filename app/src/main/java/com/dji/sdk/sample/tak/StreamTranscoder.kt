@@ -49,36 +49,34 @@ class StreamTranscoder(
     /** Pilot-selectable outbound quality (Pre-Flight Setup §4). Aspect ratio is always
      *  preserved — [maxHeight] caps the vertical resolution, width follows the source. */
     /**
-     * Resolutions match the Autel sibling (480/720/1080). Bitrates DO NOT, and cannot — they are
-     * derived for this codec and this screen.
+     * Resolutions AND bitrates match the Autel sibling exactly (operator, 2026-08-11). Both
+     * aircraft push the same numbers to the same media server on the same tactical hotspot, so
+     * a tier name means the same bandwidth whichever one is flying.
      *
-     * BITRATES COME FROM BITS PER PIXEL PER FRAME, not from round numbers. The sibling's ladder
-     * sits at 0.077 bits/px/frame for STANDARD and HIGH, so moving between those two trades
-     * resolution and frame rate without changing per-pixel quality, and at 0.122 for LOW — richer
-     * per pixel but far lower in TOTAL, because what makes LOW the marginal-link tier is the
-     * total. Those figures were verified against its published numbers before being reused here.
+     * ⚠ THE PICTURE HERE WILL BE SOFTER THAN THE SIBLING'S AT THE SAME TIER, and that is a
+     * known, accepted trade rather than a bug to chase. Two things cost quality that the
+     * bitrates do not pay for:
      *
-     * Two multipliers apply on the way across, and the second is the surprising one:
+     *  1. H.264 needs roughly twice H.265's bitrate for equal quality. The sibling's tiers are
+     *     HEVC, and its own note says the extra resolution step "is bought with H.265". This app
+     *     encodes AVC only.
+     *  2. This screen is 20:9, not 4:3. At the same tier HEIGHT the S20 Ultra's 2400x1080
+     *     carries 1.67x the pixels of that 4:3 controller — 1600x720 against 960x720 — and the
+     *     capture is the whole screen, so those are real pixels the encoder must spend bits on.
      *
-     *  1. H.264 NEEDS ABOUT TWICE H.265's BITRATE for equal quality. The sibling's tiers are
-     *     HEVC; its own note says the extra resolution step "is bought with H.265". This app
-     *     encodes AVC only, so taking its heights means paying for them in bitrate instead.
+     * Equal quality would need about 3.3x these numbers, putting HIGH near 6 Mbps, which is too
+     * much for a shared uplink. So per-pixel quality is what gives: HIGH sits at about 0.046
+     * bits/px/frame against the sibling's 0.077.
      *
-     *  2. THIS SCREEN IS 20:9, NOT 4:3. At the same tier HEIGHT the S20 Ultra's 2400x1080 screen
-     *     carries 1.67x the pixels of that 4:3 controller — 1600x720 against 960x720. The
-     *     capture is the whole screen, so the width is real pixels that must be encoded.
-     *
-     * Together that is ~3.3x the sibling's numbers at the same tier name. HIGH lands at 6 Mbps.
-     *
-     * ⚠ HIGH IS EXPENSIVE ON A SHARED TACTICAL HOTSPOT. It is the honest price of 1080p AVC at
-     * this aspect, not padding — dropping it without dropping the resolution just means a soft
-     * 1080p picture, which is worse than a sharp 720p one. If the uplink cannot carry it, the
-     * fix is to fly STANDARD, or to cut HIGH's height rather than starve it.
+     * WHERE THAT SHOWS FIRST IS HUD TEXT AND MAP LABELS, not the video. Sharp high-frequency
+     * edges cost far more bits than camera imagery and smear first. If a viewer reports an
+     * unreadable altitude readout at HIGH, this is the reason, and the fix is a lower tier (a
+     * sharp 720p beats a soft 1080p) or a real bandwidth decision — not nudging these numbers.
      */
     enum class TranscodeProfile(val maxHeight: Int, val fps: Int, val bitrateBps: Int) {
-        LOW(480, 10, 1_250_000),      // 1066x480 @0.244 bits/px/frame — marginal links
-        STANDARD(720, 15, 2_650_000), // 1600x720 @0.154 — default
-        HIGH(1080, 15, 6_000_000);    // 2400x1080 @0.154 — same per-pixel quality as Standard
+        LOW(480, 10, 375_000),        // 1066x480 — marginal/cellular links
+        STANDARD(720, 15, 800_000),   // 1600x720 — default
+        HIGH(1080, 15, 1_800_000);    // 2400x1080
 
         companion object {
             fun fromPref(name: String?): TranscodeProfile = when (name) {
