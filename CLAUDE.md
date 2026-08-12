@@ -35,6 +35,13 @@ core is `com.taklite`, which both applications hold as the same code.
 8. **`applicationId` is `com.anchortak.takpilot2gov4` and must not change** — the DJI API key
    is registered against this exact id. A suffix, flavor or side-by-side variant breaks
    aircraft registration outright.
+9. **A completion callback can fire TWICE.** `Gimbal.setControllerMaxSpeed` invoked its
+   callback twice per write on the Mini 2 (2026-08-12). Make completion handlers one-shot
+   when a second call would repeat work.
+10. **The Mini 2 refuses both battery-threshold writes**, and DJI's documentation is wrong —
+   it lists `setSeriousLowBatteryWarningThreshold` as supported on the Mini 2. The aircraft
+   holds warning 20% / land 10% and the app cannot change them. Trust the aircraft's answer,
+   never the documentation. The read-back after Apply is what catches this class of refusal.
 
 ## Verification
 
@@ -79,8 +86,10 @@ What still needs a device, in rough order of consequence:
 2. **Contact retention.** Watch `contacts held: N total` on a live net near busy airspace for
    20 minutes. `total` must oscillate, not climb. This is the class of bug that OOM-killed the
    sibling in the air.
-3. **The operator marker**, on a second TAK client: right position, `-Pilot` suffix, and the
-   video url on it rather than on the aircraft.
+3. ~~**The operator marker**, on a second TAK client.~~ Done 2026-08-12: right position and
+   `-Pilot` suffix confirmed on CloudTAK and TAKAware. The video url is on BOTH markers now,
+   not the operator alone — an operator who wants the camera selects the aircraft. Both
+   advertise one video uid, derived from the url, so a client sees one feed and not two.
 4. **Every screen**, once. The colour migration touched all of them and a wrong token is
    invisible to the compiler.
 5. **Pre-Flight locks** — a locked field must refuse the keyboard.
