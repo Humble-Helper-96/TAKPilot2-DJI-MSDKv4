@@ -65,6 +65,27 @@ core is `com.taklite`, which both applications hold as the same code.
 
 ## Current work
 
-The Autel-parity pass. The plan and its phases are in
-`~/.claude/plans/ok-i-have-my-atomic-castle.md`. The Autel tree is the reference for each
-port and lives at `../../Autel/AutelTAKPilot2/takpilot-autel_v1-2`.
+The Autel-parity pass is code-complete and **entirely unverified on hardware**. The plan and
+its phases are in `~/.claude/plans/ok-i-have-my-atomic-castle.md`. The Autel tree is the
+reference for each port and lives at `../../Autel/AutelTAKPilot2/takpilot-autel_v1-2`.
+
+`versionName` stays at `1.1.0-dev` on purpose. It becomes `1.1.0` when something has flown.
+
+What still needs a device, in rough order of consequence:
+
+1. **The warnings banner.** It is what a pilot reads during a fault. The two functions mapping
+   DJI enums to "unsafe" (`isAttitudeMode`, `isPoorGps`) cannot be unit-tested — those enums
+   live only in the stub `dji-sdk-provided` jar — so they are verified by reading only.
+2. **Contact retention.** Watch `contacts held: N total` on a live net near busy airspace for
+   20 minutes. `total` must oscillate, not climb. This is the class of bug that OOM-killed the
+   sibling in the air.
+3. **The operator marker**, on a second TAK client: right position, `-Pilot` suffix, and the
+   video url on it rather than on the aircraft.
+4. **Every screen**, once. The colour migration touched all of them and a wrong token is
+   invisible to the compiler.
+5. **Pre-Flight locks** — a locked field must refuse the keyboard.
+6. **Flight records** — a real track, and the orphan sweep after a kill.
+
+Deferred rather than guessed: the map expansion, the WIDE/NEAR zoom levels and the smaller
+symbol sizes were all tuned for a 1024x720 controller and need re-picking here; the resource
+overlay row needs measuring; the in-flight quality picker needs a real downlink.
