@@ -49,6 +49,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private lateinit var takStatus: TextView
     private lateinit var takDot: android.view.View
     private lateinit var network: TextView
+    private lateinit var networkDot: android.view.View
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -70,13 +71,15 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         takStatus = findViewById(R.id.homeTakStatus)
         takDot = findViewById(R.id.homeTakDot)
         network = findViewById(R.id.homeNetwork)
+        networkDot = findViewById(R.id.homeNetworkDot)
 
-        // versionName + the build stamp, so a sideloaded APK can be identified without adb.
+        // Fixed at build time, not runtime state — set once, never touched in updateStatus().
         // BuildConfig.VERSION_NAME rather than the PackageManager: same string, no IPC, and it
         // cannot disagree with what the TAK server was told (TakManager reports it as
-        // <takv version>).
+        // <takv version>). versionCode is deliberately absent — an internal integer with no
+        // semver meaning, and BUILD_TIME already identifies a build more precisely.
         findViewById<TextView>(R.id.homeVersion).text =
-            "v${BuildConfig.VERSION_NAME} · built ${BuildConfig.BUILD_TIME}"
+            "v${BuildConfig.VERSION_NAME}  ·  built ${BuildConfig.BUILD_TIME}"
 
         if (DjiSdkBridge.hasMissingPermissions(this)) {
             DjiSdkBridge.requestMissingPermissions(this)
@@ -206,16 +209,19 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
             NetworkStatus.State.NO_INTERNET -> "Network: ${net.label} — no internet$suffix"
             NetworkStatus.State.OFF -> "Network: none"
         }
-        network.setTextColor(
-            ContextCompat.getColor(
-                applicationContext,
-                when (net.state) {
-                    NetworkStatus.State.CONNECTED -> R.color.tp_state_go
-                    NetworkStatus.State.NO_INTERNET -> R.color.tp_state_unknown
-                    NetworkStatus.State.OFF -> R.color.tp_state_danger
-                }
-            )
+        val color = ContextCompat.getColor(
+            applicationContext,
+            when (net.state) {
+                NetworkStatus.State.CONNECTED -> R.color.tp_state_go
+                NetworkStatus.State.NO_INTERNET -> R.color.tp_state_unknown
+                NetworkStatus.State.OFF -> R.color.tp_state_danger
+            }
         )
+        network.setTextColor(color)
+        // Same dot treatment as the TAK line it sits under, so the two read as one status block
+        // rather than a status and a caption.
+        (networkDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
+            ?: networkDot.background?.setTint(color)
     }
 
     companion object {
