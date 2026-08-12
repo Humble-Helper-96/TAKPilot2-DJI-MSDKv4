@@ -1,0 +1,56 @@
+# CI for TAKPilot2 - DJI MSDKv4: unit tests, release assembly and lint on every push and PR.
+#
+# WHAT THIS GATE IS. It catches compile errors and logic regressions in the pure-logic core —
+# the CoT wire format, the flight-record formats, the warning policy, the conversions. It does
+# NOT decide whether a build is flight-worthy. Nothing here has ever seen an aircraft, and the
+# parts of this app that matter most (the FPV pipeline, the AR projection, anything touching the
+# SDK) cannot be exercised on a runner at all. Flight-worthiness stays with the operator and the
+# bench. Releases stay manual on purpose.
+#
+# NO SECRETS, AND NONE ARE NEEDED. app/dji-key.properties and app/keystore.properties are both
+# gitignored, and app/build.gradle is written so their absence is not fatal: the manifest
+# placeholder resolves to an empty string (SDK registration then fails fast at runtime with a
+# clear error, which is fine — no runner is registering an aircraft), and the release APK simply
+# comes out unsigned. A fresh clone builds.
+name: build
+
+on:
+  push:
+    branches: [main, device-compat]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ⚠ JDK 11, NOT 17. This project is pinned to Gradle 6.7.1 / AGP 4.2.2, which does not run
+      # on 17 — the daemon dies on an unrecognised -XX:MaxPermSize before any task starts. The
+      # Autel sibling's identical workflow uses 17 because its toolchain is newer; copying that
+      # number across is the obvious mistake here, so it is called out rather than left to be
+      # rediscovered from a confusing daemon crash. See CLAUDE.md.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Release variant on purpose: it shares its compilation with the assemble step below, so
+      # the release sources are built once rather than once per variant.
+      - name: Unit tests
+        run: ./gradlew :app:testReleaseUnitTest
+
+      - name: Assemble release
+        run: ./gradlew :app:assembleRelease
+
+      - name: Lint (vital)
+        run: ./gradlew :app:lintVitalRelease
+
+      - name: Keep test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/
