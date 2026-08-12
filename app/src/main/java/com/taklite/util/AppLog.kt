@@ -37,6 +37,7 @@ object AppLog {
     private const val KEY_VERBOSE = "debug_logging_verbose"
     private const val KEY_TAK = "debug_logging_tak"
     private const val KEY_OBSTACLE = "debug_logging_obstacle"
+    private const val KEY_RESOURCE = "debug_logging_resource"
     private const val ACTIVE_FILE_NAME = "app.log"
     private const val MAX_FILE_SIZE_BYTES = 1L * 1024 * 1024
     private const val RETENTION_MS = 2L * 60 * 60 * 1000
@@ -114,6 +115,25 @@ object AppLog {
         set(value) {
             if (initialized) prefs.edit().putBoolean(KEY_OBSTACLE, value).apply()
         }
+
+    /**
+     * Whether the periodic memory/CPU/contact-count line (see [RESOURCE_TAGS]) reaches the log
+     * file. Default **true**, unlike the obstacle filter.
+     *
+     * On by default because it is one line every 30 seconds and it is the watchdog for the
+     * failure that OOM-killed the Autel sibling in the air: a contact count that climbs across a
+     * flight instead of oscillating. A diagnostic that is off when the rare fault happens has
+     * missed the only chance to catch it. It is a toggle rather than always-on so an operator
+     * chasing something else can quieten the log.
+     */
+    @JvmStatic
+    var resourceLogging: Boolean
+        get() = !initialized || prefs.getBoolean(KEY_RESOURCE, true)
+        set(value) {
+            if (initialized) prefs.edit().putBoolean(KEY_RESOURCE, value).apply()
+        }
+
+    private val RESOURCE_TAGS = setOf("TP2Resources")
 
     /**
      * Tags owned by the TAK/CoT side of the app, suppressed when [takLogging] is off.
@@ -228,6 +248,7 @@ object AppLog {
         // would be the worst possible failure mode for this switch.
         if (level != "FATAL" && !takLogging && tag in TAK_TAGS) return
         if (level != "FATAL" && !obstacleLogging && tag in OBSTACLE_TAGS) return
+        if (level != "FATAL" && !resourceLogging && tag in RESOURCE_TAGS) return
         val line = buildString {
             append(timestampFormat.format(Date()))
             append(' ').append(level)
