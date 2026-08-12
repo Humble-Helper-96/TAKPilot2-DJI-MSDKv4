@@ -162,8 +162,12 @@ class FieldGuideActivity : AppCompatActivity() {
         sub("2. Video Streaming")
         body("This section is optional. If your team has a video server, type its address, " +
             "its port, the video name for this aircraft, and the login. Then select the " +
-            "quality: Low, Standard or High. Usually, select Standard. If the connection is " +
-            "weak, select Low.")
+            "quality: Low, Standard or High. Usually, select Standard.")
+        bullet("Low - 480 lines. Use it if the connection is weak or you use mobile data.")
+        bullet("Standard - 720 lines. Use it for a usual flight.")
+        bullet("High - 1080 lines. Use it only on a strong connection.")
+        body("The app sends the video as H.264. Video servers and web browsers can show this " +
+            "video.")
         note("These settings do not start the video. Use the LIVE button in flight to start " +
             "and stop the video.")
         note("The full address shows below the fields. If it shows (NO PASSWORD) and your " +
@@ -203,17 +207,18 @@ class FieldGuideActivity : AppCompatActivity() {
         body("This sets the map type for the small map on the flight screen. Select Street, " +
             "Hybrid (satellite images), or a custom map of your team. Then touch Save Map " +
             "Display.")
-        note("This section is last because the Autel app does not have it. Sections 1 to 5 " +
-            "are the same on the two aircraft.")
+        note("This setting changes the small map on the flight screen only. It does not " +
+            "change the map of your team.")
     }
 
     // ---------------------------------------------------------------- Section 3
 
     private fun sectionThree() {
         section("3. The Flight Screen")
-        body("The live camera image fills the screen. The toolbar is across the top. The " +
-            "status icons are on the left and the buttons are on the right. This section " +
-            "shows each control in sequence.")
+        body("The live camera image fills the screen. The toolbar is across the top: the " +
+            "status icons are on the left and the buttons are on the right. The readout is " +
+            "down the right side, and the small map is in the bottom right corner. This " +
+            "section shows each control in sequence.")
 
         sub("Toolbar: left side (status)")
 
@@ -243,9 +248,9 @@ class FieldGuideActivity : AppCompatActivity() {
             ),
             "Battery",
             "This ring shows the charge in the battery of the aircraft. The ring becomes " +
-                "empty as you fly. Green shows more than one third of the charge. Yellow " +
-                "shows less than one third, and red shows less than 15%. Land the aircraft " +
-                "when the ring is yellow. Do not wait for red.",
+                "empty as you fly. Green shows more than 30%. Yellow shows 16% to 30%, and " +
+                "red shows 15% or less. Land the aircraft when the ring is yellow. Do not " +
+                "wait for red.",
         )
 
         entry(
@@ -256,10 +261,10 @@ class FieldGuideActivity : AppCompatActivity() {
             ),
             "Controller signal",
             "These bars show the strength of the signal between the controller and the " +
-                "aircraft. The percentage is next to the bars. Three green bars show a good " +
-                "signal. One yellow bar shows a weak signal. Red with no bars shows that you " +
-                "can lose the signal. If the signal is weak, fly the aircraft nearer or lift " +
-                "the controller.",
+                "aircraft. The percentage is next to the bars. Three or two green bars show a " +
+                "good signal. One yellow bar shows a weak signal. Red with no bars shows that " +
+                "you can lose the signal. If the signal is weak, fly the aircraft nearer or " +
+                "lift the controller.",
         )
 
         entry(
@@ -307,7 +312,7 @@ class FieldGuideActivity : AppCompatActivity() {
                 "If the aircraft does not have a GPS position and a gimbal position, the app " +
                     "does not put the marker.",
                 "If you delete a marker, the app removes it from your screen only. It stays " +
-                    "on the screens of your team for about 14 hours.",
+                    "on the screens of your team for 3 days.",
             ),
         )
 
@@ -426,42 +431,6 @@ class FieldGuideActivity : AppCompatActivity() {
 
         entry(
             emptyList(),
-            "Obstacle distances",
-            "If the aircraft sees an obstacle, the app draws a mark at the edge of the video " +
-                "nearest to it. The mark shows the distance in feet.\n\n" +
-                "A curved line at the left or the right edge shows an obstacle at that side. " +
-                "An arrow with the word FWD shows an obstacle in front. An arrow with the word " +
-                "REAR shows an obstacle behind. The camera cannot show you what is behind, so " +
-                "read the REAR arrow with care.\n\n" +
-                "The marks are yellow first. They become red, thicker and brighter as the " +
-                "aircraft gets nearer. Red is 13 ft or less.",
-            listOf(
-                "An edge with no mark does not mean the direction is clear. It can also mean " +
-                    "the aircraft has no sensor for that direction. The Air 2S has sensors in " +
-                    "front, behind, up and down, but none at the sides. The Mini 2 has no " +
-                    "obstacle sensors, and this display always stays empty.",
-                "The app does not show the distance up or down yet.",
-                "These marks are an aid. They do not replace your eyes. Keep the aircraft in " +
-                    "sight.",
-            ),
-        )
-
-        entry(
-            emptyList(),
-            "Red message under the toolbar",
-            "If the aircraft has a problem, the app shows a red message at the top left of the " +
-                "video. The message comes from the aircraft, not from the app.\n\n" +
-                "Examples: \"Cannot takeoff in a no-fly zone\", a compass problem, or a request " +
-                "to calibrate. If the motors do not start, read this message first.\n\n" +
-                "The message goes away when the aircraft corrects the problem.",
-            listOf(
-                "The app shows all messages from the aircraft. Some are only reminders, such " +
-                    "as a request to examine the propellers.",
-            ),
-        )
-
-        entry(
-            emptyList(),
             "Quick marker: touch the crosshair",
             "Touch the crosshair to put a marker immediately. The app does not ask you " +
                 "questions. The type is always Unknown and the name is always " +
@@ -485,19 +454,80 @@ class FieldGuideActivity : AppCompatActivity() {
 
         entry(
             emptyList(),
-            "The readout (bottom right)",
-            "The readout shows this data from the top to the bottom:\n" +
-                "- the callsign of your aircraft\n" +
-                "- its latitude and longitude\n" +
-                "- the distance and the direction from the home point\n" +
-                "- its height above the ground\n" +
-                "- its height above sea level\n" +
-                "- the angle of the camera\n" +
-                "- its speed\n" +
-                "- the flight time and the time that remains\n\n" +
-                "The aircraft calculates the time that remains. This time changes with the " +
-                "power that the aircraft uses. The time becomes less when you climb or fly " +
-                "into the wind.",
+            "Obstacle distances",
+            "If the aircraft sees an obstacle, the app draws a mark at the edge of the video " +
+                "nearest to it. The mark shows the distance in feet.\n\n" +
+                "A curved line at the left or the right edge shows an obstacle at that side. " +
+                "An arrow with the word FWD shows an obstacle in front. An arrow with the word " +
+                "REAR shows an obstacle behind. The camera cannot show you what is behind, so " +
+                "read the REAR arrow with care.\n\n" +
+                "A mark shows when an obstacle is nearer than about 39 ft. The marks are " +
+                "yellow first. They become red, thicker and brighter as the aircraft gets " +
+                "nearer. Red is 13 ft or less.",
+            listOf(
+                "An edge with no mark does not mean the direction is clear. It can also mean " +
+                    "the aircraft has no sensor for that direction. The Air 2S has sensors in " +
+                    "front, behind, up and down, but none at the sides. The Mini 2 has no " +
+                    "obstacle sensors, and this display always stays empty.",
+                "The app does not show the distance up or down yet.",
+                "These marks are an aid. They do not replace your eyes. Keep the aircraft in " +
+                    "sight.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "Warnings (top left)",
+            "A box below the toolbar shows a warning. RED means act now. AMBER means know " +
+                "it.\n\n" +
+                "Most warnings come from the aircraft, in the words of the aircraft. Examples " +
+                "are \"Cannot takeoff in a no-fly zone\", a compass problem, or a request to " +
+                "calibrate. If the motors do not start, read this box first. The app adds its " +
+                "own warnings for the return to home, the battery levels you set, the " +
+                "altitude and distance limits, a missing home point, and high wind.\n\n" +
+                "The box shows one warning at a time, the most important one. If there are " +
+                "more, the box shows a count, for example \"+2\". Each warning stays on the " +
+                "screen for a few seconds, so you can read it. A more important warning " +
+                "replaces a less important one immediately. The box goes away when the " +
+                "condition goes away.",
+            listOf(
+                "The app hides no warning from you. If the aircraft reports it, you see it. " +
+                    "Some warnings are only reminders, such as a request to examine the " +
+                    "propellers.",
+                "The warnings stop when you leave the flight screen. They start again when " +
+                    "you come back.",
+            ),
+        )
+
+        sub("The readout: right side")
+
+        entry(
+            emptyList(),
+            "Exposure slider (top right)",
+            "This slider makes the image brighter or darker. The camera adjusts the exposure " +
+                "automatically. Use the slider when the automatic exposure is not correct. " +
+                "Examples are a dark object against snow, or a bright sky above dark ground. " +
+                "The numbers below the slider show the values of the camera.",
+        )
+
+        entry(
+            emptyList(),
+            "Clock",
+            "Below the slider the app shows the time of the phone, as hours, minutes and " +
+                "seconds. Use it to give a time to your team, and to make a note of an event " +
+                "in the flight.",
+        )
+
+        entry(
+            emptyList(),
+            "Aircraft data",
+            "Below the clock the app shows three lines:\n" +
+                "- the callsign of your aircraft, then its speed\n" +
+                "- its height above the ground, then its height above sea level\n" +
+                "- its latitude and longitude\n\n" +
+                "Below these lines the app shows GIMBAL and the angle of the camera. The " +
+                "color of this angle is the color of the crosshair ring. It tells you if a " +
+                "marker at this angle is accurate.",
             listOf(
                 "The height shows AGL if terrain data covers your position. AGL is the true " +
                     "height above the ground below the aircraft.",
@@ -508,6 +538,25 @@ class FieldGuideActivity : AppCompatActivity() {
                     "this value. MSL needs terrain data for your takeoff point only. If there " +
                     "is no data, MSL shows a dash. MSL can show a value when the line above " +
                     "shows ALT, because the app calculates the two values separately.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "RTH and HOME lines",
+            "RTH shows the return height that the aircraft holds now. This is the height the " +
+                "aircraft climbs to before it flies home. It shows two dashes until the " +
+                "aircraft reports the height. Two dashes mean that the app does not know the " +
+                "height. They do not mean that the height is zero.\n\n" +
+                "HOME shows the distance to the home point, then the direction to it in " +
+                "degrees true. Use these two numbers to know how far the aircraft must fly to " +
+                "come back.",
+            listOf(
+                "The RTH line shows the AIRCRAFT, not the value you typed in Pre-Flight " +
+                    "Setup. If the two are different, the aircraft did not accept the value. " +
+                    "Send it again with Apply to Aircraft.",
+                "The HOME line shows dashes until the aircraft has a GPS position and a home " +
+                    "point.",
             ),
         )
 
@@ -533,7 +582,7 @@ class FieldGuideActivity : AppCompatActivity() {
                 "and the aircraft is always in the center. The red line goes from the home " +
                 "point to the aircraft, and shows your route back. The map also shows the TAK " +
                 "markers of other operators. Touch a marker to remove it from your map only.\n\n" +
-                "Touch the button at the top left of the map to change how much ground you " +
+                "Touch the button at the bottom left of the map to change how much ground you " +
                 "see. WIDE shows the full distance you are permitted to fly. NEAR shows less " +
                 "ground with more detail. The app keeps your choice for the next flight.\n\n" +
                 "Touch the map two times quickly to make it twice as large. Touch it two times " +
@@ -545,32 +594,27 @@ class FieldGuideActivity : AppCompatActivity() {
             ),
         )
 
-        entry(
-            emptyList(),
-            "Exposure slider (top right)",
-            "This slider makes the image brighter or darker. The camera adjusts the exposure " +
-                "automatically. Use the slider when the automatic exposure is not correct. " +
-                "Examples are a dark object against snow, or a bright sky above dark ground. " +
-                "The numbers below the slider show the values of the camera.",
-        )
+        sub("The resource bar: bottom left")
 
         entry(
             emptyList(),
-            "Warnings (top left)",
-            "A box at the top left shows a warning from the aircraft. RED means act now. " +
-                "AMBER means know it.\n\n" +
-                "The box shows one warning at a time — the most important one. If there are " +
-                "more, the box shows a count, for example \"+2\". Each warning stays on the " +
-                "screen for a few seconds, so you can read it. A more important warning " +
-                "replaces a less important one immediately.\n\n" +
-                "The aircraft writes its own warnings in its own words. The app shows these " +
-                "words and does not change them. The app adds warnings for the return to " +
-                "home, the battery levels you set, the altitude and distance limits, a " +
-                "missing home point, and high wind.",
+            "System resources",
+            "Usually this bar is not on the screen. To show it, open Debug Log from the home " +
+                "screen and select \"Show system resources on flight screen\". The bar covers " +
+                "a part of the video, so use it only when you must examine the phone.\n\n" +
+                "The bar has four groups:\n" +
+                "- SYS: the free memory of the phone, then its total memory\n" +
+                "- APP: the memory that the app uses\n" +
+                "- CPU: the load on the phone, then the load from the app\n" +
+                "- TAK: the quantity of TAK contacts that the app holds\n\n" +
+                "Look at TAK. The number must go up and down with the quantity of persons and " +
+                "aircraft near you. If it only goes up across a flight, tell the person who " +
+                "maintains the app.",
             listOf(
-                "The app hides no warning from you. If the aircraft reports it, you see it.",
-                "The warnings stop when you leave the flight screen. They start again when " +
-                    "you come back.",
+                "The first number of CPU can show a dash. Android does not give this value to " +
+                    "an app. This is normal and it is not a fault.",
+                "The app writes these same values to the log every 30 seconds. The log keeps " +
+                    "them if you do not show the bar.",
             ),
         )
     }
