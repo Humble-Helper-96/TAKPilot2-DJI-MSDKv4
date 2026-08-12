@@ -25,7 +25,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Applied automatically when the aircraft connects. Leave a field blank to use the aircraft's own current setting."
+            android:text="Sent to the aircraft when it connects. A blank field leaves the aircraft's own setting."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="12dp" />
@@ -129,7 +129,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Stick mode changes what the control sticks do. Mode 2 is the usual default. It is sent only when you press Apply, never automatically."
+            android:text="Stick mode changes what the sticks do. Mode 2 is usual. Sent only when you press Apply."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingTop="2dp" />
@@ -148,7 +148,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="What the aircraft does on its own if it loses the controller link — including if this app or the phone stops working. Return to Home is recommended."
+            android:text="What the aircraft does on its own if it loses the link, or if this app stops. Return Home is recommended."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
@@ -198,7 +198,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Applied to the aircraft every time it connects, so you always fly the settings shown here rather than whatever another app left behind. Never changed while the aircraft is armed or flying. The Mini 2 has no obstacle sensors and is unaffected."
+            android:text="Sent at every connect, so you fly these settings and not another app's. The Mini 2 has no obstacle sensors."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
@@ -353,7 +353,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Transcoded on device with a 2s keyframe so remote viewers (ATAK) can join and recover cleanly. Aspect ratio is preserved. Published to a -Low path (e.g. Feed-A → Feed-A-Low) so the media server passes it through without re-transcoding. Standard is the default; Low suits marginal links."
+            android:text="Transcoded on the phone so ATAK can join cleanly. Standard is the default. Low suits a weak link."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
@@ -429,7 +429,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Starting/stopping the stream is done from the LIVE pill on the flight screen."
+            android:text="Start and stop the stream with LIVE on the flight screen."
             android:textColor="@color/tp_text_caption"
             android:textSize="12sp" />
 
@@ -630,7 +630,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Channels your TAK login belongs to. Selected ones receive this drone's PLI and markers (none selected = server default)."
+            android:text="Selected channels receive this aircraft's position and markers. None selected = server default."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp" />
 
@@ -680,7 +680,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Terrain regions for Sensor-Point-of-Interest ground accuracy — import a .zip per flight area (e.g. Anchorage.zip). Tiles are shared across regions; a repeat import overwrites in place."
+            android:text="Terrain data for marker accuracy. Import one .zip for each flight area. A repeat import overwrites."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="8dp" />
@@ -746,7 +746,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="FAA UAS Facility Map altitude ceilings, shown on the flight HUD. Download over wifi before you head out — it is read offline in flight. Advisory only: this shows altitudes the FAA is likely to authorise, it is NOT an authorisation, and it does not change the aircraft's altitude limit."
+            android:text="FAA ceilings for the flight HUD. Download before you go; it is read offline. Advisory only — it is NOT an authorisation and does not change the aircraft's limit."
             android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="10dp" />
