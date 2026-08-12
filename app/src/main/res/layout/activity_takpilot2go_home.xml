@@ -70,6 +70,17 @@
                         android:textColor="@color/tp_text_secondary"
                         android:textSize="13sp" />
                 </LinearLayout>
+                <!-- Network, under the TAK line and deliberately next to it. When TAK will not
+                     connect, this is the first thing worth ruling out, and a pilot should not
+                     have to leave the app to check it. Amber here explains a red TAK dot. -->
+                <TextView
+                    android:id="@+id/homeNetwork"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="Network: —"
+                    android:textColor="@color/tp_text_secondary"
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
 

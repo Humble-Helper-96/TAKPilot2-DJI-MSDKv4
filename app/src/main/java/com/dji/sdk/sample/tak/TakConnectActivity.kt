@@ -153,6 +153,9 @@ class TakConnectActivity : AppCompatActivity() {
         }
 
         setupVideoControls(prefs)
+        // LAST, deliberately. Every setup above populates and enables its own fields, so a lock
+        // applied before them would be undone on the way past.
+        setupConfigLocks()
     }
 
     /** Drone flight-limit fields — auto-saved as the pilot types (no submit action needed;
@@ -167,10 +170,37 @@ class TakConnectActivity : AppCompatActivity() {
         maxRadius.setText(FlightLimitsController.savedMaxRadiusFt(this))
         rthAlt.setText(FlightLimitsController.savedRthAltitudeFt(this))
 
+        val limitsWarning = findViewById<TextView>(R.id.limitsWarning)
+
+        /**
+         * RTH ALTITUDE ABOVE MAX ALTITUDE IS A REAL CONFIGURATION, AND A BAD ONE.
+         *
+         * Each field is validated only against the aircraft's own accepted range (20-500m), so
+         * both can be individually legal while contradicting each other. The aircraft is then
+         * told to climb to an RTH height its own ceiling forbids, and what it does about that is
+         * firmware's decision, not the pilot's — it may clamp, or it may refuse the climb and
+         * come home low, straight through whatever the pilot set a ceiling to stay above.
+         *
+         * A warning rather than a block: the pilot may be mid-edit, and refusing input on the way
+         * to a valid pair is its own hazard. It says what will happen and lets them fix it.
+         */
+        fun checkLimits() {
+            val maxFt = maxAlt.text.toString().trim().toDoubleOrNull()
+            val rthFt = rthAlt.text.toString().trim().toDoubleOrNull()
+            if (maxFt != null && rthFt != null && rthFt > maxFt) {
+                limitsWarning.text = "RTH altitude (${rthFt.toInt()} ft) is above max altitude " +
+                    "(${maxFt.toInt()} ft). The aircraft cannot climb to its return height."
+                limitsWarning.visibility = View.VISIBLE
+            } else {
+                limitsWarning.visibility = View.GONE
+            }
+        }
+
         val save = {
             FlightLimitsController.save(
                 this, maxAlt.text.toString(), maxRadius.text.toString(), rthAlt.text.toString(),
             )
+            checkLimits()
         }
         val watcher = object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) = save()
@@ -178,9 +208,140 @@ class TakConnectActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         }
         listOf(maxAlt, maxRadius, rthAlt).forEach { it.addTextChangedListener(watcher) }
+        // Run once on open: a contradiction saved by an earlier build must surface without the
+        // pilot having to touch a field.
+        checkLimits()
 
         setupFailsafe()
         setupAvoidance()
+    }
+
+    private val takLockedFields = listOf(
+        R.id.takHost, R.id.takEnrollPort, R.id.takCotPort,
+        R.id.takUsername, R.id.takPassword, R.id.takCallsign,
+        R.id.takDisconnectButton,
+    )
+
+    /** The server fields only. The quality profile stays live on purpose — it is an in-flight
+     *  choice about bandwidth, not part of what the stream IS. */
+    private val videoLockedFields = listOf(
+        R.id.videoHost, R.id.videoPort, R.id.videoStreamId,
+        R.id.videoUser, R.id.videoPassword, R.id.videoTcp,
+    )
+
+    /**
+     * Per-section locks over settings that are painful to get wrong and rarely need changing.
+     *
+     * Unlocking asks for a password; locking does not. The asymmetry is deliberate — locking is
+     * the safe direction, and gating it would only train people to dismiss dialogs.
+     */
+    private fun setupConfigLocks() {
+        setupOneLock(
+            R.id.takLockConfig, KEY_TAK_LOCKED, takLockedFields,
+            "Unlock TAK server settings?",
+            "The lock prevents an accidental change to a server that works. " +
+                "A wrong value stops the aircraft sending data to your team.",
+        )
+        setupOneLock(
+            R.id.videoLockConfig, KEY_VIDEO_LOCKED, videoLockedFields,
+            "Unlock video server settings?",
+            "These fields are locked so a working stream configuration is not changed by " +
+                "accident. Editing them can stop your team seeing the video.",
+        )
+    }
+
+    private fun setupOneLock(
+        checkBoxId: Int,
+        prefKey: String,
+        fieldIds: List<Int>,
+        confirmTitle: String,
+        confirmBody: String,
+    ) {
+        val box = findViewById<android.widget.CheckBox>(checkBoxId)
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        // Default UNLOCKED on a fresh install — a first-run pilot must not have to discover a
+        // lock before they can type anything.
+        val locked = prefs.getBoolean(prefKey, false)
+        box.isChecked = locked
+        applyLock(fieldIds, locked)
+
+        box.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                prefs.edit().putBoolean(prefKey, true).apply()
+                applyLock(fieldIds, true)
+                AppLog.v(TAG, "config locked: $prefKey")
+                return@setOnCheckedChangeListener
+            }
+            // Unlocking: ask for the password, and put the box BACK unless it is right. Our own
+            // revert would re-enter this listener, so it is detached around it (inside revert()).
+            //
+            // A wrong password and Cancel take the same path on purpose: the only way out of this
+            // dialog with the fields editable is the correct password.
+            val revert = {
+                box.setOnCheckedChangeListener(null)
+                box.isChecked = true
+                setupConfigLocks()
+            }
+            // Built in code rather than a layout: one field, two call sites, and a layout file
+            // would imply this dialog can grow. It must not — it is a speed bump. A programmatic
+            // EditText takes the PLATFORM's colours rather than the app theme's, so every colour
+            // is set explicitly or it renders black-on-black.
+            val pw = android.widget.EditText(this).apply {
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                hint = "Password"
+                textSize = 15f
+                setTextColor(ContextCompat.getColor(
+                    this@TakConnectActivity, R.color.tp_text_primary))
+                setHintTextColor(ContextCompat.getColor(
+                    this@TakConnectActivity, R.color.tp_text_hint))
+                setBackgroundResource(R.drawable.bg_dialog_field)
+                val pad = (12 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+            val wrap = android.widget.FrameLayout(this).apply {
+                val padH = (16 * resources.displayMetrics.density).toInt()
+                val padV = (8 * resources.displayMetrics.density).toInt()
+                setPadding(padH, padV, padH, padV)
+                addView(pw)
+            }
+            android.app.AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+                .setTitle(confirmTitle)
+                .setMessage(confirmBody)
+                .setView(wrap)
+                .setPositiveButton("Unlock") { _, _ ->
+                    if (pw.text.toString() == UNLOCK_PASSWORD) {
+                        prefs.edit().putBoolean(prefKey, false).apply()
+                        applyLock(fieldIds, false)
+                        // The entered text is never logged, right or wrong — same rule as every
+                        // other credential in this app.
+                        AppLog.i(TAG, "config UNLOCKED: $prefKey")
+                    } else {
+                        Toast.makeText(this, "Wrong password", Toast.LENGTH_SHORT).show()
+                        AppLog.i(TAG, "unlock refused (wrong password): $prefKey")
+                        revert()
+                    }
+                }
+                .setNegativeButton("Cancel") { _, _ -> revert() }
+                .setOnCancelListener { revert() }
+                .show()
+        }
+    }
+
+    /**
+     * Greys out and disables a set of views. `isEnabled = false` also makes them unfocusable, so
+     * the keyboard cannot be raised on a locked field — read-only in the way a pilot means it —
+     * and a disabled Button stops responding to taps.
+     *
+     * Typed as View, not EditText: the TAK lock covers the Log Out button as well as fields.
+     */
+    private fun applyLock(fieldIds: List<Int>, locked: Boolean) {
+        for (id in fieldIds) {
+            findViewById<View>(id)?.apply {
+                isEnabled = !locked
+                alpha = if (locked) 0.45f else 1.0f
+            }
+        }
     }
 
     /**
@@ -601,6 +762,16 @@ class TakConnectActivity : AppCompatActivity() {
         host: String, enrollPort: Int, cotPort: Int,
         username: String, password: String, droneCallsign: String,
     ) {
+        // Check the obvious thing first. Without this the enrollment goes ahead, the socket
+        // fails somewhere inside TLS, and the pilot gets a stack-shaped message about a handshake
+        // — which reads as "the TAK server is broken" when the truth is there is no network at
+        // all. One plain sentence, before anything else happens.
+        if (!NetworkStatus.hasInternet(this)) {
+            AppLog.w(TAG, "enroll aborted — no validated network")
+            setStatus("No network connection. Connect to Wi-Fi or mobile data, then try again.",
+                ContextCompat.getColor(applicationContext, R.color.tp_state_danger))
+            return
+        }
         setStatus("Enrolling with $host:$enrollPort …", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
 
         // Stable operator uid persisted across sessions.
@@ -780,6 +951,22 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_CLIENTCERT = "clientcert_path"
         private const val KEY_V_HOST = "video_host"
         private const val KEY_V_PORT = "video_port"
+        /**
+         * ⚠ **A speed bump, not security, and it must not be mistaken for one.** The string
+         * ships in the APK in plain text — anyone with the file and `strings`, or with adb,
+         * reads it in seconds. That is accepted: the threat model is a user tapping into
+         * settings they should not adjust, not an adversary. Do not "harden" this with hashing
+         * or a per-device secret — that is a stronger lock on the front door of an unlocked
+         * house, and it would cost the field recoverability a shared fixed password exists to
+         * provide.
+         *
+         * The entered attempt is never logged, right or wrong.
+         */
+        private const val UNLOCK_PASSWORD = "takpilot"
+
+        private const val KEY_TAK_LOCKED = "tak_config_locked"
+        private const val KEY_VIDEO_LOCKED = "video_config_locked"
+
         private const val KEY_V_USER = "video_user"
         /** Named constant, not a literal. The save site used a bare "video_pass" while the
          *  restore site did not exist at all — a constant makes the pair impossible to miss. */

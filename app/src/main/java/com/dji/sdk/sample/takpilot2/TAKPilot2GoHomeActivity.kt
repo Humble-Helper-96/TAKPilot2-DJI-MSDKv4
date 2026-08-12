@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dji.sdk.sample.BuildConfig
 import com.dji.sdk.sample.R
+import com.dji.sdk.sample.tak.NetworkStatus
 import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.DebugActivity
@@ -46,6 +47,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private lateinit var sdk: TextView
     private lateinit var takStatus: TextView
     private lateinit var takDot: android.view.View
+    private lateinit var network: TextView
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -66,6 +68,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         sdk = findViewById(R.id.homeSdk)
         takStatus = findViewById(R.id.homeTakStatus)
         takDot = findViewById(R.id.homeTakDot)
+        network = findViewById(R.id.homeNetwork)
 
         // versionName + the build stamp, so a sideloaded APK can be identified without adb.
         // BuildConfig.VERSION_NAME rather than the PackageManager: same string, no IPC, and it
@@ -180,6 +183,34 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         takStatus.setTextColor(color)
         (takDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
             ?: takDot.background?.setTint(color)
+
+        updateNetwork()
+    }
+
+    /**
+     * The network line. Green only when the system has CONFIRMED reachability — an attached
+     * network that goes nowhere reads amber, which is the case that otherwise looks like a
+     * broken TAK server. See [NetworkStatus].
+     */
+    private fun updateNetwork() {
+        val net = NetworkStatus.read(this)
+        val bars = net.bars()
+        val suffix = if (bars.isEmpty()) "" else "  $bars"
+        network.text = when (net.state) {
+            NetworkStatus.State.CONNECTED -> "Network: ${net.label}$suffix"
+            NetworkStatus.State.NO_INTERNET -> "Network: ${net.label} — no internet$suffix"
+            NetworkStatus.State.OFF -> "Network: none"
+        }
+        network.setTextColor(
+            ContextCompat.getColor(
+                applicationContext,
+                when (net.state) {
+                    NetworkStatus.State.CONNECTED -> R.color.tp_state_go
+                    NetworkStatus.State.NO_INTERNET -> R.color.tp_state_unknown
+                    NetworkStatus.State.OFF -> R.color.tp_state_danger
+                }
+            )
+        )
     }
 
     companion object {
