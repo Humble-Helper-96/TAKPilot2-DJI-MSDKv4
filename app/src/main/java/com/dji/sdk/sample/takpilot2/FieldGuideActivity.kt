@@ -674,8 +674,8 @@ class FieldGuideActivity : AppCompatActivity() {
             "button on the flight screen.")
         bullet("A thermal camera. This build is for a camera with visible light only.")
 
-        warn("NOTHING IN THIS BUILD HAS FLOWN. The app was tested on the ground only. " +
-            "Examine each control on your first flight, and keep the aircraft in sight.")
+        warn("This build was flight-tested on the DJI Mini 2 only. On a different aircraft, " +
+            "examine each control on your first flight, and keep the aircraft in sight.")
     }
 
     /** Action-bar back arrow behaves the same as the system back gesture. */

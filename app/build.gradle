@@ -64,8 +64,8 @@ android {
         // History:  1.0 first release  ·  1.1.0 Autel-parity pass (taklite core, UI, features)
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 4
-        versionName "1.1.0-dev"
+        versionCode 5
+        versionName "1.1.0"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""
