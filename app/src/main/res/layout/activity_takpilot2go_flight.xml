@@ -209,11 +209,39 @@
             android:text=""
             android:visibility="gone" />
 
-        <com.mapbox.mapboxsdk.maps.MapView
-            android:id="@+id/flightMapView"
+        <!-- The map lives in a container so the zoom toggle can sit ON it. The double-tap
+             expansion resizes THIS, not the MapView, so the button scales with it. -->
+        <FrameLayout
+            android:id="@+id/flightMapContainer"
             android:layout_width="@dimen/flight_map_size"
-            android:layout_height="@dimen/flight_map_size"
-            app:mapbox_renderTextureMode="true" />
+            android:layout_height="@dimen/flight_map_size">
+
+            <com.mapbox.mapboxsdk.maps.MapView
+                android:id="@+id/flightMapView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:mapbox_renderTextureMode="true" />
+
+            <!-- WIDE/NEAR toggle.
+                 TOP-left, not bottom-left where the sibling puts it: MapLibre draws its
+                 attribution logo and info button along the bottom edge, and the sibling's
+                 osmdroid map has neither. Bottom-left would sit on top of them.
+                 Sized to THIS map, not copied: 36x22dp on a 130dp map is the same proportion
+                 as the sibling's 48x32 on its 180dp one. There is not much room here. -->
+            <TextView
+                android:id="@+id/flightMapZoomButton"
+                android:layout_width="36dp"
+                android:layout_height="22dp"
+                android:layout_gravity="top|start"
+                android:layout_margin="4dp"
+                android:background="@drawable/bg_map_zoom_button"
+                android:contentDescription="Mini-map zoom"
+                android:gravity="center"
+                android:text="WIDE"
+                android:textColor="@color/tp_text_primary"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </FrameLayout>
 
     </LinearLayout>
 
