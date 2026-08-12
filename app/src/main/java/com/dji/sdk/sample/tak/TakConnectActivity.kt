@@ -289,6 +289,9 @@ class TakConnectActivity : AppCompatActivity() {
             val pw = android.widget.EditText(this).apply {
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                // Built in code, so takFieldStyle's flagNoExtractUi does not reach it — see
+                // that style for why a landscape-locked screen needs it.
+                imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 hint = "Password"
                 textSize = 15f
                 setTextColor(ContextCompat.getColor(

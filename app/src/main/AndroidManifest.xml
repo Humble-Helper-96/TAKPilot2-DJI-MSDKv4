@@ -102,6 +102,7 @@
             android:name="com.dji.sdk.sample.tak.TakConnectActivity"
             android:label="TAK Setup"
             android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="false" />
 
@@ -110,6 +111,7 @@
             android:name="com.dji.sdk.sample.DataSyncActivity"
             android:label="Data Sync"
             android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="false" />
 
