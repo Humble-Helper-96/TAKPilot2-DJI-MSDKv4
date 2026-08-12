@@ -137,8 +137,14 @@ object FlightLimitsController {
 
     private fun DJIError?.logStr() = this?.description ?: "OK"
 
-    /** Parses a feet string to a rounded meters int, or null if blank/unparseable. */
-    private fun ftToM(feetStr: String): Int? {
+    /**
+     * Parses a feet string to a rounded meters int, or null if blank/unparseable.
+     *
+     * Internal rather than private so [FlightWarnings] can convert the SAME stored strings this
+     * controller pushes to the aircraft. Both must read one source, or the at-limit banner ends
+     * up describing a limit the aircraft is not enforcing.
+     */
+    internal fun ftToM(feetStr: String): Int? {
         val ft = feetStr.trim().toDoubleOrNull() ?: return null
         return Math.round(ft / FT_PER_M).toInt()
     }

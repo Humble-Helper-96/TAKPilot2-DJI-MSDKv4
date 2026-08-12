@@ -145,9 +145,16 @@ android {
 archivesBaseName = "TAKPilot2-DJI_" + android.defaultConfig.versionName
 
 dependencies {
-    // Unit tests for the pure-logic core — flight-record formats, CoT XML, conversions.
-    // See app/src/test.
+    // Unit tests for the pure-logic core — flight-record formats, warning policy, CoT XML,
+    // conversions. See app/src/test.
     testImplementation 'junit:junit:4.13.2'
+    // NO DJI ARTIFACT HERE, AND IT IS NOT AN OVERSIGHT. The SDK enums (FlightMode,
+    // GPSSignalLevel, …) exist only in dji-sdk-provided, which ships STUB bytecode — its
+    // constructors return before calling super, so loading one in a JVM test throws
+    // VerifyError. The real implementations arrive from the SDK on the device and are not in
+    // the aar. Unit tests here therefore stay clear of SDK types; anything that must reason
+    // about them is verified on the aircraft. Adding the provided jar back will look like it
+    // works until a test actually touches an enum constant.
 
     implementation 'androidx.multidex:multidex:2.0.0'
     implementation 'com.squareup:otto:1.3.8'
