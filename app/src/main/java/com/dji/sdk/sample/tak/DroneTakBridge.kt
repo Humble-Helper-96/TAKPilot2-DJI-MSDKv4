@@ -280,6 +280,18 @@ class DroneTakBridge(
         // real requestLocationUpdates — see OperatorLocation for why the cache alone is empty.
         DJISampleApplication.getInstance()?.let { OperatorLocation.start(it) }
 
+        // The at-limit warnings compare against the SAME configured values that get pushed to
+        // the aircraft, read from the same place, so the banner cannot disagree with the limit
+        // the aircraft is enforcing.
+        DJISampleApplication.getInstance()?.let { ctx ->
+            FlightWarnings.setLimits(
+                FlightLimitsController.ftToM(FlightLimitsController.savedMaxAltitudeFt(ctx))?.toDouble(),
+                FlightLimitsController.ftToM(FlightLimitsController.savedMaxRadiusFt(ctx))?.toDouble(),
+            )
+        }
+        // A new session must not inherit the last one's banner state.
+        FlightWarnings.reset()
+
         handler.post(tick)
         AppLog.i(TAG, "DroneTakBridge started ($droneCallsign / $droneUid, every ${intervalMs}ms)")
     }
@@ -392,6 +404,10 @@ class DroneTakBridge(
             aircraftMsl(hae) ?: Double.NaN, hae,
             speed, heading, battery, state.satelliteCount,
         )
+
+        // Warning policy, fed from the same frame for the same reason: the banner and the PLI
+        // must never disagree about whether the aircraft was flying.
+        FlightWarnings.onState(state, isFlying, hae, homeDistanceMeters(state, lat, lon))
 
         val gimbal = lastGimbal
         val gimbalPitch = gimbal?.attitudeInDegrees?.pitch?.toDouble() ?: 0.0
@@ -683,6 +699,26 @@ class DroneTakBridge(
         return Triple(gp.lat, gp.lon, gp.elevationMeters)
     }
 
+    /**
+     * Ground distance from the home point, metres, or NaN when no home point is set yet.
+     *
+     * Equirectangular approximation: at the ranges a Mini 2 flies (under 8 km) the error against
+     * a great-circle solve is centimetres, and this is compared against a distance limit with a
+     * 5% band, so precision beyond that buys nothing.
+     */
+    private fun homeDistanceMeters(
+        state: FlightControllerState, lat: Double, lon: Double,
+    ): Double {
+        val home = state.homeLocation ?: return Double.NaN
+        val hLat = home.latitude
+        val hLon = home.longitude
+        if (!isValidLat(hLat) || !isValidLon(hLon)) return Double.NaN
+        val meanLatRad = Math.toRadians((lat + hLat) / 2.0)
+        val dLat = Math.toRadians(lat - hLat) * EARTH_RADIUS_M
+        val dLon = Math.toRadians(lon - hLon) * EARTH_RADIUS_M * Math.cos(meanLatRad)
+        return sqrt(dLat * dLat + dLon * dLon)
+    }
+
     /** Aircraft altitude above MEAN SEA LEVEL, or null before the takeoff terrain reference
      *  latches. [heightAboveTakeoff] is DJI's own altitude; adding the takeoff point's terrain
      *  elevation puts it in the same frame as the DTED samples the slant solver compares against. */
@@ -702,6 +738,8 @@ class DroneTakBridge(
 
         /** How long a controller-battery reading is reused before another binder IPC. */
         private const val BATTERY_CACHE_MS = 30_000L
+
+        private const val EARTH_RADIUS_M = 6_371_000.0
 
         /** Flight-readiness snapshots. Separate from [TAG] on purpose — [TAG] is in AppLog's
          *  TAK_TAGS and disappears when an operator filters TAK logging off, which is exactly

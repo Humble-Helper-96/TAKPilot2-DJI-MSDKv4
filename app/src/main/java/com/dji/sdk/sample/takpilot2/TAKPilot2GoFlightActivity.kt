@@ -24,6 +24,7 @@ import com.dji.sdk.sample.tak.DjiObstacleState
 import com.dji.sdk.sample.tak.DjiSdkBridge
 import android.content.Intent
 import com.dji.sdk.sample.tak.ExposureController
+import com.dji.sdk.sample.tak.FlightWarnings
 import com.dji.sdk.sample.tak.OperatorLocation
 import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakDropMarkers
@@ -208,8 +209,12 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // Render whatever is ALREADY standing before subscribing — the callback is change-only,
         // so entering the flight screen with a fault already active would otherwise show nothing
         // until the fault happened to change.
-        renderDiagnostics(DjiSdkBridge.diagnostics)
-        DjiSdkBridge.onDiagnostics = { items -> runOnUiThread { renderDiagnostics(items) } }
+        FlightWarnings.onDiagnostics(DjiSdkBridge.diagnostics)
+        renderWarning()
+        DjiSdkBridge.onDiagnostics = { items ->
+            FlightWarnings.onDiagnostics(items)
+            runOnUiThread { renderWarning() }
+        }
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
         fpvGimbalPitch = findViewById(R.id.fpvGimbalPitch)
@@ -1343,16 +1348,32 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      * that may never arrive, and if that final attempt fails the pilot is TOLD, because a camera
      * silently left in photo mode is exactly the failure this is here to prevent.
      */
-    /** Paints the aircraft's own fault list, or hides the banner when it has nothing to say.
-     *  Purely a mirror of [DjiSdkBridge.diagnostics] — it deliberately does not filter by
-     *  severity: deciding on the pilot's behalf which aircraft warning isn't worth seeing is how
-     *  "Cannot takeoff in a no-fly zone" stayed invisible through two flights. */
-    private fun renderDiagnostics(items: List<String>) {
-        if (items.isEmpty()) {
+    /**
+     * Paints the one warning that currently owns the banner, or hides it.
+     *
+     * NOTHING IS FILTERED OUT ON THE PILOT'S BEHALF — that rule is unchanged and is why
+     * "Cannot takeoff in a no-fly zone" is on this banner at all, after it stayed invisible
+     * through two flights. What changed is that the aircraft's faults now arrive through
+     * [FlightWarnings] alongside the conditions DJIDiagnostics has no equivalent for, and the
+     * banner shows the WORST one at a time with a +N for the rest, instead of concatenating an
+     * unbounded list that grew down over the video and strobed whenever a fault flapped.
+     *
+     * Polled from the HUD tick as well as pushed from the diagnostics callback: the hold and
+     * the queue advance with time, not only with events, so the banner has to be re-asked.
+     */
+    private fun renderWarning() {
+        val d = FlightWarnings.display()
+        if (d == null) {
             flightDiagnostics.visibility = View.GONE
             return
         }
-        flightDiagnostics.text = items.joinToString("\n")
+        flightDiagnostics.text = d.text
+        flightDiagnostics.setTextColor(
+            ContextCompat.getColor(
+                applicationContext,
+                if (d.red) R.color.tp_state_danger else R.color.tp_state_unknown,
+            )
+        )
         flightDiagnostics.visibility = View.VISIBLE
     }
 
@@ -1429,6 +1450,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // icon actually needs regenerating. Deliberately above the no-GPS-fix early return —
         // other operators' markers don't depend on OUR aircraft having a fix.
         com.dji.sdk.sample.tak.TakMapMarkers.tick()
+
+        // Same reasoning as the marker tick: the warning banner's hold and its queue advance
+        // with the clock, not only when a warning changes, so it has to be re-asked. Also above
+        // the no-GPS-fix early return — losing the fix is itself a condition worth showing.
+        renderWarning()
 
         toolbarBattery.setPercent(hud?.batteryPct)
 
