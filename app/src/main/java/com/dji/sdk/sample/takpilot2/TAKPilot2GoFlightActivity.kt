@@ -232,6 +232,33 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         mapView = findViewById(R.id.flightMapView)
         mapView.onCreate(savedInstanceState)
+
+        // DOUBLE TAP TO EXPAND — detected on the VIEW, not through the map's click listener.
+        //
+        // The obvious approach does not work and it is worth writing down why. MapLibre delivers
+        // map clicks from a standard Android GestureDetector's onSingleTapConfirmed. On a double
+        // tap that callback is never delivered at all — the detector raises onDoubleTap instead.
+        // So counting two map clicks inside a timeout can never see a second click, and the
+        // gesture appears completely dead. It did.
+        //
+        // Our own detector runs ahead of the MapView's onTouchEvent and does not consume the
+        // event (the listener returns false), so MapLibre still receives everything and marker
+        // taps are untouched. It also means a marker hide stays immediate rather than waiting
+        // out a double-tap window.
+        val mapGestures = android.view.GestureDetector(
+            this,
+            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                    toggleMapExpanded()
+                    return true
+                }
+            },
+        )
+        @Suppress("ClickableViewAccessibility")   // pass-through listener; never consumes
+        mapView.setOnTouchListener { _, ev ->
+            mapGestures.onTouchEvent(ev)
+            false
+        }
         mapView.getMapAsync { mapboxMap ->
             map = mapboxMap
             // Deliberately dead-simple, non-interactive mini-map (operator's spec, 2026-07-24):
@@ -242,35 +269,17 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // 6C: tapping an inbound contact locally hides it (stays on the server). Confirmed
             // independent of setAllGesturesEnabled(false) above — the locked mini-map's pan/
             // zoom/rotate stay off, only this explicit click hook is added.
-            //
-            // SINGLE AND DOUBLE TAP ARE MUTUALLY EXCLUSIVE, and they have to be. A single tap
-            // hides an inbound marker; a double tap expands the map. Without this the first tap
-            // of a double would hide whatever marker was under the finger on the way to
-            // enlarging the map — a destructive side effect of a display gesture.
-            //
-            // MapLibre exposes no double-tap callback and its own gestures are off, so the
-            // single tap is DEFERRED by the platform's double-tap timeout and cancelled if a
-            // second click lands inside it. That is what Android's onSingleTapConfirmed does,
-            // and the cost is the same: a marker hide waits ~300ms.
+            // Single tap hides an inbound marker. MapLibre routes this through its own
+            // GestureDetector's onSingleTapConfirmed, which means it does NOT fire on the first
+            // tap of a double tap — so this and the double-tap expand below are mutually
+            // exclusive for free, and a marker hide stays immediate.
             mapboxMap.addOnMapClickListener { latLng ->
-                val pending = pendingMapTap
-                if (pending != null) {
-                    handler.removeCallbacks(pending)
-                    pendingMapTap = null
-                    toggleMapExpanded()
-                    return@addOnMapClickListener true
-                }
                 val px = mapboxMap.projection.toScreenLocation(latLng)
                 val hit = mapboxMap.queryRenderedFeatures(px, com.dji.sdk.sample.tak.TakMapMarkers.LAYER_ID)
                     .firstOrNull()
                 val uid = hit?.getStringProperty(com.dji.sdk.sample.tak.TakMapMarkers.PROP_UID)
-                val r = Runnable {
-                    pendingMapTap = null
-                    if (uid != null) onInboundMarkerTapped(uid)
-                }
-                pendingMapTap = r
-                handler.postDelayed(r, android.view.ViewConfiguration.getDoubleTapTimeout().toLong())
-                true
+                if (uid != null) onInboundMarkerTapped(uid)
+                uid != null
             }
             // Zoom + center immediately, before any GPS fix — otherwise the map sits at its
             // default continent-scale zoom until the drone locks GPS (the per-tick recenter that
@@ -619,9 +628,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      * the uncorrected figure, and the readout marks itself `~` so the pilot can see the warning
      * is only as good as flat ground.
      */
-    /** A map tap waiting out the double-tap window — see the click listener. */
-    private var pendingMapTap: Runnable? = null
-
     /** Not persisted, deliberately: the flight screen always opens with a compact map. An
      *  expanded map covers the readouts, and inheriting that from a previous session is not
      *  something a pilot asked for. */
@@ -1803,10 +1809,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         AppLog.v(TAG, "onPause")
         handler.removeCallbacks(refresh)
         handler.removeCallbacks(hideNotice)
-        // A deferred map tap must not fire into a screen the pilot has left — it would hide a
-        // marker with nothing on screen to show it happened.
-        pendingMapTap?.let { handler.removeCallbacks(it) }
-        pendingMapTap = null
         mapView.onPause()
         super.onPause()
     }
