@@ -51,6 +51,10 @@ object FlightLimitsController {
 
     private const val FT_PER_M = 3.28084
 
+    /** Watchdog for the read-back barrier. Generous: the getters answered in about 340 ms on the
+     *  2026-08-12 flight, so this only ever fires when a callback is genuinely lost. */
+    private const val READ_BACK_TIMEOUT_MS = 4000L
+
     /**
      * The aircraft's battery warning levels, as READ BACK from the aircraft — not the saved
      * preference. Null until a read-back lands.
@@ -63,6 +67,39 @@ object FlightLimitsController {
     @Volatile var aircraftWarningPct: Int? = null
         private set
     @Volatile var aircraftCriticalPct: Int? = null
+        private set
+
+    /**
+     * The rest of what the aircraft holds, on the same terms: null means "not read back", never
+     * "zero". Added because Pre-Flight promised "values below are what the aircraft reports"
+     * while reading back only the two battery levels — four of the seven settings a pilot can
+     * apply had no reported value at all, so a write that silently failed looked identical to
+     * one that worked.
+     */
+    @Volatile var aircraftMaxAltM: Int? = null
+        private set
+    @Volatile var aircraftMaxRadiusM: Int? = null
+        private set
+    @Volatile var aircraftRthAltM: Int? = null
+        private set
+    @Volatile var aircraftFailsafe: ConnectionFailSafeBehavior? = null
+        private set
+
+    /**
+     * True once THIS aircraft has refused a battery-threshold write.
+     *
+     * The Mini 2 refuses both. `setLowBatteryWarningThreshold` is documented as unsupported on
+     * the Mavic Mini, Mini 2, Mini SE, Air 2 and Air 2S; `setSeriousLowBatteryWarningThreshold`
+     * is documented as SUPPORTED on the Mini 2 and is refused anyway — 12% was tried on
+     * 2026-08-12, comfortably inside the documented 10..(low-5) window, and came back
+     * "Not supported" exactly like the out-of-range case. So the documentation cannot be trusted
+     * here and the aircraft's own answer is the only reliable signal.
+     *
+     * Deliberately NOT persisted and NOT keyed to a model: it is re-learned from the next Apply,
+     * so connecting a different airframe cannot inherit this one's verdict. The getters keep
+     * working either way, which is what lets Pre-Flight still show the levels the aircraft holds.
+     */
+    @Volatile var batteryThresholdsRefused = false
         private set
 
     /**
@@ -213,60 +250,90 @@ object FlightLimitsController {
         data class Step(val name: String, val run: (() -> Unit) -> Unit)
         val steps = ArrayList<Step>()
 
+        // What the aircraft REFUSED. The summary used to say "Applied 7 setting(s)" whether or
+        // not the aircraft took them, and the Mini 2 rejects both battery thresholds outright
+        // ("Not supported", every flight in the 2026-08-12 logs). Counting a refusal as applied
+        // is the same failure as trusting onSuccess: it reports the request, not the aircraft.
+        val refused = java.util.Collections.synchronizedList(ArrayList<String>())
+        fun record(step: String, e: DJIError?) {
+            if (e == null) return
+            synchronized(refused) { if (step !in refused) refused.add(step) }
+            if (step.endsWith("battery level")) batteryThresholdsRefused = true
+        }
+
         ftToM(savedMaxAltitudeFt(context))?.let { m ->
             steps.add(Step("Max altitude") { next ->
-                fc.setMaxFlightHeight(m) { e -> AppLog.i(TAG, "setMaxFlightHeight($m): ${e.logStr()}"); next() }
+                fc.setMaxFlightHeight(m) { e -> AppLog.i(TAG, "setMaxFlightHeight($m): ${e.logStr()}"); record("Max altitude", e); next() }
             })
         }
         ftToM(savedMaxRadiusFt(context))?.let { m ->
             steps.add(Step("Max distance") { next ->
                 fc.setMaxFlightRadiusLimitationEnabled(true) { e1 ->
                     AppLog.i(TAG, "setMaxFlightRadiusLimitationEnabled(true): ${e1.logStr()}")
+                    record("Max distance", e1)
                     fc.setMaxFlightRadius(m) { e2 ->
-                        AppLog.i(TAG, "setMaxFlightRadius($m): ${e2.logStr()}"); next()
+                        AppLog.i(TAG, "setMaxFlightRadius($m): ${e2.logStr()}"); record("Max distance", e2); next()
                     }
                 }
             })
         }
         ftToM(savedRthAltitudeFt(context))?.let { m ->
             steps.add(Step("RTH altitude") { next ->
-                fc.setGoHomeHeightInMeters(m) { e -> AppLog.i(TAG, "setGoHomeHeightInMeters($m): ${e.logStr()}"); next() }
+                fc.setGoHomeHeightInMeters(m) { e -> AppLog.i(TAG, "setGoHomeHeightInMeters($m): ${e.logStr()}"); record("RTH altitude", e); next() }
             })
         }
         steps.add(Step("Signal-loss behaviour") { next ->
             val b = savedFailsafe(context).sdk
             fc.setConnectionFailSafeBehavior(b) { e ->
-                AppLog.i(TAG, "setConnectionFailSafeBehavior($b): ${e.logStr()}"); next()
+                AppLog.i(TAG, "setConnectionFailSafeBehavior($b): ${e.logStr()}")
+                record("Signal-loss behaviour", e); next()
             }
         })
         if (lowPct != null) {
             steps.add(Step("Low battery level") { next ->
                 fc.setLowBatteryWarningThreshold(lowPct) { e ->
-                    AppLog.i(TAG, "setLowBatteryWarningThreshold($lowPct): ${e.logStr()}"); next()
+                    AppLog.i(TAG, "setLowBatteryWarningThreshold($lowPct): ${e.logStr()}")
+                    record("Low battery level", e); next()
                 }
             })
         }
         if (critPct != null) {
             steps.add(Step("Critical battery level") { next ->
                 fc.setSeriousLowBatteryWarningThreshold(critPct) { e ->
-                    AppLog.i(TAG, "setSeriousLowBatteryWarningThreshold($critPct): ${e.logStr()}"); next()
+                    AppLog.i(TAG, "setSeriousLowBatteryWarningThreshold($critPct): ${e.logStr()}")
+                    record("Critical battery level", e); next()
                 }
             })
         }
         if (rc != null) {
             steps.add(Step("Stick mode") { next ->
                 rc.setAircraftMappingStyle(stick.sdk) { e ->
-                    AppLog.i(TAG, "setAircraftMappingStyle(${stick.sdk}): ${e.logStr()}"); next()
+                    AppLog.i(TAG, "setAircraftMappingStyle(${stick.sdk}): ${e.logStr()}")
+                    record("Stick mode", e); next()
                 }
             })
         }
-        steps.add(Step("Reading back") { next -> readBackAll(fc); next() })
+        // ⚠ `next` goes INTO readBackAll's completion, not after the call. It used to be
+        // `readBackAll(fc); next()`, which fired the "values below are what the aircraft reports"
+        // message before a single getter had answered — every other step here already threads
+        // `next` through its SDK callback, and this one did not. The values arrived about 340 ms
+        // later (2026-08-12 flight log) and nothing re-rendered, so the line stayed empty.
+        steps.add(Step("Reading back") { next -> readBackAll(fc) { next() } })
 
         val total = steps.size
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         fun runStep(i: Int) {
             if (i >= total) {
-                main.post { onDone(true, "Applied ${total - 1} setting(s). Values below are what the aircraft reports.") }
+                val attempted = total - 1          // the read-back step is not a setting
+                val declined = synchronized(refused) { refused.toList() }
+                val summary = buildString {
+                    append("Applied ${attempted - declined.size} of $attempted setting(s).")
+                    if (declined.isNotEmpty()) {
+                        append(" This aircraft refused: ${declined.joinToString(", ")}.")
+                    }
+                    append(" Values below are what the aircraft reports.")
+                }
+                main.post { onDone(declined.isEmpty(), summary) }
                 return
             }
             main.post { onProgress(i, total, steps[i].name) }
@@ -283,26 +350,60 @@ object FlightLimitsController {
 
     /** Asks the aircraft what it actually holds now. The answer, not the request, is what the
      *  Pre-Flight screen shows. */
-    private fun readBackAll(fc: FlightController) {
-        readBackFailsafe(fc)
-        fc.getLowBatteryWarningThreshold(object : CommonCallbacks.CompletionCallbackWith<Int> {
-            override fun onSuccess(value: Int?) {
-                aircraftWarningPct = value
-                AppLog.i(TAG, "aircraft low-battery level is now: $value%")
+    private fun readBackAll(fc: FlightController, done: () -> Unit) {
+        // Six getters in flight at once; `done` fires when the last one answers. A getter that
+        // never calls back would otherwise leave the Apply button disabled for good, so a
+        // watchdog releases the barrier once. `fired` makes both paths one-shot.
+        val outstanding = java.util.concurrent.atomic.AtomicInteger(6)
+        val fired = java.util.concurrent.atomic.AtomicBoolean(false)
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        fun complete() {
+            if (fired.compareAndSet(false, true)) main.post { done() }
+        }
+        fun oneDown() {
+            if (outstanding.decrementAndGet() <= 0) complete()
+        }
+        main.postDelayed({
+            if (!fired.get()) {
+                AppLog.w(TAG, "read-back timed out with ${outstanding.get()} getter(s) unanswered")
+                complete()
             }
-            override fun onFailure(error: DJIError?) {
-                AppLog.w(TAG, "getLowBatteryWarningThreshold failed: ${error.logStr()}")
-            }
-        })
-        fc.getSeriousLowBatteryWarningThreshold(object : CommonCallbacks.CompletionCallbackWith<Int> {
-            override fun onSuccess(value: Int?) {
-                aircraftCriticalPct = value
-                AppLog.i(TAG, "aircraft critical-battery level is now: $value%")
-            }
-            override fun onFailure(error: DJIError?) {
-                AppLog.w(TAG, "getSeriousLowBatteryWarningThreshold failed: ${error.logStr()}")
-            }
-        })
+        }, READ_BACK_TIMEOUT_MS)
+
+        /** Every getter has the same shape: store it, log it, count it down. */
+        fun <T> read(
+            name: String,
+            get: (CommonCallbacks.CompletionCallbackWith<T>) -> Unit,
+            store: (T?) -> Unit,
+        ) = runCatching {
+            get(object : CommonCallbacks.CompletionCallbackWith<T> {
+                override fun onSuccess(value: T?) {
+                    store(value)
+                    AppLog.i(TAG, "aircraft $name is now: $value")
+                    oneDown()
+                }
+                override fun onFailure(error: DJIError?) {
+                    AppLog.w(TAG, "get $name failed: ${error.logStr()}")
+                    oneDown()
+                }
+            })
+        }.onFailure {
+            AppLog.w(TAG, "get $name threw: ${it.message}")
+            oneDown()
+        }
+
+        read<ConnectionFailSafeBehavior>("signal-loss behavior",
+            { cb -> fc.getConnectionFailSafeBehavior(cb) }, { aircraftFailsafe = it })
+        read<Int>("low-battery level",
+            { cb -> fc.getLowBatteryWarningThreshold(cb) }, { aircraftWarningPct = it })
+        read<Int>("critical-battery level",
+            { cb -> fc.getSeriousLowBatteryWarningThreshold(cb) }, { aircraftCriticalPct = it })
+        read<Int>("max altitude",
+            { cb -> fc.getMaxFlightHeight(cb) }, { aircraftMaxAltM = it })
+        read<Int>("max radius",
+            { cb -> fc.getMaxFlightRadius(cb) }, { aircraftMaxRadiusM = it })
+        read<Int>("RTH height",
+            { cb -> fc.getGoHomeHeightInMeters(cb) }, { aircraftRthAltM = it })
     }
 
     /** Asks the aircraft what its signal-loss behavior actually is now, and logs it. */
@@ -310,6 +411,7 @@ object FlightLimitsController {
         fc.getConnectionFailSafeBehavior(
             object : CommonCallbacks.CompletionCallbackWith<ConnectionFailSafeBehavior> {
                 override fun onSuccess(value: ConnectionFailSafeBehavior?) {
+                    aircraftFailsafe = value
                     AppLog.i(TAG, "aircraft signal-loss behavior is now: $value")
                 }
                 override fun onFailure(error: DJIError?) {
