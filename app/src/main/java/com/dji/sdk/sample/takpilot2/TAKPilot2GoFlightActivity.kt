@@ -247,6 +247,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             AppLog.v(TAG, "tap: mini-map zoom -> ${if (mapWide) "WIDE" else "NEAR"}")
             applyMapZoom()
         }
+        // Label the button from the RESTORED state, not from the layout's placeholder. Without
+        // this the button read "WIDE" on every launch whatever the map was actually doing —
+        // which is precisely the failure the state-not-action labelling exists to avoid, and it
+        // was invisible in the log because the zoom itself was correct.
+        applyMapZoom()
 
         // DOUBLE TAP TO EXPAND — detected on the VIEW, not through the map's click listener.
         //
@@ -281,6 +286,20 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // its 0 default) and zoom stays pinned at the selected WIDE/NEAR level. The recenter in
             // updateHud() is the only thing that ever moves the camera.
             mapboxMap.uiSettings.setAllGesturesEnabled(false)
+            // THE MAPBOX LOGO IS WRONG HERE, not merely in the way.
+            //
+            // MapLibre is a fork of Mapbox GL Native and kept its logo and info button switched
+            // on by default. No Mapbox service is involved in this app: MaplibreStyle serves
+            // OpenStreetMap raster tiles, ArcGIS World Imagery, or the operator's own tile URL.
+            // So the badge credits a supplier of none of the data while OpenStreetMap, which
+            // supplies most of it, went uncredited.
+            //
+            // Both are turned off and the real credit is given in the Field Guide instead. OSM's
+            // guidance explicitly allows that for a display this small — a 130dp mini-map cannot
+            // carry a legible attribution line and still be a map. The sibling has no equivalent
+            // badge because osmdroid draws none.
+            mapboxMap.uiSettings.isLogoEnabled = false
+            mapboxMap.uiSettings.isAttributionEnabled = false
             // 6C: tapping an inbound contact locally hides it (stays on the server). Confirmed
             // independent of setAllGesturesEnabled(false) above — the locked mini-map's pan/
             // zoom/rotate stay off, only this explicit click hook is added.

@@ -532,7 +532,17 @@ class FieldGuideActivity : AppCompatActivity() {
             "This is the small map in the bottom right corner. North is always at the top " +
                 "and the aircraft is always in the center. The red line goes from the home " +
                 "point to the aircraft, and shows your route back. The map also shows the TAK " +
-                "markers of other operators. Touch a marker to remove it from your map only.",
+                "markers of other operators. Touch a marker to remove it from your map only.\n\n" +
+                "Touch the button at the top left of the map to change how much ground you " +
+                "see. WIDE shows the full distance you are permitted to fly. NEAR shows less " +
+                "ground with more detail. The app keeps your choice for the next flight.\n\n" +
+                "Touch the map two times quickly to make it twice as large. Touch it two times " +
+                "again to make it small. The larger map covers the readouts above it. The " +
+                "flight screen always starts with the small map.",
+            listOf(
+                "Map data: OpenStreetMap contributors, for the street map. Satellite images: " +
+                    "Esri World Imagery. A custom map shows the data of its own supplier.",
+            ),
         )
 
         entry(
