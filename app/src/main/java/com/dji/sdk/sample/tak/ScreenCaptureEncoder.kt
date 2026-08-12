@@ -77,23 +77,15 @@ class ScreenCaptureEncoder(
         targetW -= targetW % 2   // even dims for the encoder
         targetH -= targetH % 2
 
-        val format = MediaFormat.createVideoFormat("video/avc", targetW, targetH).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, profile.bitrateBps)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            setInteger(MediaFormat.KEY_FRAME_RATE, profile.fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_S)
-            // Cap the frames the display feeds the encoder to the profile fps (the screen can
-            // refresh far faster). API 30+; Pixel test hardware is well past that.
-            if (Build.VERSION.SDK_INT >= 30) {
-                setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, profile.fps.toFloat())
-            }
-            runCatching { setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline) }
-        }
+        // VBR first, Baseline+Level4, with a fallback ladder — see EncoderConfig. The CBR this
+        // used to ask for is what starves keyframes and produces the pulse stream viewers see.
+        val configured = EncoderConfig.configure(
+            targetW, targetH, profile.bitrateBps, profile.fps, I_FRAME_INTERVAL_S, TAG,
+            preferVbr = true)
+            ?: return false
 
         return runCatching {
-            val enc = MediaCodec.createEncoderByType("video/avc")
-            enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val enc = configured.first
             val surface = enc.createInputSurface()
             enc.start()
             encoder = enc
@@ -109,8 +101,13 @@ class ScreenCaptureEncoder(
 
             running = true
             drainThread = Thread({ drainLoop() }, "ScreenCaptureEncoder").apply { start() }
+            // Reports the variant that actually configured, not what was asked for. This line
+            // used to say "CBR" unconditionally, which would now be false — and a log that
+            // states the rate-control mode from a hardcoded string is worse than one that omits
+            // it, because it is the first thing read when the pulse is being investigated.
             AppLog.i(TAG, "screen capture [${profile.name}]: ${screenW}x$screenH -> ${targetW}x$targetH " +
-                    "@ ${profile.fps}fps ${profile.bitrateBps / 1000}kbps CBR, ${I_FRAME_INTERVAL_S}s IDR")
+                    "@ ${profile.fps}fps ${profile.bitrateBps / 1000}kbps, ${I_FRAME_INTERVAL_S}s IDR, " +
+                    "encoder variant: ${configured.second}")
             true
         }.onFailure {
             AppLog.e(TAG, "screen capture start failed: ${it.message}", it)

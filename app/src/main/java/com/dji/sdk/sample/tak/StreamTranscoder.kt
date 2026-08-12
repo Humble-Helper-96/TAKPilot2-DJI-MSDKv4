@@ -200,25 +200,21 @@ class StreamTranscoder(
         var targetW = (srcW.toDouble() / srcH * targetH).toInt()
         targetW -= targetW % 2   // most encoders require even dimensions
         targetH -= targetH % 2
-        val format = MediaFormat.createVideoFormat("video/avc", targetW, targetH).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            setInteger(MediaFormat.KEY_BIT_RATE, profile.bitrateBps)
-            // CBR holds the bitrate near target — VBR (the default) overshot ~2x on detailed
-            // aerial scenes (field-measured 2026-07-25), defeating the low-bandwidth point.
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            setInteger(MediaFormat.KEY_FRAME_RATE, profile.fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_S)
-            runCatching { setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline) }
-        }
+        // CBR FIRST ON THIS PATH, unlike screen capture. VBR overshot the target about 2x on
+        // detailed aerial scenes when it was field-measured on 2026-07-25, which defeats the
+        // low-bandwidth tier. Screen capture prefers VBR for the opposite reason — see
+        // EncoderConfig. Same ladder for both, so both get Baseline+Level4 and a graceful
+        // fallback instead of a whole-stream failure on one unsupported key.
+        val configured = EncoderConfig.configure(
+            targetW, targetH, profile.bitrateBps, profile.fps, I_FRAME_INTERVAL_S, TAG,
+            preferVbr = false,
+            colorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+        ) ?: return null
         return runCatching {
-            MediaCodec.createEncoderByType("video/avc").apply {
-                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                start()
-            }.also {
-                AppLog.i(TAG, "encoder [${profile.name}]: ${srcW}x$srcH -> ${targetW}x$targetH " +
-                        "@ ${profile.fps}fps ${profile.bitrateBps / 1000}kbps CBR, ${I_FRAME_INTERVAL_S}s IDR")
+            configured.first.apply { start() }.also {
+                AppLog.i(TAG, "encoder [${profile.name}]: ${srcW}x$srcH -> ${targetW}x$targetH")
             }
-        }.onFailure { AppLog.w(TAG, "encoder setup failed: ${it.message}") }.getOrNull()
+        }.onFailure { AppLog.w(TAG, "encoder start failed: ${it.message}") }.getOrNull()
     }
 
     /** Throttle to the profile's fps and nearest-neighbor downsample each plane into the
