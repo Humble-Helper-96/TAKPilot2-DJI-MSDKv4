@@ -72,29 +72,26 @@ core is `com.taklite`, which both applications hold as the same code.
 
 ## Current work
 
-The Autel-parity pass is code-complete and **entirely unverified on hardware**. The plan and
-its phases are in `~/.claude/plans/ok-i-have-my-atomic-castle.md`. The Autel tree is the
-reference for each port and lives at `../../Autel/AutelTAKPilot2/takpilot-autel_v1-2`.
+The Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
+warnings banner, contact retention (flat at 16 across a session), the operator marker, the
+flight records, video on both CoT markers with a play control, AGL/DTED correction, the
+Pre-Flight read-back and the fixed control response. `versionName` is `1.1.0`
+(versionCode 5), released. The plan file is `~/.claude/plans/ok-i-have-my-atomic-castle.md`;
+the Autel tree is the reference and lives at `../../Autel/AutelTAKPilot2/takpilot-autel_v1-2`.
 
-`versionName` stays at `1.1.0-dev` on purpose. It becomes `1.1.0` when something has flown.
+Open items, in order of consequence:
 
-What still needs a device, in rough order of consequence:
+1. **The Autel tree still sends the unplayable `__video` shape** and has the read-back
+   placement bug. `com.taklite` is shared by contract; the operator ports this separately.
+2. **Yaw is measured, not wired.** The aircraft reports heading-turning smoothness 20/4/84
+   across the three switch positions (logged each connect). Cine is identifiable as the
+   smoothest value — wire Precision's yaw from the aircraft's own numbers, never from a
+   guessed POSITION-to-name mapping.
+3. **The advertised video url carries credentials** (`user:pass@`) to every TAK client on the
+   channel. The video wall plays without them, so read access looks open. Decision pending.
+4. **Control-response values are a starting point** — Normal 35 / Precision 15 felt right on
+   the bench; nobody has tuned them in flight.
+5. **Per-aircraft AR/FOV** for the planned Air 2S support.
 
-1. **The warnings banner.** It is what a pilot reads during a fault. The two functions mapping
-   DJI enums to "unsafe" (`isAttitudeMode`, `isPoorGps`) cannot be unit-tested — those enums
-   live only in the stub `dji-sdk-provided` jar — so they are verified by reading only.
-2. **Contact retention.** Watch `contacts held: N total` on a live net near busy airspace for
-   20 minutes. `total` must oscillate, not climb. This is the class of bug that OOM-killed the
-   sibling in the air.
-3. ~~**The operator marker**, on a second TAK client.~~ Done 2026-08-12: right position and
-   `-Pilot` suffix confirmed on CloudTAK and TAKAware. The video url is on BOTH markers now,
-   not the operator alone — an operator who wants the camera selects the aircraft. Both
-   advertise one video uid, derived from the url, so a client sees one feed and not two.
-4. **Every screen**, once. The colour migration touched all of them and a wrong token is
-   invisible to the compiler.
-5. **Pre-Flight locks** — a locked field must refuse the keyboard.
-6. **Flight records** — a real track, and the orphan sweep after a kill.
-
-Deferred rather than guessed: the map expansion, the WIDE/NEAR zoom levels and the smaller
-symbol sizes were all tuned for a 1024x720 controller and need re-picking here; the resource
-overlay row needs measuring; the in-flight quality picker needs a real downlink.
+The printable Field Guide regenerates with `python3 tools/generate_field_guide_md.py` after
+any FieldGuideActivity change. Output lands OUTSIDE the repo, beside the SDK folder.
