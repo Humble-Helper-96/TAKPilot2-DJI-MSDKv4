@@ -85,7 +85,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var liveToggle: LiveToggleView
     private lateinit var recordToggle: RecordToggleView
     private lateinit var rthButton: ImageButton
-    private lateinit var exposureReadout: TextView
     private lateinit var zoomButton: TextView
     private lateinit var fpvFaaCeiling: TextView
     private lateinit var fpvRthAltitude: TextView
@@ -392,7 +391,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // Exposure control — the camera's exposure mode is forced to shutter-priority +
         // auto-ISO on connect (see ExposureController + DroneTakBridge); this slider biases it
         // brighter/darker (-2..+2 EV). Live ISO/shutter readout is filled in updateHud().
-        exposureReadout = findViewById(R.id.exposureReadout)
         val evSlider = findViewById<EvSliderView>(R.id.evSlider)
         evSlider.steps = ExposureController.sliderMax
         evSlider.index = ExposureController.savedSliderIndex(this)
@@ -1588,8 +1586,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         if (homeSet && !lastHomeSet) showNotice("Home Point Set")
         lastHomeSet = homeSet
 
-        exposureReadout.text = "ISO ${hud?.liveIso ?: "—"}   ${hud?.liveShutter ?: "—"}"
-
         // SignalBarsView handles its own dot color + bar count from the raw %; the text just
         // shows the bucketed value alongside it.
         val signalPct = hud?.uplinkSignalPct
@@ -1614,22 +1610,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // Callsign+speed and the two altitudes each pair naturally, so merging them costs no
         // information and buys two lines of headroom.
         fpvOverlayText.text = buildString {
+            // LINE ORDER IS DELIBERATE, and matches the Autel sibling so a pilot reads the same
+            // block in the same order on either aircraft (operator, 2026-08-02):
+            //   1 callsign + speed   2 height   3 lat/lon   4 home
+            // Height is second because it is the number a pilot checks constantly. Lat/lon and
+            // home are reference figures, looked up only when somebody asks for them.
+            // The clock sits below the EV slider in its own view — see fpvClock.
             append(currentCallsign)
             append(if (hud != null) "   ${Units.mph(hud.speedMs)}" else "   — MPH")
-            append('\n')
-            if (hud != null && hud.hasFix) {
-                append("%.4f, %.4f".format(hud.lat, hud.lon))
-            } else {
-                append("—, —")
-            }
-            append('\n')
-            if (hud != null && hud.hasFix && hud.homeSet) {
-                val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                append("HOME %s  %03.0f°T".format(Units.feet(dist), bearing))
-            } else {
-                append("HOME — ft  —°T")
-            }
             append('\n')
             // Both heights on one line. "AGL" only when DTED actually corrected it to
             // height-above-terrain-below; otherwise "ALT", which is what the raw number really
@@ -1648,6 +1636,20 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             append("  ·  ")
             val msl = aglReading.mslMeters
             append(if (msl != null) "%s MSL".format(Units.feet(msl)) else "— ft MSL")
+            append('\n')
+            if (hud != null && hud.hasFix) {
+                append("%.4f, %.4f".format(hud.lat, hud.lon))
+            } else {
+                append("—, —")
+            }
+            append('\n')
+            if (hud != null && hud.hasFix && hud.homeSet) {
+                val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
+                val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
+                append("HOME %s  %03.0f°T".format(Units.feet(dist), bearing))
+            } else {
+                append("HOME — ft  —°T")
+            }
             append('\n')
             if (hud != null) {
                 // Remaining time is the AIRCRAFT's own estimate (GoHomeAssessment), which models
@@ -1804,10 +1806,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         private const val RESOURCE_LOG_INTERVAL_MS = 30_000L
 
-        /** 24-hour, no seconds. Seconds would change on every HUD tick and pull the eye for no
-         *  reason; a pilot reading a clock in flight wants the minute. */
+        /** 24-hour with seconds. The HUD ticks at 500ms, so the seconds digit is live —
+         *  which is what a pilot timing a leg or noting the moment of an event needs. */
         private val clockFormat =
-            java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+            java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
 
         /** Separate from [TAG] on purpose: [TAG] is in AppLog's TAK_TAGS and disappears when an
          *  operator filters TAK logging off — which is exactly when they are chasing a memory

@@ -121,16 +121,6 @@
              this column, so matching it is what makes the exposure block, the readouts and the
              map read as one right-hand instrument stack instead of the slider hanging out over
              the video. It also tracks the h440dp dimen override for free. -->
-        <!-- Wall clock. The flight screen is full-screen and covers the system status bar, so
-             without this there is no time anywhere on it — and the time is what a pilot writes
-             in a log, calls on the radio, and matches against the flight record afterwards. -->
-        <TextView
-            android:id="@+id/fpvClock"
-            style="@style/hudText"
-            android:layout_marginBottom="2dp"
-            android:gravity="end"
-            android:text="--:--" />
-
         <com.dji.sdk.sample.takpilot2.EvSliderView
             android:id="@+id/evSlider"
             android:layout_width="@dimen/flight_map_size"
@@ -152,12 +142,18 @@
                 android:layout_weight="1" android:gravity="end" android:text="+2" />
         </LinearLayout>
 
+        <!-- Wall clock, directly below the EV scale — same slot the sibling uses, so the
+             column reads the same on either aircraft. The flight screen is full-screen and
+             covers the system status bar, so without this there is no time anywhere on it, and
+             the time is what a pilot writes in a log, calls on the radio, and matches against
+             the flight record afterwards. Seconds included: a pilot timing a leg or noting an
+             event wants them. -->
         <TextView
-            android:id="@+id/exposureReadout"
+            android:id="@+id/fpvClock"
             style="@style/hudText"
             android:layout_width="@dimen/flight_map_size"
             android:gravity="center"
-            android:text="ISO —   —" />
+            android:text="00:00:00" />
 
         <!-- Absorbs leftover height: exposure stays pinned to the top, the rest to the bottom,
              and neither can run into the other. -->
