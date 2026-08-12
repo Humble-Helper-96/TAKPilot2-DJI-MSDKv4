@@ -353,48 +353,48 @@
         <!-- Tap toggles the AR overlay; long-press opens the AR options (6D-C). -->
         <TextView
             android:id="@+id/flightArButton"
-            android:layout_width="36dp"
-            android:layout_height="26dp"
+            android:layout_width="46dp"
+            android:layout_height="34dp"
             android:layout_marginEnd="10dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle AR marker overlay"
             android:gravity="center"
             android:text="AR"
             android:textColor="@color/tp_text_primary"
-            android:textSize="12sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/flightShootPhotoButton"
-            android:layout_width="40dp"
+            android:layout_width="46dp"
             android:layout_height="34dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Take photo (saves to aircraft SD card)"
-            android:padding="4dp"
+            android:padding="6dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_camera_shutter" />
 
         <TextView
             android:id="@+id/flightZoomButton"
-            android:layout_width="36dp"
-            android:layout_height="26dp"
+            android:layout_width="54dp"
+            android:layout_height="34dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle camera zoom (1x/2x)"
             android:gravity="center"
             android:text="1X"
             android:textColor="@color/tp_text_primary"
-            android:textSize="12sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/flightResyncButton"
-            android:layout_width="40dp"
+            android:layout_width="46dp"
             android:layout_height="34dp"
             android:layout_marginStart="8dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Video re-sync"
-            android:padding="0dp"
+            android:padding="6dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_resync" />
 
