@@ -353,7 +353,8 @@ public class TakManager implements TakClient.TakClientListener {
                     this.uid);
             client.sendMessage(xml);
             AppLog.d(TAG, "Drone PLI sent: " + droneCallsign + " @ " + lat + "," + lon
-                    + " alt=" + hae + " hdg=" + heading);
+                    + " alt=" + hae + " hdg=" + heading
+                    + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
         }
     }
 
