@@ -7,7 +7,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#1A1A1A"
+    android:background="@color/tp_bg_screen"
     android:fillViewport="true">
 
     <!-- blocksDescendants: several of the icon examples are real toolbar widgets that are

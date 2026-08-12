@@ -1,5 +1,6 @@
 package com.dji.sdk.sample
 
+import androidx.core.content.ContextCompat
 import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
@@ -67,7 +68,7 @@ class DataSyncActivity : AppCompatActivity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt())
-            setBackgroundColor(Color.parseColor("#1A1F26"))
+            setBackgroundColor(ContextCompat.getColor(applicationContext, R.color.tp_surface_row))
         }
         val lp = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -84,7 +85,7 @@ class DataSyncActivity : AppCompatActivity() {
             val role = f.defaultRole?.takeIf { it.isNotEmpty() } ?: "—"
             text = "${f.itemCount} items · role $role" +
                     (if (!f.description.isNullOrEmpty()) "\n${f.description}" else "")
-            setTextColor(Color.parseColor("#9AA4B2")); textSize = 12f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_cool)); textSize = 12f
         }
         row.addView(meta)
 
@@ -109,7 +110,7 @@ class DataSyncActivity : AppCompatActivity() {
         if (isCreator) {
             val del = Button(this).apply {
                 text = "Delete"
-                backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#B71C1C"))
+                backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(applicationContext, R.color.tp_btn_danger))
                 setTextColor(Color.WHITE)
             }
             val dlp = LinearLayout.LayoutParams(
@@ -143,7 +144,7 @@ class DataSyncActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = "Feed password"
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#777777"))
+            setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         AlertDialog.Builder(this, R.style.TakDialogTheme)
             .setTitle("Join $name")
@@ -182,17 +183,17 @@ class DataSyncActivity : AppCompatActivity() {
             setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
         }
         val nameIn = EditText(this).apply {
-            hint = "Feed name"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#777777"))
+            hint = "Feed name"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         val descIn = EditText(this).apply {
-            hint = "Description (optional)"; setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#777777"))
+            hint = "Description (optional)"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         col.addView(nameIn); col.addView(descIn)
 
         // Default role for users who join this feed.
         val roleLabel = TextView(this).apply {
             text = "Default role for members who join:"
-            setTextColor(Color.parseColor("#9AA4B2")); textSize = 12f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_cool)); textSize = 12f
             setPadding(0, (10 * d).toInt(), 0, (2 * d).toInt())
         }
         col.addView(roleLabel)
@@ -207,7 +208,7 @@ class DataSyncActivity : AppCompatActivity() {
         // Channel (group) the feed is scoped to — who can see it.
         val chanLabel = TextView(this).apply {
             text = "Channel (who can access this feed):"
-            setTextColor(Color.parseColor("#9AA4B2")); textSize = 12f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_cool)); textSize = 12f
             setPadding(0, (10 * d).toInt(), 0, (2 * d).toInt())
         }
         col.addView(chanLabel)

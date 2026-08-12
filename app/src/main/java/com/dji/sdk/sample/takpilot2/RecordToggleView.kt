@@ -7,6 +7,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Record-to-SD badge — a "REC" pill with a fixed dot on the left, same fixed-icon-badge
@@ -31,6 +33,11 @@ class RecordToggleView @JvmOverloads constructor(
 
     private val trackRect = RectF()
 
+    // FLIGHT-TUNED, from the token file. The recording red is deliberately the same value
+    // LiveToggleView uses for LIVE — both badges mean "this is going out right now".
+    private val colorIdle = ContextCompat.getColor(context, R.color.tp_hud_toggle_off)
+    private val colorRecording = ContextCompat.getColor(context, R.color.tp_hud_toggle_active)
+
     fun setRecording(recording: Boolean) {
         isRecording = recording
         invalidate()
@@ -48,7 +55,7 @@ class RecordToggleView @JvmOverloads constructor(
         val w = width.toFloat()
         val radius = h / 2f
 
-        val stateColor = if (isRecording) COLOR_RECORDING else COLOR_IDLE
+        val stateColor = if (isRecording) colorRecording else colorIdle
         trackPaint.color = stateColor
         canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
 
@@ -69,8 +76,4 @@ class RecordToggleView @JvmOverloads constructor(
         canvas.drawText("REC", textCenterX, textY, textPaint)
     }
 
-    companion object {
-        private val COLOR_IDLE = Color.parseColor("#3A3A3A")
-        private val COLOR_RECORDING = Color.parseColor("#E53935")
-    }
 }

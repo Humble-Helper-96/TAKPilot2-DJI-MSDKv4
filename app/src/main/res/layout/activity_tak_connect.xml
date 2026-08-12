@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#1A1A1A"
+    android:background="@color/tp_bg_screen"
     android:fillViewport="true">
 
     <LinearLayout
@@ -17,7 +17,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1. Drone Settings"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
             android:paddingBottom="4dp" />
@@ -26,7 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Applied automatically when the aircraft connects. Leave a field blank to use the aircraft's own current setting."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="12dp" />
 
@@ -68,7 +68,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="What the aircraft does on its own if it loses the controller link — including if this app or the phone stops working. Return to Home is recommended."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
 
@@ -98,7 +98,7 @@
             android:id="@+id/limitFailsafeStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingTop="6dp" />
 
@@ -118,7 +118,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Applied to the aircraft every time it connects, so you always fly the settings shown here rather than whatever another app left behind. Never changed while the aircraft is armed or flying. The Mini 2 has no obstacle sensors and is unaffected."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
 
@@ -127,27 +127,27 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Obstacle avoidance enabled"
-            android:textColor="#E0E0E0" />
+            android:textColor="@color/tp_text_bright" />
 
         <CheckBox
             android:id="@+id/avoidRth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Avoid obstacles during Return to Home"
-            android:textColor="#E0E0E0" />
+            android:textColor="@color/tp_text_bright" />
 
         <CheckBox
             android:id="@+id/avoidLanding"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Landing protection"
-            android:textColor="#E0E0E0" />
+            android:textColor="@color/tp_text_bright" />
 
         <TextView
             android:id="@+id/avoidStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingTop="6dp" />
 
@@ -155,14 +155,14 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <!-- 2. Map Display — mini-map style on the flight screen. -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="2. Map Display"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
             android:paddingTop="16dp"
@@ -180,8 +180,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Street"
-                android:textColor="#FFFFFF"
-                android:buttonTint="#1565C0" />
+                android:textColor="@color/tp_text_primary"
+                android:buttonTint="@color/tp_btn_info" />
 
             <RadioButton
                 android:id="@+id/mapStyleHybrid"
@@ -189,8 +189,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Hybrid"
-                android:textColor="#FFFFFF"
-                android:buttonTint="#1565C0" />
+                android:textColor="@color/tp_text_primary"
+                android:buttonTint="@color/tp_btn_info" />
 
             <RadioButton
                 android:id="@+id/mapStyleCustom"
@@ -198,8 +198,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Custom"
-                android:textColor="#FFFFFF"
-                android:buttonTint="#1565C0" />
+                android:textColor="@color/tp_text_primary"
+                android:buttonTint="@color/tp_btn_info" />
 
         </RadioGroup>
 
@@ -207,7 +207,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Hybrid = satellite + streets."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingTop="2dp" />
 
@@ -226,20 +226,20 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="Save Map Display"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#1565C0" />
+            android:textColor="@color/tp_text_primary"
+            android:backgroundTint="@color/tp_btn_info" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="3. TAK Server Connection"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
             android:paddingTop="16dp"
@@ -323,12 +323,12 @@
                 android:id="@+id/takCameraPoint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:buttonTint="#2E7D32" />
+                android:buttonTint="@color/tp_btn_primary" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Send camera look-point (sensor point of interest)"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/tp_text_primary"
                 android:textSize="15sp" />
         </LinearLayout>
 
@@ -338,24 +338,27 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="Enroll &amp; Connect"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#2E7D32" />
+            android:textColor="@color/tp_text_primary"
+            android:backgroundTint="@color/tp_btn_primary" />
 
+        <!-- Log Out is a neutral action, so it takes the neutral role like its siblings. This is
+             the one deliberate value change in the token migration: #555555 -> #37474F. It had
+             its own bespoke grey for no reason anyone recorded, and two greys that differ by this
+             little read as an accident rather than a distinction. -->
         <Button
             android:id="@+id/takDisconnectButton"
+            style="@style/TakButton.Neutral"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Log Out (switch user)"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#555555" />
+            android:text="Log Out (switch user)" />
 
         <TextView
             android:id="@+id/takStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:textColor="#B0B0B0"
+            android:textColor="@color/tp_text_secondary"
             android:textSize="14sp"
             android:text="" />
 
@@ -363,7 +366,7 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <!-- My Channels: pull the groups the logged-in user belongs to and pick which ones this
              drone's markers/PLI are directed to. Requires an active connection. -->
@@ -372,7 +375,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="My Channels"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textStyle="bold"
             android:textSize="16sp" />
 
@@ -380,7 +383,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Channels your TAK login belongs to. Selected ones receive this drone's PLI and markers (none selected = server default)."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp" />
 
         <Button
@@ -389,15 +392,15 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="Pull Channels"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#1565C0" />
+            android:textColor="@color/tp_text_primary"
+            android:backgroundTint="@color/tp_btn_info" />
 
         <TextView
             android:id="@+id/takChannelsStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:textColor="#B0B0B0"
+            android:textColor="@color/tp_text_secondary"
             android:textSize="13sp"
             android:text="" />
 
@@ -412,13 +415,13 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="4. Video Streaming"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="18sp"
             android:textStyle="bold"
             android:paddingTop="16dp"
@@ -478,7 +481,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Transcoded on device with a 2s keyframe so remote viewers (ATAK) can join and recover cleanly. Aspect ratio is preserved. Published to a -Low path (e.g. Feed-A → Feed-A-Low) so the media server passes it through without re-transcoding. Standard is the default; Low suits marginal links."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="6dp" />
 
@@ -494,21 +497,21 @@
             <RadioButton
                 android:id="@+id/videoProfileLow"
                 style="@style/takColumnRadio"
-                android:buttonTint="#1565C0"
+                android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
                 android:text="Low\n360p · 10fps\n275 kbps" />
 
             <RadioButton
                 android:id="@+id/videoProfileStandard"
                 style="@style/takColumnRadio"
-                android:buttonTint="#1565C0"
+                android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
                 android:text="Standard\n480p · 15fps\n550 kbps" />
 
             <RadioButton
                 android:id="@+id/videoProfileHigh"
                 style="@style/takColumnRadio"
-                android:buttonTint="#1565C0"
+                android:buttonTint="@color/tp_btn_info"
                 android:textSize="12sp"
                 android:text="High\n720p · 15fps\n1000 kbps" />
 
@@ -525,12 +528,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"
-                android:buttonTint="#1565C0" />
+                android:buttonTint="@color/tp_btn_info" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Use TCP transport (append ?tcp)"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/tp_text_primary"
                 android:textSize="15sp" />
         </LinearLayout>
 
@@ -541,9 +544,9 @@
             android:id="@+id/videoFullUrl"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#202020"
+            android:background="@color/tp_surface_dialog"
             android:padding="12dp"
-            android:textColor="#4CAF50"
+            android:textColor="@color/tp_state_go"
             android:textSize="14sp"
             android:textIsSelectable="true"
             android:fontFamily="monospace"
@@ -554,14 +557,14 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="Starting/stopping the stream is done from the LIVE pill on the flight screen."
-            android:textColor="#7A7A7A"
+            android:textColor="@color/tp_text_caption"
             android:textSize="12sp" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <!-- 5. Elevation Data (DTED) — uploaded files for the local flight area. Storage/
              management only today; SPoI elevation lookup against these is a follow-up. -->
@@ -569,7 +572,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="5. Elevation Data (DTED)"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="18sp"
             android:textStyle="bold"
             android:paddingTop="16dp"
@@ -579,7 +582,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Terrain regions for Sensor-Point-of-Interest ground accuracy — import a .zip per flight area (e.g. Anchorage.zip). Tiles are shared across regions; a repeat import overwrites in place."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="8dp" />
 
@@ -594,8 +597,8 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 android:text="+ Import Region"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1565C0" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_info" />
             <Button
                 android:id="@+id/dtedCleanButton"
                 android:layout_width="0dp"
@@ -603,8 +606,8 @@
                 android:layout_weight="1"
                 android:text="Clean Unused Tiles"
                 android:textSize="12sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#37474F" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_neutral" />
         </LinearLayout>
 
         <LinearLayout
@@ -619,7 +622,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:textColor="#B0B0B0"
+            android:textColor="@color/tp_text_secondary"
             android:textSize="13sp"
             android:text="" />
 
@@ -627,7 +630,7 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
-            android:background="#333333" />
+            android:background="@color/tp_border" />
 
         <!-- 6. FAA Airspace Ceilings (UASFM) — downloaded once on wifi, read offline in flight.
              Advisory display only; nothing here is applied to the aircraft's flight limits. -->
@@ -635,7 +638,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="6. FAA Airspace Ceilings (UASFM)"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="18sp"
             android:textStyle="bold"
             android:paddingTop="16dp"
@@ -645,7 +648,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="FAA UAS Facility Map altitude ceilings, shown on the flight HUD. Download over wifi before you head out — it is read offline in flight. Advisory only: this shows altitudes the FAA is likely to authorise, it is NOT an authorisation, and it does not change the aircraft's altitude limit."
-            android:textColor="#909090"
+            android:textColor="@color/tp_text_tertiary"
             android:textSize="12sp"
             android:paddingBottom="10dp" />
 
@@ -691,8 +694,8 @@
                 android:layout_marginEnd="8dp"
                 android:text="Use My Location"
                 android:textSize="12sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#37474F" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_neutral" />
             <Button
                 android:id="@+id/uasfmCheckButton"
                 android:layout_width="0dp"
@@ -700,8 +703,8 @@
                 android:layout_weight="1"
                 android:text="Check Size"
                 android:textSize="12sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#37474F" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_neutral" />
         </LinearLayout>
 
         <LinearLayout
@@ -716,8 +719,8 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 android:text="Download"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#1565C0" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_info" />
             <Button
                 android:id="@+id/uasfmClearButton"
                 android:layout_width="0dp"
@@ -725,8 +728,8 @@
                 android:layout_weight="1"
                 android:text="Clear Data"
                 android:textSize="12sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#B71C1C" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_danger" />
         </LinearLayout>
 
         <TextView
@@ -735,7 +738,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:layout_marginBottom="24dp"
-            android:textColor="#B0B0B0"
+            android:textColor="@color/tp_text_secondary"
             android:textSize="13sp"
             android:text="" />
 

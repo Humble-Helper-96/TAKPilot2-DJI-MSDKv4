@@ -10,6 +10,8 @@ import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 import kotlin.math.hypot
 
 /**
@@ -55,7 +57,7 @@ class CrosshairView @JvmOverloads constructor(
      *   thresholds) so an omitted argument fails toward more caution, not less.
      */
     fun setGimbalPitch(pitchDeg: Double?, dtedAvailable: Boolean = false) {
-        val next = accuracyColorFor(pitchDeg, dtedAvailable)
+        val next = accuracyColorFor(context, pitchDeg, dtedAvailable)
         if (next == ringColor) return   // avoid invalidating on every HUD tick
         ringColor = next
         ring.color = next
@@ -198,13 +200,12 @@ class CrosshairView @JvmOverloads constructor(
          */
         const val PITCH_FAIR_DEG_NO_DTED = -15.0
 
-        private val ACCURACY_GOOD = Color.parseColor("#4CAF50")
-        private val ACCURACY_FAIR = Color.parseColor("#FFEB3B")
-
-        /** Shallower than the fair threshold, either way — a drop here is worth actively
-         *  discouraging, not just leaving unmarked (the previous white/neutral state). Red
-         *  regardless of DTED availability; only which pitch triggers it differs. */
-        private val ACCURACY_POOR = Color.parseColor("#F44336")
+        // Resolved from the token file rather than parsed from literals here. These are
+        // FLIGHT-TUNED values — see the note in res/values/takpilot_colors.xml. Tokenising them
+        // must not re-tune them; the hexes there are the ones that were flown.
+        // ACCURACY_POOR: shallower than the fair threshold, either way — a drop here is worth
+        // actively discouraging, not just leaving unmarked (the previous white/neutral state).
+        // Red regardless of DTED availability; only which pitch triggers it differs.
 
         /**
          * Single source for the accuracy tint, shared with the HUD's gimbal readout so the
@@ -214,15 +215,16 @@ class CrosshairView @JvmOverloads constructor(
          *   Defaults false (the stricter, no-DTED pair) so an omitted argument fails toward
          *   showing worse accuracy than is actually the case, never better.
          */
-        fun accuracyColorFor(pitchDeg: Double?, dtedAvailable: Boolean = false): Int {
+        fun accuracyColorFor(context: Context, pitchDeg: Double?, dtedAvailable: Boolean = false): Int {
             val good = if (dtedAvailable) PITCH_GOOD_DEG else PITCH_GOOD_DEG_NO_DTED
             val fair = if (dtedAvailable) PITCH_FAIR_DEG else PITCH_FAIR_DEG_NO_DTED
-            return when {
-                pitchDeg == null -> Color.WHITE
-                pitchDeg <= good -> ACCURACY_GOOD
-                pitchDeg <= fair -> ACCURACY_FAIR
-                else -> ACCURACY_POOR
+            val res = when {
+                pitchDeg == null -> return Color.WHITE
+                pitchDeg <= good -> R.color.tp_hud_accuracy_good
+                pitchDeg <= fair -> R.color.tp_hud_accuracy_fair
+                else -> R.color.tp_hud_accuracy_poor
             }
+            return ContextCompat.getColor(context, res)
         }
     }
 }

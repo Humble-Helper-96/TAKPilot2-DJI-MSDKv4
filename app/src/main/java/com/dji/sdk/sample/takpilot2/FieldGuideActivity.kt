@@ -1,5 +1,6 @@
 package com.dji.sdk.sample.takpilot2
 
+import androidx.core.content.ContextCompat
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -533,7 +534,7 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun lede(text: String) = content.addView(TextView(this).apply {
         this.text = text
-        setTextColor(Color.parseColor("#B0B0B0")); textSize = 14f
+        setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary)); textSize = 14f
         setPadding(0, dp(6), 0, dp(4))
     })
 
@@ -549,7 +550,7 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun sub(text: String) = content.addView(TextView(this).apply {
         this.text = text
-        setTextColor(Color.parseColor("#9AC4FF")); textSize = 15f
+        setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_accent)); textSize = 15f
         setTypeface(null, android.graphics.Typeface.BOLD)
         letterSpacing = 0.03f
         setPadding(0, dp(18), 0, dp(6))
@@ -557,14 +558,14 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun body(text: String) = content.addView(TextView(this).apply {
         this.text = text
-        setTextColor(Color.parseColor("#CFCFCF")); textSize = 14f
+        setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_light)); textSize = 14f
         setLineSpacing(dp(3).toFloat(), 1f)
         setPadding(0, 0, 0, dp(8))
     })
 
     private fun bullet(text: String) = content.addView(TextView(this).apply {
         this.text = "•  $text"
-        setTextColor(Color.parseColor("#CFCFCF")); textSize = 14f
+        setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_light)); textSize = 14f
         setLineSpacing(dp(3).toFloat(), 1f)
         setPadding(dp(8), 0, 0, dp(6))
     })
@@ -589,7 +590,7 @@ class FieldGuideActivity : AppCompatActivity() {
         })
         row.addView(TextView(this).apply {
             this.text = text
-            setTextColor(Color.parseColor("#D8D8D8")); textSize = 13f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_dim)); textSize = 13f
             setLineSpacing(dp(3).toFloat(), 1f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
         })
@@ -597,7 +598,7 @@ class FieldGuideActivity : AppCompatActivity() {
     }
 
     private fun divider() = content.addView(View(this).apply {
-        setBackgroundColor(Color.parseColor("#333333"))
+        setBackgroundColor(ContextCompat.getColor(applicationContext, R.color.tp_border))
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(1)).apply {
             topMargin = dp(20); bottomMargin = dp(12)
         }
@@ -619,7 +620,7 @@ class FieldGuideActivity : AppCompatActivity() {
     ) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#202024"))
+            setBackgroundColor(ContextCompat.getColor(applicationContext, R.color.tp_surface_guide))
             setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(10) }
         }
@@ -634,7 +635,7 @@ class FieldGuideActivity : AppCompatActivity() {
             for ((view, caption) in icons) {
                 val captionView = TextView(this@FieldGuideActivity).apply {
                     text = caption
-                    setTextColor(Color.parseColor("#9A9A9A")); textSize = 11f
+                    setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_muted)); textSize = 11f
                     gravity = Gravity.CENTER
                     setSingleLine(true)
                     setPadding(0, dp(5), 0, 0)
@@ -653,7 +654,7 @@ class FieldGuideActivity : AppCompatActivity() {
                     // Toolbar-dark chip behind each example: these icons are drawn to sit on
                     // the flight toolbar, and judging them against a lighter card would be
                     // misleading about how they actually read in the air.
-                    setBackgroundColor(Color.parseColor("#101014"))
+                    setBackgroundColor(ContextCompat.getColor(applicationContext, R.color.tp_surface_guide_code))
                     setPadding(dp(10), dp(8), dp(10), dp(8))
                     minimumWidth = captionWidth + dp(20)
                     layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).apply {
@@ -675,13 +676,13 @@ class FieldGuideActivity : AppCompatActivity() {
         })
         card.addView(TextView(this).apply {
             text = what
-            setTextColor(Color.parseColor("#CFCFCF")); textSize = 13f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_light)); textSize = 13f
             setLineSpacing(dp(3).toFloat(), 1f)
         })
         for (c in caveats) {
             card.addView(TextView(this).apply {
                 text = "!  $c"
-                setTextColor(Color.parseColor("#E8B04B")); textSize = 12f
+                setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_warn)); textSize = 12f
                 setLineSpacing(dp(2).toFloat(), 1f)
                 setPadding(0, dp(8), 0, 0)
             })

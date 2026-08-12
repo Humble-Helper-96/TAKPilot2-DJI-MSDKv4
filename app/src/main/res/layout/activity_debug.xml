@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="horizontal"
-    android:background="#0E0E10"
+    android:background="@color/tp_bg_home"
     android:padding="20dp"
     android:baselineAligned="false">
 
@@ -24,7 +24,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Debug Log"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
             android:layout_marginBottom="6dp" />
@@ -37,9 +37,9 @@
                 android:orientation="horizontal" android:gravity="center_vertical"
                 android:paddingTop="6dp">
                 <CheckBox android:id="@+id/debugLoggingToggle" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Logging enabled" android:textColor="#DDDDDD" android:textSize="15sp" />
+                    android:text="Logging enabled" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -47,9 +47,9 @@
                 android:orientation="horizontal" android:gravity="center_vertical"
                 android:paddingTop="4dp">
                 <CheckBox android:id="@+id/debugVerboseToggle" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Detailed (all app functions)" android:textColor="#DDDDDD" android:textSize="15sp" />
+                    android:text="Detailed (all app functions)" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -57,16 +57,16 @@
                 android:orientation="horizontal" android:gravity="center_vertical"
                 android:paddingTop="4dp">
                 <CheckBox android:id="@+id/debugTakToggle" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Include TAK / CoT logs" android:textColor="#DDDDDD" android:textSize="15sp" />
+                    android:text="Include TAK / CoT logs" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
             </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:paddingStart="8dp" android:paddingTop="2dp"
                 android:text="Clear this box to hide the TAK messages and show only the app."
-                android:textColor="#7A7A7A" android:textSize="12sp" />
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
 
             <!-- Obstacle-distance filter, ported from the Autel build's radar toggle. The vision
                  sensors report continuously, so these are the highest-volume lines the app
@@ -78,16 +78,16 @@
                 android:orientation="horizontal" android:gravity="center_vertical"
                 android:paddingTop="4dp">
                 <CheckBox android:id="@+id/debugObstacleToggle" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:buttonTint="#1565C0" />
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Include obstacle distance logs" android:textColor="#DDDDDD" android:textSize="15sp" />
+                    android:text="Include obstacle distance logs" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
             </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:paddingStart="8dp" android:paddingTop="2dp"
                 android:text="The sensors fill the log. Select this box only to examine obstacle avoidance. Avoidance changes and warnings stay in the log."
-                android:textColor="#7A7A7A" android:textSize="12sp" />
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
 
             <Button
                 android:id="@+id/debugExportButton"
@@ -95,24 +95,24 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="Export Log"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#2E7D32" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_primary" />
             <Button
                 android:id="@+id/debugClearButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Clear Log"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#37474F" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_neutral" />
             <Button
                 android:id="@+id/debugDeleteButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Delete Log"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#B71C1C" />
+                android:textColor="@color/tp_text_primary"
+                android:backgroundTint="@color/tp_btn_danger" />
         </LinearLayout>
 
         <TextView
@@ -135,7 +135,7 @@
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="2.4"
-        android:background="#1A1B1E"
+        android:background="@color/tp_surface_card"
         android:padding="12dp">
 
         <TextView
@@ -143,7 +143,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textColor="#CCFFCC"
+            android:textColor="@color/tp_state_go_soft"
             android:textSize="12sp"
             android:textIsSelectable="true"
             android:text="" />

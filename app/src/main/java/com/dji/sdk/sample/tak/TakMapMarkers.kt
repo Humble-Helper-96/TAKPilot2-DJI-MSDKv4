@@ -549,7 +549,16 @@ object TakMapMarkers {
         }
     }
 
-    /** TAK team-name → color, identical to taklite's getTeamColor(). */
+    /**
+     * TAK team-name → colour, identical to taklite's getTeamColor().
+     *
+     * ⚠ DELIBERATELY NOT TOKENISED, and this is not an oversight. These are the TAK PROTOCOL's
+     * team colours — the same fifteen names every TAK client renders, and what a teammate picked
+     * in their own client. They are not this app's palette and must be free to diverge from it.
+     * A few happen to share a hex with a tp_* token today (team "red" and tp_state_danger are
+     * both #F44336); binding them would mean a later UI tweak silently repainting somebody's
+     * team. Keep these literal and keep them matching taklite.
+     */
     fun teamColor(team: String?): Int {
         if (team == null) return Color.GREEN
         return when (team.lowercase()) {
