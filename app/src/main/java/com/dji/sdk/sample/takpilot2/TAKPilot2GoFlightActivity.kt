@@ -74,6 +74,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     private lateinit var fpvView: FpvTextureView
     private lateinit var mapView: MapView
+    private lateinit var mapContainer: android.widget.FrameLayout
+    private lateinit var mapZoomButton: TextView
     private lateinit var noVideoCover: View
     private lateinit var fpvOverlayText: TextView
     private lateinit var toolbarBattery: BatteryGaugeView
@@ -230,8 +232,21 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         toolbarSignal = findViewById(R.id.toolbarSignal)
         toolbarSignalText = findViewById(R.id.toolbarSignalText)
 
+        mapContainer = findViewById(R.id.flightMapContainer)
         mapView = findViewById(R.id.flightMapView)
         mapView.onCreate(savedInstanceState)
+
+        // WIDE/NEAR. Persisted, unlike the double-tap expansion: this is a standing preference
+        // about how much ground the pilot wants to see, not a momentary look.
+        mapWide = getSharedPreferences("takpilot2_tak", MODE_PRIVATE).getBoolean(KEY_MAP_WIDE, false)
+        mapZoomButton = findViewById(R.id.flightMapZoomButton)
+        mapZoomButton.setOnClickListener {
+            mapWide = !mapWide
+            getSharedPreferences("takpilot2_tak", MODE_PRIVATE).edit()
+                .putBoolean(KEY_MAP_WIDE, mapWide).apply()
+            AppLog.v(TAG, "tap: mini-map zoom -> ${if (mapWide) "WIDE" else "NEAR"}")
+            applyMapZoom()
+        }
 
         // DOUBLE TAP TO EXPAND — detected on the VIEW, not through the map's click listener.
         //
@@ -263,7 +278,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             map = mapboxMap
             // Deliberately dead-simple, non-interactive mini-map (operator's spec, 2026-07-24):
             // no pan/zoom/rotate/tilt — north stays up (camera bearing is never set away from
-            // its 0 default) and zoom stays pinned at MAP_ZOOM. The per-tick recenter in
+            // its 0 default) and zoom stays pinned at the selected WIDE/NEAR level. The recenter in
             // updateHud() is the only thing that ever moves the camera.
             mapboxMap.uiSettings.setAllGesturesEnabled(false)
             // 6C: tapping an inbound contact locally hides it (stays on the server). Confirmed
@@ -287,7 +302,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // starting view; pans to the drone once a fix arrives.
             mapboxMap.cameraPosition = CameraPosition.Builder()
                 .target(DEFAULT_CENTER)
-                .zoom(MAP_ZOOM)
+                .zoom(currentMapZoom())
                 .build()
             mapboxMap.setStyle(Style.Builder().fromJson(MaplibreStyle.selectedStyleJson(this))) { style ->
                 // Home->aircraft line: added first so it renders underneath both markers.
@@ -634,6 +649,35 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private var mapExpanded = false
 
     /**
+     * WIDE shows the whole permitted flight area; NEAR is this screen's long-standing zoom.
+     *
+     * DEFAULTS TO NEAR, where the sibling defaults to WIDE, and that is the same decision rather
+     * than a different one. Its two levels are 15.5 and 18 against our 13 and 15, so its WIDE is
+     * very nearly our NEAR — defaulting NEAR here gives a new pilot the same ground coverage its
+     * default gives, and leaves this screen's existing view unchanged for anyone who never
+     * touches the button.
+     */
+    private var mapWide = false
+
+    /**
+     * Pushes [mapWide] to the map and relabels the button.
+     *
+     * The BUTTON SHOWS THE STATE, not the action — it reads WIDE when the map is wide. A button
+     * labelled with what it will do next reads as a claim about what you are looking at, and on
+     * a 130dp map with no scale bar there is nothing else to disambiguate it.
+     */
+    private fun applyMapZoom() {
+        mapZoomButton.text = if (mapWide) "WIDE" else "NEAR"
+        val m = map ?: return
+        m.cameraPosition = CameraPosition.Builder()
+            .target(m.cameraPosition.target)
+            .zoom(currentMapZoom())
+            .build()
+    }
+
+    private fun currentMapZoom(): Double = if (mapWide) MAP_ZOOM_WIDE else MAP_ZOOM_NEAR
+
+    /**
      * Double-tap: the mini-map grows to twice its size, and back.
      *
      * It grows OVER the video and the readouts rather than pushing them. Width is free because
@@ -649,12 +693,12 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val base = resources.getDimensionPixelSize(R.dimen.flight_map_size)
         mapExpanded = !mapExpanded
         val size = if (mapExpanded) base * 2 else base
-        val lp = mapView.layoutParams as android.widget.LinearLayout.LayoutParams
+        val lp = mapContainer.layoutParams as android.widget.LinearLayout.LayoutParams
         lp.width = size
         lp.height = size
         lp.topMargin = if (mapExpanded) -(size - base) else 0
-        mapView.layoutParams = lp
-        mapView.elevation = if (mapExpanded) 8f * resources.displayMetrics.density else 0f
+        mapContainer.layoutParams = lp
+        mapContainer.elevation = if (mapExpanded) 8f * resources.displayMetrics.density else 0f
         AppLog.v(TAG, "mini-map ${if (mapExpanded) "expanded" else "compact"} (${size}px)")
     }
 
@@ -1731,7 +1775,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         aircraftLayer?.setProperties(iconRotate(hud.headingDeg.toFloat()))
         map?.cameraPosition = CameraPosition.Builder()
             .target(LatLng(hud.lat, hud.lon))
-            .zoom(MAP_ZOOM)
+            .zoom(currentMapZoom())
             .build()
 
         // Home->aircraft line: the pilot's "which way back" reference on a map that otherwise
@@ -1896,7 +1940,23 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // Mini-map zoom, street level — every hud tick rebuilds the CameraPosition, and an
         // unspecified zoom() reset it to the map's default (continent-scale) on each update,
         // which is why it looked "stuck" zoomed out rather than just starting there.
-        private const val MAP_ZOOM = 15.0
+        /**
+         * The two mini-map zooms, chosen for THIS map size and THIS aircraft's limits — the
+         * sibling's 15.5/18 were picked against a 180dp map and a 488m distance limit.
+         *
+         * At 61°N on a 130dp map (341px): WIDE covers about 1570m across, NEAR about 785m.
+         * The default max distance in Pre-Flight is 5280ft (1609m), so WIDE holds very nearly
+         * the whole permitted area — better than the sibling manages, which accepted the home
+         * point leaving the map before the limit.
+         *
+         * NEAR is the zoom this screen has always used and is the default, so the view is
+         * unchanged for anyone who never touches the button. See [mapWide] for why that differs
+         * from the sibling's default in name but not in what a pilot sees.
+         */
+        private const val MAP_ZOOM_WIDE = 13.0
+        private const val MAP_ZOOM_NEAR = 15.0
+
+        private const val KEY_MAP_WIDE = "flight_map_wide"
 
         // Where the mini-map centers before the drone has a GPS fix. Town Square Park in
         // downtown Anchorage: a neutral public landmark, chosen deliberately so the default
