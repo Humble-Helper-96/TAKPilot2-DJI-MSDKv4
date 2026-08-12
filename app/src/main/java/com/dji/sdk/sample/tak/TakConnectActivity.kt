@@ -38,6 +38,14 @@ class TakConnectActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_tak_connect)
+
+        // Menu button on the left of the action bar, on every screen you can reach from Home.
+        // Returns to the home screen, same as the system back gesture — a pilot should not have
+        // to learn a different way out of each screen.
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setHomeAsUpIndicator(R.drawable.ic_menu)
+        }
         AppLog.v(TAG, "onCreate")
 
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -1083,5 +1091,12 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_V_TCP = "video_tcp"
         private const val KEY_V_PROFILE = "video_profile"
     }
+
+    /** Action-bar menu button behaves the same as the system back gesture. */
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
+    }
+
 }
 

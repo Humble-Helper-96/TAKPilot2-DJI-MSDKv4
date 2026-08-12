@@ -52,6 +52,14 @@ class DebugActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_debug)
 
+        // Menu button on the left of the action bar, on every screen you can reach from Home.
+        // Returns to the home screen, same as the system back gesture — a pilot should not have
+        // to learn a different way out of each screen.
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setHomeAsUpIndicator(R.drawable.ic_menu)
+        }
+
         AppLog.sweepExpiredLogs()
         AppLog.v(TAG, "onCreate")
 
@@ -188,4 +196,11 @@ class DebugActivity : AppCompatActivity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    /** Action-bar menu button behaves the same as the system back gesture. */
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
+    }
+
 }

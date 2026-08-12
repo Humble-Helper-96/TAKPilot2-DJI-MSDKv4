@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.taklite.client.tak.TakManager
 import com.taklite.client.tak.TakMissionClient
 import com.dji.sdk.sample.tak.TakMissionManager
+import com.dji.sdk.sample.tak.TakUi
 import com.taklite.util.AppLog
 
 /**
@@ -30,6 +31,14 @@ class DataSyncActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_data_sync)
+
+        // Menu button on the left of the action bar, on every screen you can reach from Home.
+        // Returns to the home screen, same as the system back gesture — a pilot should not have
+        // to learn a different way out of each screen.
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setHomeAsUpIndicator(R.drawable.ic_menu)
+        }
         AppLog.v("DataSyncActivity", "onCreate")
         status = findViewById(R.id.dsStatus)
         joined = findViewById(R.id.dsJoined)
@@ -77,7 +86,7 @@ class DataSyncActivity : AppCompatActivity() {
 
         val name = TextView(this).apply {
             text = f.name + (if (f.passwordProtected) "  🔒" else "")
-            setTextColor(Color.WHITE); textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary)); textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
         row.addView(name)
 
@@ -92,7 +101,11 @@ class DataSyncActivity : AppCompatActivity() {
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
         val isJoined = f.name == TakMissionManager.joinedFeed
+        // Join and Leave are both reversible, so both take the informational role rather than
+        // Leave looking destructive. Built in code, so the role comes from TakUi — see there for
+        // why an XML style cannot reach these.
         val btn = Button(this).apply { text = if (isJoined) "Leave" else "Join" }
+        TakUi.info(btn)
         btn.setOnClickListener {
             if (isJoined) {
                 TakMissionManager.leaveFeed { ok ->
@@ -108,11 +121,8 @@ class DataSyncActivity : AppCompatActivity() {
         // Delete only when THIS drone created the feed (owner). Server enforces owner-only too.
         val isCreator = f.creatorUid != null && f.creatorUid == TakMissionManager.myUid()
         if (isCreator) {
-            val del = Button(this).apply {
-                text = "Delete"
-                backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(applicationContext, R.color.tp_btn_danger))
-                setTextColor(Color.WHITE)
-            }
+            val del = Button(this).apply { text = "Delete" }
+            TakUi.danger(del)
             val dlp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             dlp.marginStart = (8 * d).toInt()
@@ -145,7 +155,7 @@ class DataSyncActivity : AppCompatActivity() {
             imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = "Feed password"
-            setTextColor(Color.WHITE)
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary))
             setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         AlertDialog.Builder(this, R.style.TakDialogTheme)
@@ -171,9 +181,9 @@ class DataSyncActivity : AppCompatActivity() {
         val adapter = object : android.widget.ArrayAdapter<String>(
             this, android.R.layout.simple_spinner_dropdown_item, items) {
             override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup)
-                = super.getView(position, convertView, parent).also { (it as TextView).setTextColor(Color.WHITE) }
+                = super.getView(position, convertView, parent).also { (it as TextView).setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary)) }
             override fun getDropDownView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup)
-                = super.getDropDownView(position, convertView, parent).also { (it as TextView).setTextColor(Color.WHITE) }
+                = super.getDropDownView(position, convertView, parent).also { (it as TextView).setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary)) }
         }
         return adapter
     }
@@ -186,11 +196,11 @@ class DataSyncActivity : AppCompatActivity() {
         }
         val nameIn = EditText(this).apply {
             imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
-            hint = "Feed name"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
+            hint = "Feed name"; setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary)); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         val descIn = EditText(this).apply {
             imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
-            hint = "Description (optional)"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
+            hint = "Description (optional)"; setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary)); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         col.addView(nameIn); col.addView(descIn)
 
@@ -244,4 +254,11 @@ class DataSyncActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
+
+    /** Action-bar menu button behaves the same as the system back gesture. */
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
+    }
+
 }

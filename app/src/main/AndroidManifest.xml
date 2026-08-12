@@ -100,7 +100,7 @@
         <!-- TAKPilot2 Go / Phase 2: TAK server enrollment, connect, and video-push config -->
         <activity
             android:name="com.dji.sdk.sample.tak.TakConnectActivity"
-            android:label="TAK Setup"
+            android:label="Pre-Flight Setup"
             android:screenOrientation="landscape"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|screenSize"
