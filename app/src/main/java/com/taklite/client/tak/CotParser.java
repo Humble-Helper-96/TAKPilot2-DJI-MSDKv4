@@ -138,6 +138,17 @@ public class CotParser {
                     } else if ("__video".equals(tag)) {
                         videoUrl = parser.getAttributeValue(null, "url");
                         videoAlias = parser.getAttributeValue(null, "sensor");
+                    } else if ("ConnectionEntry".equals(tag)) {
+                        // The nested element real TAK clients put the feed in. ATAK itself sends
+                        // no `url` on __video at all, so a sender's whole video advertisement is
+                        // here — read it, but never let it overwrite a url we already took from
+                        // __video, which is the more specific of the two.
+                        if (videoUrl == null || videoUrl.isEmpty()) {
+                            videoUrl = parser.getAttributeValue(null, "address");
+                        }
+                        if (videoAlias == null || videoAlias.isEmpty()) {
+                            videoAlias = parser.getAttributeValue(null, "alias");
+                        }
                     } else if ("sensor".equals(tag)) {
                         sensorModel = parser.getAttributeValue(null, "model");
                         sensorFov = parseDouble(parser.getAttributeValue(null, "fov"));

@@ -87,6 +87,62 @@ class CotBuilderTest {
         assertTrue("a-f-A-" in droneXml())
     }
 
+    /**
+     * The 2026-08-12 flight shipped the video url on the wire and NO client offered to play it:
+     * the element was `<__video sensor url/>` with no uid and no ConnectionEntry. CloudTAK's CoT
+     * library makes ConnectionEntry's uid and address mandatory, so there was nothing to build a
+     * player from. These assertions are the regression.
+     */
+    @Test
+    fun videoAdvertisementCarriesAConnectionEntry() {
+        val url = "rtsp://tak:pw@anchortak.link:8554/Feed-B-Low?tcp"
+        val xml = CotBuilder.buildPLI(
+            "PILOT-1", "MINI2-Pilot", "Cyan", "Team Member",
+            61.1, -149.9, 35.0, 180.0, 0.0, 77,
+            "TAKPilot", "SM-G988U", "Android 13", "1.1.0", url)
+
+        assertTrue("<ConnectionEntry" in xml)
+        assertTrue("address=\"anchortak.link\"" in xml)
+        assertTrue("port=\"8554\"" in xml)
+        assertTrue("path=\"/Feed-B-Low\"" in xml)
+        assertTrue("protocol=\"rtsp\"" in xml)
+        assertTrue("alias=\"MINI2-Pilot\"" in xml)
+        // Both uids present and equal — a client keys its video entry on this.
+        val uid = CotBuilder.videoUidFor(url)
+        assertTrue("<__video uid=\"$uid\"" in xml)
+        assertTrue("<ConnectionEntry uid=\"$uid\"" in xml)
+        // The full url, credentials and all, still rides the element for clients that read it.
+        assertTrue("url=\"rtsp://tak:pw@anchortak.link:8554/Feed-B-Low?tcp\"" in xml)
+    }
+
+    /** One stream, one uid: the aircraft and the operator must not advertise it as two feeds. */
+    @Test
+    fun aircraftAndOperatorAdvertiseTheSameVideoUid() {
+        val url = "rtsp://host:8554/Feed-A"
+        val pilot = CotBuilder.buildPLI(
+            "PILOT-1", "MINI2-Pilot", "Cyan", "Team Member",
+            61.1, -149.9, 35.0, 180.0, 0.0, 77,
+            "TAKPilot", "SM-G988U", "Android 13", "1.1.0", url)
+        val drone = CotBuilder.buildDronePLI(
+            "UID-DRONE", "MINI2-1",
+            61.2, -149.8, 100.0, 250.0, 7.5, 66,
+            url, "UID-DRONE-SPI",
+            73.0, 45.0, 250.0, -10.0, 300.0, 0.0,
+            0.0, -10.0, 250.0,
+            true, 300,
+            2250, 1500, 7.6,
+            "PILOT-1")
+        val uid = CotBuilder.videoUidFor(url)
+        assertTrue("<__video uid=\"$uid\"" in pilot)
+        assertTrue("<__video uid=\"$uid\"" in drone)
+    }
+
+    /** No url, no element — an absent feed must not advertise an empty one. */
+    @Test
+    fun noVideoUrlMeansNoVideoElement() {
+        assertFalse("__video" in droneXml())
+    }
+
     private fun droneXml(): String = CotBuilder.buildDronePLI(
         "UID-DRONE", "MINI2-1",
         61.2, -149.8, 100.0, 250.0, 7.5, 66,

@@ -133,10 +133,7 @@ public class CotBuilder {
         sb.append(" platform=\"").append(escapeXml(takvPlatform)).append("\"");
         sb.append(" version=\"").append(escapeXml(takvVersion)).append("\" />");
         sb.append("<uid Droid=\"").append(escapeXml(callsign)).append("\" />");
-        if (videoUrl != null && !videoUrl.isEmpty()) {
-            sb.append("<__video sensor=\"").append(escapeXml(callsign)).append("\"");
-            sb.append(" url=\"").append(escapeXml(videoUrl)).append("\" />");
-        }
+        appendVideo(sb, videoUrl, callsign, null);
         sb.append("</detail>");
         sb.append("</event>");
         return sb.toString();
@@ -222,13 +219,7 @@ public class CotBuilder {
             sb.append("<_route sender=\"").append(escapeXml(operatorUid)).append("\" />");
         }
         sb.append("<commandedData climbRate=\"0.0\" />");
-        if (videoUrl != null && !videoUrl.isEmpty()) {
-            sb.append("<__video sensor=\"").append(escapeXml(callsign)).append("\"");
-            if (spiUid != null && !spiUid.isEmpty()) {
-                sb.append(" spi=\"").append(escapeXml(spiUid)).append("\"");
-            }
-            sb.append(" url=\"").append(escapeXml(videoUrl)).append("\" />");
-        }
+        appendVideo(sb, videoUrl, callsign, spiUid);
         if (operatorUid != null && !operatorUid.isEmpty()) {
             sb.append("<link uid=\"").append(escapeXml(operatorUid)).append("\"");
             sb.append(" type=\"a-f-G-U-C\" relation=\"p-p\" />");
@@ -470,6 +461,82 @@ public class CotBuilder {
         synchronized (COT_DATE_FORMAT) {
             return COT_DATE_FORMAT.format(new Date(millis));
         }
+    }
+
+    /**
+     * The video advertisement, in the shape TAK clients actually parse.
+     *
+     * <p>⚠ This used to emit {@code <__video sensor=".." url=".."/>} and nothing else. That is
+     * self-consistent — our own {@link CotParser} reads exactly those two attributes — but no
+     * client can build a player from it, so the marker arrived on ATAK/CloudTAK/TAKAware with no
+     * play control and the stream never reached the video manager. Confirmed on the 2026-08-12
+     * flight: the url WAS on the wire (246 of 702 operator PLIs carried it) and still nothing
+     * offered to play it.
+     *
+     * <p>The shape below is the one CloudTAK's CoT library (dfpc-coe/node-CoT) requires: a nested
+     * {@code ConnectionEntry} whose {@code uid} and {@code address} are BOTH mandatory. Optional
+     * attributes are sent anyway, with ATAK's own defaults, because a client that reads them and
+     * finds them missing falls back to values we did not choose.
+     *
+     * <p>The video uid is derived from the URL, so it is stable across restarts and IDENTICAL on
+     * the aircraft and the operator marker. That is deliberate: it is one stream, and two markers
+     * advertising it under one uid give a client one video entry referenced twice, not two
+     * competing entries for the same feed.
+     *
+     * <p>⚠ {@code url} keeps whatever the caller passed, credentials included — that is how the
+     * stream authenticates today and removing them would break playback on a server that needs
+     * them. {@code address} is the bare host, so a client that builds only from ConnectionEntry
+     * gets a clean address. If a feed needs auth and a client uses ConnectionEntry alone, this is
+     * where that shows up.
+     *
+     * @param alias human-readable name for the feed; shown in a client's video manager.
+     */
+    private static void appendVideo(StringBuilder sb, String videoUrl, String alias, String spiUid) {
+        if (videoUrl == null || videoUrl.isEmpty()) return;
+
+        String videoUid = videoUidFor(videoUrl);
+        String host = "";
+        int port = -1;
+        String path = "";
+        String protocol = "raw";
+        try {
+            java.net.URI u = java.net.URI.create(videoUrl);
+            if (u.getScheme() != null) protocol = u.getScheme();
+            if (u.getHost() != null) host = u.getHost();
+            port = u.getPort();
+            if (u.getPath() != null) path = u.getPath();
+        } catch (IllegalArgumentException e) {
+            // An unparseable url is still worth advertising: `url` carries the whole thing, and
+            // `address` falling back to it matches how ATAK advertises non-host feeds.
+        }
+        if (host.isEmpty()) host = videoUrl;
+
+        sb.append("<__video uid=\"").append(escapeXml(videoUid)).append("\"");
+        sb.append(" sensor=\"").append(escapeXml(alias)).append("\"");
+        if (spiUid != null && !spiUid.isEmpty()) {
+            sb.append(" spi=\"").append(escapeXml(spiUid)).append("\"");
+        }
+        sb.append(" url=\"").append(escapeXml(videoUrl)).append("\">");
+        sb.append("<ConnectionEntry uid=\"").append(escapeXml(videoUid)).append("\"");
+        sb.append(" alias=\"").append(escapeXml(alias)).append("\"");
+        sb.append(" address=\"").append(escapeXml(host)).append("\"");
+        sb.append(" port=\"").append(port).append("\"");
+        sb.append(" path=\"").append(escapeXml(path)).append("\"");
+        sb.append(" protocol=\"").append(escapeXml(protocol)).append("\"");
+        sb.append(" networkTimeout=\"12000\" bufferTime=\"-1\" roverPort=\"-1\"");
+        sb.append(" rtspReliable=\"0\" ignoreEmbeddedKLV=\"false\" />");
+        sb.append("</__video>");
+    }
+
+    /**
+     * A stable uid for a feed, derived from its URL.
+     *
+     * <p>Must not be random: a fresh uid on every position report (one every 2 seconds) would
+     * have a client either create a new video entry each time or churn the existing one.
+     */
+    static String videoUidFor(String videoUrl) {
+        return UUID.nameUUIDFromBytes(videoUrl.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .toString();
     }
 
     private static String escapeXml(String s) {
