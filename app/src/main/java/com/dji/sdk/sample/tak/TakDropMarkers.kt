@@ -238,7 +238,55 @@ object TakDropMarkers {
             AppLog.i(TAG, "pin sent to TAK: ${pin.key} uid=$sent")
             ui?.toast("Sent ${pin.name} to TAK")
         }
+        if (isFirstSend) scheduleRebroadcast(pin)
     }
+
+    /**
+     * Re-sends a pin once, [REBROADCAST_DELAY_MS] after its first successful send.
+     *
+     * WHY (operator, 2026-08-02). CoT markers are fire-and-forget: a teammate whose ATAK connects
+     * thirty seconds after the drop never receives it, and nobody in the air knows that happened.
+     * The old remedy was for the pilot to notice and hit Re-send by hand, which means the fix
+     * depended on the one person least able to spare the attention.
+     *
+     * Re-sending under the SAME uid is what makes this safe. Clients that already have the marker
+     * move it in place — to the identical position, so nothing visibly happens — and clients that
+     * missed it draw it for the first time. Nobody sees a duplicate.
+     *
+     * Deliberately ONCE, not a repeating heartbeat. One extra packet closes the join window that
+     * actually occurs in practice; a permanent re-broadcast of every marker ever dropped would
+     * grow without bound for the rest of the flight.
+     *
+     * Skipped if the pin is deleted before the timer fires, and skipped for the quick marker,
+     * which is re-sent on every re-aim anyway.
+     */
+    private fun scheduleRebroadcast(pin: Pin) {
+        if (pin.quick) return
+        val key = pin.key
+        rebroadcast.postDelayed({
+            val live = pins[key] ?: run {
+                AppLog.v(TAG, "rebroadcast skipped — pin $key no longer exists")
+                return@postDelayed
+            }
+            val tak = TakManager.getInstance()
+            val uid = live.cotUid
+            if (uid == null || !tak.isConnected) {
+                AppLog.w(TAG, "rebroadcast skipped for $key — uid=$uid connected=${tak.isConnected}")
+                return@postDelayed
+            }
+            // Same uid, current values: this is an UPDATE, not a second marker. Reads whatever the
+            // pin holds NOW, so a rename or move inside the delay window is carried too.
+            tak.sendMarkerWithUid(uid, live.lat, live.lon, live.alt, live.affiliation.id,
+                live.name, "", TakMissionManager.joinedFeed)
+            AppLog.i(TAG, "rebroadcast \"${live.name}\" uid=$uid (catches late-joining clients)")
+        }, REBROADCAST_DELAY_MS)
+    }
+
+    private val rebroadcast = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Long enough for a late client to finish connecting, short enough to still be the same
+     *  tactical moment. */
+    private const val REBROADCAST_DELAY_MS = 60_000L
 
     // ---- Quick drop (reticle tap) ----
 

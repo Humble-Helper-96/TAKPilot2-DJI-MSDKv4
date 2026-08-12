@@ -24,6 +24,12 @@ public class TakClient extends Thread {
     private static final String TAG = "TakClient";
     private static final long RECONNECT_DELAY_MS = 5000;
 
+    // Hard cap on the pending (not-yet-complete) receive buffer. A single CoT <event> is a few KB;
+    // 4 MB is orders of magnitude beyond any legitimate one. If this much data arrives with no
+    // closing </event>, the peer is malformed or hostile — drop the connection rather than let the
+    // buffer grow without bound and OOM this memory-constrained controller. See security review #4.
+    private static final int MAX_RECV_BUFFER_BYTES = 4 * 1024 * 1024;
+
     private final String serverAddress;
     private final int port;
     private final String trustStorePath;
@@ -124,6 +130,15 @@ public class TakClient extends Thread {
                             AppLog.d(TAG, "CoT message complete (" + message.length() + " chars)");
                             listener.onCotReceived(message);
                         }
+                    }
+
+                    // After draining every complete event, whatever remains is one incomplete
+                    // message. If that tail alone exceeds the cap, no </event> is coming — bail
+                    // to the reconnect path instead of buffering unboundedly.
+                    if (recvBuffer.length() > MAX_RECV_BUFFER_BYTES) {
+                        AppLog.e(TAG, "Receive buffer exceeded " + MAX_RECV_BUFFER_BYTES
+                                + " bytes with no complete event — dropping connection");
+                        break;
                     }
                 }
             } catch (Exception e) {

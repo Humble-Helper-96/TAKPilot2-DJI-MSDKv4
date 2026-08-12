@@ -64,14 +64,76 @@ object TakMapMarkers {
     private var listenerRegistered = false
     private var appContext: Context? = null
 
-    // Received 2525 MARKERS (a-{f,h,n,u}-G) we persist so they survive restarts. PLI contacts
-    // are NOT persisted — they re-broadcast live and would otherwise ghost. Keyed by uid.
+    // Received MARKERS we persist so they survive restarts. PLI contacts are NOT persisted — they
+    // re-broadcast live and would otherwise ghost. Air tracks are never persisted either; see
+    // CotParser.isPersistentType for why that one is a safety guard. Keyed by uid.
     private val savedMarkers = LinkedHashMap<String, SavedMarker>()
 
     private data class SavedMarker(
         val uid: String, val lat: Double, val lon: Double, val alt: Double,
         val type: String, val callsign: String, val team: String,
+        /** When this marker was last heard from. Drives [MARKER_RETENTION_MS] eviction. */
+        val lastSeen: Long,
     )
+
+    /**
+     * How long a shared marker is kept with no update, before it is evicted from the store.
+     *
+     * A marker anyone still cares about is being re-broadcast, so it never ages out; only genuinely
+     * abandoned ones drop. The bound exists because unbounded contact retention is what OOM-killed
+     * the Autel sibling in the air on 2026-08-03, and this store has NO cap, NO age field and NO
+     * eviction — it only ever grows. Same store, same defect, same aircraft-in-the-air outcome.
+     */
+    private const val MARKER_RETENTION_MS = 72L * 60 * 60 * 1000
+
+    /**
+     * Hard ceiling on stored markers, independent of age. [savedMarkers] is insertion-ordered, so
+     * eviction is oldest-first. A second bound on top of the age limit, because a busy net could
+     * in principle deliver more markers inside 72 hours than is sensible to hold.
+     */
+    private const val MAX_SAVED_MARKERS = 1000
+
+    /**
+     * Store schema version. Entries carrying it were saved after the persistence rule became
+     * "the sender set `archived`"; entries without it were saved by an earlier build whose gate
+     * was the 2525 icon lookup, which also accepted platforms and live clients.
+     */
+    private const val SCHEMA_ARCHIVED_VERIFIED = 1
+
+    /**
+     * Conservative re-validation for an entry saved BEFORE `archived` was checked.
+     *
+     * The old gate accepted anything `milMarkerRes` drew a frame for, which pulled in ADS-B ground
+     * vehicles (`a-f-G-E-V`, uid `ICAO-…`) and CloudTAK's own users (`a-f-G-E-V-C`). Left alone
+     * those would be restored as permanent, which is the failure this whole change exists to
+     * prevent — the old file would make the new rule pointless.
+     *
+     * A placed marker is a BARE affiliation-plus-domain type: `a-{f,h,n,u}-G` with nothing after
+     * it. The trailing qualifiers on `…-G-E-V` say equipment/vehicle — a platform, not a point.
+     */
+    private fun isLegacyPlacedMarker(type: String?): Boolean {
+        if (type == null) return false
+        if (type.startsWith("b-m-p-s-p-")) return false          // SPI, never a placed marker
+        if (type.startsWith("b-m-p-")) return true
+        val parts = type.split("-")
+        if (parts.size != 3 || parts[0] != "a" || parts[2] != "G") return false
+        return parts[1] in setOf("f", "h", "n", "u")
+    }
+
+    /**
+     * Evicts markers unseen for [MARKER_RETENTION_MS], then trims the store to
+     * [MAX_SAVED_MARKERS] oldest-first.
+     */
+    private fun evictOldMarkers() {
+        val cutoff = System.currentTimeMillis() - MARKER_RETENTION_MS
+        val aged = savedMarkers.entries.filter { it.value.lastSeen < cutoff }.map { it.key }
+        for (uid in aged) savedMarkers.remove(uid)
+        while (savedMarkers.size > MAX_SAVED_MARKERS) {
+            val oldest = savedMarkers.keys.firstOrNull() ?: break
+            savedMarkers.remove(oldest)
+        }
+        if (aged.isNotEmpty()) AppLog.i(TAG, "evicted ${aged.size} marker(s) unseen for 72h")
+    }
 
     /** Call once at app start so inbound contacts accumulate before the flight screen opens. */
     fun install(context: Context) {
@@ -147,23 +209,73 @@ object TakMapMarkers {
         // the main thread is a hard crash, not a race we'd get to debug comfortably.
         TakManager.getInstance().addListener(object : TakManager.TakUserListener {
             override fun onTakUserUpdated(user: TakUser) = upsert(user)
-            override fun onTakUserRemoved(uid: String) = remove(uid)
+            override fun onTakUserRemoved(uid: String) = onContactAgedOut(uid)
+            override fun onTakUserDeleted(uid: String) = forget(uid)
             override fun onTakConnectionChanged(connected: Boolean) {}
         })
     }
 
     private fun SavedMarker.toUser(): TakUser =
-        TakUser(uid, callsign, lat, lon, alt, team, "", Long.MAX_VALUE).also { it.type = type }
+        TakUser(uid, callsign, lat, lon, alt, team, "", Long.MAX_VALUE).also {
+            it.type = type
+            // Marks it exempt from the stale sweep, exactly as the parser would have. Without
+            // this a restored marker would be swept ~10 minutes after the map opened.
+            it.isPersistent = true
+        }
+
+    /**
+     * A contact aged out of [TakManager]'s live map.
+     *
+     * If we hold a SAVED copy, the marker stays: it aged out of the live contact list, but it was
+     * never a track — somebody shared it deliberately, and the only things that should remove it
+     * are an explicit delete, a local delete, or the 72-hour eviction.
+     *
+     * The old code called [remove] unconditionally, so a marker still sitting in the saved store
+     * was stripped off the map anyway, and did not come back until the flight screen was reopened.
+     */
+    private fun onContactAgedOut(uid: String) {
+        val saved = savedMarkers[uid]
+        if (saved != null && !hidden.contains(uid)) {
+            upsert(saved.toUser())
+        } else {
+            remove(uid)
+        }
+    }
+
+    /**
+     * The network explicitly deleted this item. Forget it everywhere, including the saved store —
+     * otherwise a marker the team retracted would come back at the next restart.
+     */
+    private fun forget(uid: String) {
+        AppLog.v(TAG, "inbound marker deleted by the network: $uid")
+        remove(uid)
+        if (savedMarkers.remove(uid) != null) saveSavedMarkers()
+    }
+
+    /** True only while [resyncExisting] replays the saved set — see the guard in [upsert]. */
+    private var restoring = false
 
     private fun resyncExisting() {
         shown.clear()
+        restoring = true
         try {
-            for (s in savedMarkers.values) if (!hidden.contains(s.uid)) stage(s.toUser())
+            for (s in savedMarkers.values) {
+                if (hidden.contains(s.uid)) continue
+                val u = s.toUser()
+                stage(u)
+                // Put it back in the live contact map too. The AR overlay iterates that collection
+                // directly while the map keeps this store, so without this a restored marker was
+                // drawn on the map and invisible in AR. It also matters for deletes: a `t-x-d-d`
+                // is matched against that map.
+                TakManager.getInstance().restorePersistentUser(u)
+            }
             for (user in TakManager.getInstance().takUsers) stage(user)
             rebuild()
             AppLog.v(TAG, "resync: ${shown.size} markers on map")
         } catch (e: Exception) {
             AppLog.w(TAG, "resync failed: ${e.message}")
+        } finally {
+            restoring = false
         }
     }
 
@@ -190,12 +302,33 @@ object TakMapMarkers {
         return true
     }
 
+    /**
+     * Persists what the PARSER judged persistent, not a second opinion about the icon.
+     *
+     * This used to gate on `milMarkerRes(type) != null` — the 2525 frame lookup. That is the wrong
+     * question twice over. It accepted anything the app could draw a frame for, which on the Autel
+     * sibling meant ADS-B ground vehicles and CloudTAK's own users: 152 of 155 stored entries were
+     * immortal, including every user who had ever connected. And it REJECTED `b-m-p-*` map points
+     * from ATAK/iTAK, which have no 2525 frame — those were drawn but never saved, and vanished on
+     * restart. CotParser.isPersistentType is the single decision now.
+     */
     private fun persistIfMarker(user: TakUser) {
-        if (milMarkerRes(user.type) == null || hidden.contains(user.uid)) return
+        if (!user.isPersistent || hidden.contains(user.uid)) return
         if (TakDropMarkers.ownsUid(user.uid)) return
+        // Only a LIVE event refreshes the store. A restore from disk must not: `restoring` is set
+        // while resyncExisting replays the saved set, and without that guard every trip through
+        // the flight screen would stamp lastSeen = now and the 72-hour eviction could never fire —
+        // a marker would live for ever as long as the app kept being opened.
+        if (restoring) return
+        // Re-put so insertion order tracks recency: LinkedHashMap keeps the ORIGINAL position on a
+        // plain overwrite, which would make the count-cap evict the most recently refreshed marker
+        // instead of the stalest.
+        savedMarkers.remove(user.uid)
         savedMarkers[user.uid] = SavedMarker(
             user.uid, user.lat, user.lon, user.alt,
-            user.type ?: "", user.callsign ?: user.uid, user.team ?: "Cyan")
+            user.type ?: "", user.callsign ?: user.uid, user.team ?: "Cyan",
+            System.currentTimeMillis())
+        evictOldMarkers()
         saveSavedMarkers()
     }
 
@@ -273,6 +406,10 @@ object TakMapMarkers {
                 arr.put(org.json.JSONObject().apply {
                     put("uid", s.uid); put("lat", s.lat); put("lon", s.lon); put("alt", s.alt)
                     put("type", s.type); put("cs", s.callsign); put("team", s.team)
+                    put("seen", s.lastSeen)
+                    // Records that this entry was saved under the rule "the sender set archived on
+                    // the wire". Entries without it predate that rule — see loadSavedMarkers.
+                    put("v", SCHEMA_ARCHIVED_VERIFIED)
                 })
             }
             val hid = org.json.JSONArray().apply { hidden.forEach { put(it) } }
@@ -294,13 +431,36 @@ object TakMapMarkers {
             p.getString("markers", null)?.let {
                 val arr = org.json.JSONArray(it)
                 savedMarkers.clear()
+                val onDisk = arr.length()
+                val now = System.currentTimeMillis()
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
                     val uid = o.getString("uid")
                     if (hidden.contains(uid)) continue
+                    val type = o.getString("type")
+                    // An entry written by an older build was gated on the 2525 icon lookup, which
+                    // also accepted ADS-B platforms and live TAK clients. Restoring those as
+                    // permanent would make the new rule pointless, so re-validate them on the way
+                    // in. Entries carrying the schema version were already checked against
+                    // `archived` when they were stored and are trusted as-is.
+                    if (o.optInt("v", 0) < SCHEMA_ARCHIVED_VERIFIED && !isLegacyPlacedMarker(type)) {
+                        continue
+                    }
                     savedMarkers[uid] = SavedMarker(uid, o.getDouble("lat"), o.getDouble("lon"),
-                        o.optDouble("alt", 0.0), o.getString("type"),
-                        o.optString("cs", uid), o.optString("team", "Cyan"))
+                        o.optDouble("alt", 0.0), type,
+                        o.optString("cs", uid), o.optString("team", "Cyan"),
+                        // No timestamp means an entry from before ageing existed. Treat it as seen
+                        // now rather than as 1970, so the 72-hour clock starts here instead of
+                        // evicting the whole legacy store on first load.
+                        o.optLong("seen", now))
+                }
+                evictOldMarkers()
+                // Rewrite when the load changed anything (a legacy entry rejected, an eviction, a
+                // hidden uid). Otherwise the file keeps carrying entries that are ignored on every
+                // load, and the same work is redone for ever.
+                if (savedMarkers.size != onDisk) {
+                    AppLog.i(TAG, "saved markers: $onDisk on disk -> ${savedMarkers.size} kept")
+                    saveSavedMarkers()
                 }
             }
         } catch (e: Exception) { AppLog.w(TAG, "loadSavedMarkers failed: ${e.message}") }
@@ -317,12 +477,45 @@ object TakMapMarkers {
     private val density get() = (appContext?.resources?.displayMetrics?.density ?: 2.5f)
 
     private fun iconKeyFor(user: TakUser): String {
+        // Air tracks key on course alone. The symbol carries no callsign, team colour or stale
+        // treatment, so every aircraft at the same course bucket IS the same bitmap — one cache
+        // entry per bucket rather than one per aircraft. That matters here: near busy airspace
+        // the contact list runs to a hundred aircraft, and one bitmap each would be the same
+        // unbounded growth this file's retention work exists to stop.
+        if (isAirTrack(user.type)) {
+            return if (user.hasCourse()) "air|${courseBucket(user.course)}" else "air|nocourse"
+        }
         val team = (user.team ?: "Cyan").lowercase()
         val stale = if (user.isStale) "S" else "A"
         val drone = if (user.isDrone) "D" else "U"
         val mil = milMarkerRes(user.type) ?: 0
         return "$team|$stale|$drone|$mil|${user.callsign}"
     }
+
+    /**
+     * An inbound contact that is airborne — the CoT type's third field is `A` (air) rather than
+     * `G` (ground), e.g. `a-f-A-C-F` from an ADS-B gateway.
+     *
+     * Same discriminator [ArSettings.categoryFor] uses for the AR overlay's Air Traffic layer, so
+     * a contact drawn as an aircraft on the map is the same set the overlay calls air traffic. If
+     * one of these changes, change both.
+     */
+    fun isAirTrack(type: String?): Boolean {
+        val parts = type?.split("-").orEmpty()
+        return parts.size >= 3 && parts[0] == "a" && parts[2] == "A"
+    }
+
+    /**
+     * Course rounded to [COURSE_BUCKET_DEG], which is what the icon cache keys on.
+     *
+     * Keying on the raw course would mint a fresh bitmap on every position report, because ADS-B
+     * course jitters by fractions of a degree — an unbounded cache of near-identical bitmaps,
+     * rebuilt on the HUD tick. 15° is finer than the eye reads off a 24dp symbol.
+     */
+    private fun courseBucket(course: Double): Int =
+        (Math.round(course / COURSE_BUCKET_DEG) * COURSE_BUCKET_DEG).toInt() % 360
+
+    private const val COURSE_BUCKET_DEG = 15
 
     /**
      * MIL-STD-2525 affiliation MARKERS (a-{f,h,n,u}-G, NOT the …-G-U-… unit/PLI form) →
@@ -379,11 +572,55 @@ object TakMapMarkers {
     }
 
     private fun iconBitmapFor(user: TakUser): Bitmap {
+        // Checked BEFORE milMarkerRes so an air track can never fall through to the plain team
+        // dot, which is what made ADS-B traffic indistinguishable from a TAK client.
+        if (isAirTrack(user.type)) {
+            // Already symmetric about its own centre — no label to offset, so it skips
+            // centerOnSymbol, which would be a no-op anyway.
+            return makeAirIcon(
+                if (user.hasCourse()) R.drawable.ic_air_track
+                else R.drawable.ic_air_track_nocourse,
+                if (user.hasCourse()) courseBucket(user.course).toDouble() else null,
+            )
+        }
         val res = milMarkerRes(user.type)
         val raw = if (res != null) makeMilIcon(res, user.callsign ?: user.uid)
                   else makeIcon(user.callsign ?: user.uid, user.team, user.isStale)
         return centerOnSymbol(raw, symbolHeightPx(res != null))
     }
+
+    /**
+     * The air-track symbol, turned to the reported course.
+     *
+     * Small on purpose ([AIR_ICON_DP]): ADS-B traffic is context, not something the pilot acts on,
+     * and it must not compete with the team and the markers. No callsign label for the same
+     * reason — near a busy field the labels overlap into an unreadable mat.
+     */
+    fun makeAirIcon(resId: Int, courseDeg: Double?): Bitmap {
+        val ctx = appContext
+        val d = density
+        val size = (AIR_ICON_DP * d).toInt()
+        val icon = ctx?.let { drawableToBitmap(it, resId, size) }
+        // A rotated square needs its diagonal, or the wingtips clip at 45 degrees.
+        val box = if (courseDeg != null) (size * 1.42f).toInt() else size
+
+        val bmp = Bitmap.createBitmap(box, box, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        if (icon != null) {
+            val left = (box - size) / 2f
+            if (courseDeg != null) {
+                c.save()
+                c.rotate(courseDeg.toFloat(), box / 2f, box / 2f)
+                c.drawBitmap(icon, left, left, null)
+                c.restore()
+            } else {
+                c.drawBitmap(icon, left, left, null)
+            }
+        }
+        return bmp
+    }
+
+    private const val AIR_ICON_DP = 12f    // ADS-B traffic — context, not something acted on
 
     /**
      * The generated bitmaps are symbol-on-top, callsign-label-below. osmdroid could anchor at

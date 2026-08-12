@@ -21,11 +21,45 @@ public class CotBuilder {
     private static final long DRONE_STALE_DURATION_MS = 120000; // 2 minutes
 
     // Pilot-dropped 2525 markers — see the note in buildMarker().
-    private static final long MARKER_STALE_DURATION_MS = 14 * 60 * 60 * 1000L; // 14 hours
+    //
+    // 72 HOURS (operator, 2026-08-02). This is how long a dropped marker survives on OTHER
+    // people's screens before their client drops it, so it is an operational choice rather than
+    // a technical one: it has to outlast a multi-day callout without leaving last week's markers
+    // cluttering the picture. Raised from 14 hours, which did not survive an overnight.
+    //
+    // Re-sending a marker refreshes its stale time on every client that receives it, so a pin
+    // that is still wanted can be kept alive indefinitely from the markers list.
+    private static final long MARKER_STALE_DURATION_MS = 72 * 60 * 60 * 1000L; // 72 hours
 
     // Sensor point of interest — the ground point the drone camera is looking at.
     private static final String SENSOR_POINT_TYPE = "b-m-p-s-p-i";
     private static final long SENSOR_POINT_STALE_MS = 15000; // 15s — clears if the feed stops
+
+    /**
+     * AIRFRAME IDENTITY BROADCAST IN EVERY DRONE CoT.
+     *
+     * <p>The vendor tags are correct here and stay: this really is a DJI aircraft, and receiving
+     * TAK clients match on these strings. {@code SENSOR_MODEL} was {@code M30T} until 2026-08-11
+     * — a stray literal that told every client on the channel this was a Matrice 30T. It is a
+     * Mini 2. A teammate or a log reading the airframe type got the wrong aircraft and the wrong
+     * camera. The Autel sibling carried the identical defect in the opposite direction, which is
+     * how it was found.
+     *
+     * <p>Named constants rather than literals at the three append sites, for two reasons: they
+     * are one identity expressed in three attributes and must move together, and this class is
+     * otherwise sibling-agnostic (see the takvPlatform note below — it is shared in SHAPE with
+     * the Autel port, which keeps its own copy of this file with its own values). Anything
+     * app-specific in here should be obvious rather than buried in a StringBuilder.
+     *
+     * <p>⚠ These strings go to OTHER PEOPLE'S CLIENTS, which may match on them to decide how to
+     * draw the aircraft. If the drone stops rendering correctly in a TAK client after this
+     * change, suspect these first — the receiving side may recognise a fixed set of vendor tags.
+     * {@code SENSOR_MODEL} is the one to check on a Mini 2, because it is now the only one of
+     * the three that has ever changed.
+     */
+    private static final String VEHICLE_TYPE_TAG = "_DJIV5_";
+    private static final String VEHICLE_TYPE = "DJIV5";
+    private static final String SENSOR_MODEL = "MINI2";
 
     static {
         COT_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
@@ -44,11 +78,29 @@ public class CotBuilder {
      * @param takvVersion  the {@code version} attribute — the caller's real app version, not a
      *   string owned by this shared class (which has no version of its own to report).
      */
+    /** Back-compat overload: no video advertised. */
     public static String buildPLI(String uid, String callsign, String team, String role,
                                    double lat, double lon, double alt,
                                    double bearing, double speed, int battery,
                                    String takvPlatform, String takvDevice,
                                    String takvOs, String takvVersion) {
+        return buildPLI(uid, callsign, team, role, lat, lon, alt, bearing, speed, battery,
+                takvPlatform, takvDevice, takvOs, takvVersion, null);
+    }
+
+    /**
+     * @param videoUrl RTSP url to advertise on THIS marker, or null to omit.
+     *
+     * The video rides on the OPERATOR marker, not the aircraft (operator, 2026-08-05). The stream
+     * is a screen capture of the controller, and it keeps running when the aircraft is down — but
+     * the drone PLI stops the moment there is no GPS fix, so a video advertised there became
+     * unreachable in exactly the case the screen-capture design exists to cover.
+     */
+    public static String buildPLI(String uid, String callsign, String team, String role,
+                                   double lat, double lon, double alt,
+                                   double bearing, double speed, int battery,
+                                   String takvPlatform, String takvDevice,
+                                   String takvOs, String takvVersion, String videoUrl) {
         long now = System.currentTimeMillis();
         String time = formatTime(now);
         String start = time;
@@ -81,6 +133,10 @@ public class CotBuilder {
         sb.append(" platform=\"").append(escapeXml(takvPlatform)).append("\"");
         sb.append(" version=\"").append(escapeXml(takvVersion)).append("\" />");
         sb.append("<uid Droid=\"").append(escapeXml(callsign)).append("\" />");
+        if (videoUrl != null && !videoUrl.isEmpty()) {
+            sb.append("<__video sensor=\"").append(escapeXml(callsign)).append("\"");
+            sb.append(" url=\"").append(escapeXml(videoUrl)).append("\" />");
+        }
         sb.append("</detail>");
         sb.append("</event>");
         return sb.toString();
@@ -141,7 +197,7 @@ public class CotBuilder {
             sb.append(" roll=\"0\"");
             sb.append(" range=\"").append((int) Math.round(sensorRange)).append("\"");
             sb.append(" azimuth=\"").append(sensorAzimuth).append("\"");
-            sb.append(" model=\"M30T\"");
+            sb.append(" model=\"").append(SENSOR_MODEL).append("\"");
             sb.append(" fov=\"").append(sensorFov).append("\"");
             sb.append(" type=\"r-e\"");
             sb.append(" version=\"0.6\" />");
@@ -153,11 +209,11 @@ public class CotBuilder {
         sb.append(" /><spin roll=\"0.0\" pitch=\"0.0\" yaw=\"0.0\" /></spatial>");
         sb.append("<vehicle goHomeBatteryPercent=\"20\" hal=\"0.0\"");
         sb.append(" flightTimeRemaining=\"0\"");
-        sb.append(" typeTag=\"_DJIV5_\"");
+        sb.append(" typeTag=\"").append(VEHICLE_TYPE_TAG).append("\"");
         sb.append(" batteryRemainingCapacity=\"").append(batteryRemainMah).append("\"");
         sb.append(" isFlying=\"").append(isFlying).append("\"");
         sb.append(" flightTime=\"").append(flightTimeSec).append("\"");
-        sb.append(" type=\"DJIV5\"");
+        sb.append(" type=\"").append(VEHICLE_TYPE).append("\"");
         sb.append(" batteryMaxCapacity=\"").append(batteryMaxMah).append("\"");
         sb.append(" voltage=\"").append(String.format("%.2f", voltage)).append("\" />");
         sb.append("<_radio rssi=\"100\" gps=\"true\" />");
