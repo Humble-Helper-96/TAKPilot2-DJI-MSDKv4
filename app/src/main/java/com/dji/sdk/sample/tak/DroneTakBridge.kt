@@ -582,6 +582,15 @@ class DroneTakBridge(
         val downlinkSignalPct: Int? = null,
         /** OcuSync's reported video-link capacity in Mbps, or null off OcuSync aircraft. */
         val videoDataRateMbps: Float? = null,
+        /**
+         * Return-to-home height IN METRES AS THE AIRCRAFT REPORTS IT, or null before it has said.
+         *
+         * ⚠ This is the aircraft's answer, not the Pre-Flight preference. Those are different
+         * things and the difference is the point: a set can be accepted and not applied, or
+         * rejected while the screen still shows the requested number. The sibling flew two
+         * sorties on an RTH height the pilot believed they had changed. The HUD shows this one.
+         */
+        val rthHeightM: Int? = null,
     )
 
     /**
@@ -638,6 +647,10 @@ class DroneTakBridge(
             state?.goHomeAssessment?.remainingFlightTime?.takeIf { it > 0 },
             lastDownlinkQuality,
             lastVideoDataRateMbps,
+            // Straight off the state callback the bridge already receives, so the HUD tracks the
+            // aircraft continuously rather than from a one-shot read at connect. Non-positive
+            // means it has not reported one yet — shown as unknown, never as 0 ft.
+            state?.goHomeHeight?.takeIf { it > 0 },
         )
     }
 

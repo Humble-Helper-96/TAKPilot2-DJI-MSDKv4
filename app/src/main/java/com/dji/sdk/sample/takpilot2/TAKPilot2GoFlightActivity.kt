@@ -88,6 +88,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var exposureReadout: TextView
     private lateinit var zoomButton: TextView
     private lateinit var fpvFaaCeiling: TextView
+    private lateinit var fpvRthAltitude: TextView
+    private lateinit var fpvClock: TextView
     private lateinit var fpvGimbalPitch: TextView
     private lateinit var crosshairView: CrosshairView
     private lateinit var arOverlay: ArOverlayView
@@ -217,6 +219,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
+        fpvRthAltitude = findViewById(R.id.fpvRthAltitude)
+        fpvClock = findViewById(R.id.fpvClock)
         fpvGimbalPitch = findViewById(R.id.fpvGimbalPitch)
         toolbarBattery = findViewById(R.id.toolbarBattery)
         toolbarGps = findViewById(R.id.toolbarGps)
@@ -1548,6 +1552,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         renderWarning()
         logResourcesPeriodically()
 
+        fpvClock.text = clockFormat.format(java.util.Date())
+
+        // What the AIRCRAFT holds, not what Pre-Flight asked for. "RTH --" until it answers:
+        // an unknown return height must not be shown as a number the pilot can rely on.
+        fpvRthAltitude.text = hud?.rthHeightM
+            ?.let { "RTH ${Units.feet(it.toDouble())}" } ?: "RTH --"
+
         toolbarBattery.setPercent(hud?.batteryPct)
 
         // Show the real satellite count whenever telemetry exists, even below lock threshold —
@@ -1792,6 +1803,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val HUD_INTERVAL_MS = 500L
 
         private const val RESOURCE_LOG_INTERVAL_MS = 30_000L
+
+        /** 24-hour, no seconds. Seconds would change on every HUD tick and pull the eye for no
+         *  reason; a pilot reading a clock in flight wants the minute. */
+        private val clockFormat =
+            java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
         /** Separate from [TAG] on purpose: [TAG] is in AppLog's TAK_TAGS and disappears when an
          *  operator filters TAK logging off — which is exactly when they are chasing a memory
