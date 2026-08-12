@@ -121,6 +121,16 @@
              this column, so matching it is what makes the exposure block, the readouts and the
              map read as one right-hand instrument stack instead of the slider hanging out over
              the video. It also tracks the h440dp dimen override for free. -->
+        <!-- Wall clock. The flight screen is full-screen and covers the system status bar, so
+             without this there is no time anywhere on it — and the time is what a pilot writes
+             in a log, calls on the radio, and matches against the flight record afterwards. -->
+        <TextView
+            android:id="@+id/fpvClock"
+            style="@style/hudText"
+            android:layout_marginBottom="2dp"
+            android:gravity="end"
+            android:text="--:--" />
+
         <com.dji.sdk.sample.takpilot2.EvSliderView
             android:id="@+id/evSlider"
             android:layout_width="@dimen/flight_map_size"
@@ -172,6 +182,17 @@
             android:layout_marginBottom="4dp"
             android:gravity="end"
             android:text="" />
+
+        <!-- RTH height AS THE AIRCRAFT REPORTS IT, not as Pre-Flight requested. A set can be
+             accepted and not applied, or rejected while the screen keeps showing the number the
+             pilot typed. This is the one a pilot is about to rely on. Shows a dashed placeholder
+             until the aircraft has answered, because unknown must not look like a value. -->
+        <TextView
+            android:id="@+id/fpvRthAltitude"
+            style="@style/hudText"
+            android:layout_marginBottom="2dp"
+            android:gravity="end"
+            android:text="RTH --" />
 
         <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
         <TextView
