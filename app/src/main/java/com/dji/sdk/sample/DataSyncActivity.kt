@@ -141,6 +141,8 @@ class DataSyncActivity : AppCompatActivity() {
 
     private fun promptPasswordThenJoin(name: String) {
         val input = EditText(this).apply {
+            // Landscape-locked screen: keep the IME out of fullscreen extract mode (see takFieldStyle).
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = "Feed password"
             setTextColor(Color.WHITE)
@@ -183,9 +185,11 @@ class DataSyncActivity : AppCompatActivity() {
             setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
         }
         val nameIn = EditText(this).apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             hint = "Feed name"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         val descIn = EditText(this).apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             hint = "Description (optional)"; setTextColor(Color.WHITE); setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
         }
         col.addView(nameIn); col.addView(descIn)

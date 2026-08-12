@@ -235,10 +235,18 @@
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/tp_text_primary</item>
-        <item name="android:textColorHint">#666666</item>
+        <item name="android:textColorHint">@color/tp_text_disabled</item>
         <item name="android:background">@color/tp_surface_field</item>
         <item name="android:padding">12dp</item>
         <item name="android:textSize">15sp</item>
+        <!-- ⚠ flagNoExtractUi IS LOAD-BEARING ON A PHONE, not a nicety.
+             Every screen in this app is locked to landscape, and in landscape the IME defaults
+             to fullscreen "extract" mode: it covers the window with its own edit box. On the
+             S20 Ultra (914x411dp in landscape) that presented as a field that took a cursor and
+             raised no keyboard at all, with the real keyboard only appearing after a back press.
+             This was not seen on the Pixel 8 Pro or on the Autel controller, both of which have
+             far more height to give the IME. Reported from the device 2026-08-11. -->
+        <item name="android:imeOptions">flagNoExtractUi</item>
     </style>
 
     <!-- TAKPilot2 Go home screen -->
