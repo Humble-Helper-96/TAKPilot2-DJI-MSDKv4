@@ -50,37 +50,18 @@
                     android:textColor="@color/tp_text_primary"
                     android:textSize="22sp"
                     android:textStyle="bold" />
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="6dp">
-                    <View
-                        android:id="@+id/homeTakDot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:layout_marginEnd="6dp"
-                        android:background="@drawable/tak_status_dot" />
-                    <TextView
-                        android:id="@+id/homeTakStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="TAK: Disconnected"
-                        android:textColor="@color/tp_text_secondary"
-                        android:textSize="13sp" />
-                </LinearLayout>
-                <!-- Network, under the TAK line and deliberately next to it. When TAK will not
-                     connect, this is the first thing worth ruling out, and a pilot should not
-                     have to leave the app to check it. Amber here explains a red TAK dot. -->
+                <!-- Which exact build this phone is running. Build TIME, not just version, so
+                     two sideloads made minutes apart in a debugging session can be told apart.
+                     Sits where the TAK indicator used to: that moved to the ENTER FLIGHT card,
+                     which is where a pilot actually acts on it. Matches the Autel sibling. -->
                 <TextView
-                    android:id="@+id/homeNetwork"
+                    android:id="@+id/homeVersion"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:text="Network: —"
+                    android:layout_marginTop="6dp"
+                    android:text="v— · built —"
                     android:textColor="@color/tp_text_secondary"
-                    android:textSize="12sp" />
+                    android:textSize="13sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -179,13 +160,62 @@
             android:textSize="15sp"
             android:layout_marginTop="6dp" />
 
+        <!-- TAK connection status — moved here from under the app name. This card is what a
+             pilot taps to fly, so the one thing that decides whether the team will see them
+             belongs where they are about to act on it, not on the screen's other side. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="10dp">
+            <View
+                android:id="@+id/homeTakDot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/tak_status_dot" />
+            <TextView
+                android:id="@+id/homeTakStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TAK: Disconnected"
+                android:textColor="@color/tp_text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Network state, directly under the TAK line it explains. The TAK dot alone cannot
+             separate "server down" from "this phone has no network", and that ambiguity is what
+             had pilots chasing enrollment failures on the sibling. Green means reachability was
+             CONFIRMED, not merely that something is attached. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+            <View
+                android:id="@+id/homeNetworkDot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/tak_status_dot" />
+            <TextView
+                android:id="@+id/homeNetwork"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Network: —"
+                android:textColor="@color/tp_text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
         <!-- Aircraft info, centered under the title -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center_horizontal"
-            android:layout_marginTop="18dp">
+            android:layout_marginTop="12dp">
             <TextView style="@style/homeCardTitle" android:text="Aircraft"
                 android:layout_gravity="center_horizontal" />
             <TextView android:id="@+id/homeAircraft" style="@style/homeCardValue"
@@ -207,18 +237,5 @@
             android:textSize="14sp"
             android:textStyle="bold"
             android:letterSpacing="0.08" />
-
-        <!-- Version and build time. Together these answer "which APK is actually on this
-             phone", which is the question that comes up every time a build is handed over.
-             versionCode is deliberately absent: it is an internal integer that means nothing
-             to a pilot, and showing it alongside a semver invites reading it as part of one. -->
-        <TextView
-            android:id="@+id/homeVersion"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="2dp"
-            android:text="—"
-            android:textColor="@color/tp_text_caption"
-            android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>

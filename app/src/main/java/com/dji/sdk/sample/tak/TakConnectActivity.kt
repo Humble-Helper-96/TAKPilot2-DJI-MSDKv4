@@ -212,8 +212,96 @@ class TakConnectActivity : AppCompatActivity() {
         // pilot having to touch a field.
         checkLimits()
 
+        setupBattery()
+        setupStickMode()
         setupFailsafe()
         setupAvoidance()
+        setupApplyButton()
+    }
+
+    /** Battery warning/critical levels. Saved as typed, like the limits above; pushed to the
+     *  aircraft only on Apply, because these decide when it comes home on its own. */
+    private fun setupBattery() {
+        val low = findViewById<EditText>(R.id.limitLowBattery)
+        val crit = findViewById<EditText>(R.id.limitCriticalBattery)
+        low.setText(FlightLimitsController.savedLowBatteryPct(this))
+        crit.setText(FlightLimitsController.savedCriticalBatteryPct(this))
+        val watcher = object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                FlightLimitsController.saveBattery(
+                    this@TakConnectActivity, low.text.toString(), crit.text.toString())
+            }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        }
+        listOf(low, crit).forEach { it.addTextChangedListener(watcher) }
+        renderBatteryReadBack()
+    }
+
+    /** Shows what the AIRCRAFT reports, not what was typed. Blank until a read-back has landed —
+     *  "unknown" and "what you asked for" must not look the same. */
+    private fun renderBatteryReadBack() {
+        val w = FlightLimitsController.aircraftWarningPct
+        val c = FlightLimitsController.aircraftCriticalPct
+        findViewById<TextView>(R.id.limitBatteryStatus).text =
+            if (w == null && c == null) ""
+            else "Aircraft reports: warning ${w?.let { "$it%" } ?: "—"}, " +
+                "critical ${c?.let { "$it%" } ?: "—"}"
+    }
+
+    private fun setupStickMode() {
+        val group = findViewById<RadioGroup>(R.id.stickModeGroup)
+        fun idFor(m: FlightLimitsController.StickMode) = when (m) {
+            FlightLimitsController.StickMode.MODE_1 -> R.id.stickMode1
+            FlightLimitsController.StickMode.MODE_2 -> R.id.stickMode2
+            FlightLimitsController.StickMode.MODE_3 -> R.id.stickMode3
+        }
+        group.check(idFor(FlightLimitsController.savedStickMode(this)))
+        group.setOnCheckedChangeListener { _, checkedId ->
+            val choice = when (checkedId) {
+                R.id.stickMode1 -> FlightLimitsController.StickMode.MODE_1
+                R.id.stickMode3 -> FlightLimitsController.StickMode.MODE_3
+                else -> FlightLimitsController.StickMode.MODE_2
+            }
+            FlightLimitsController.saveStickMode(this, choice)
+            AppLog.i(TAG, "stick mode selected: ${choice.label} (sent on Apply)")
+        }
+    }
+
+    /**
+     * Pushes everything in this section to the aircraft now, and reads it back.
+     *
+     * The button disables for the duration. Without that a pilot can queue a second push on top
+     * of a running one, and the SDK's callbacks then interleave in an order nobody can reason
+     * about — for settings that decide when the aircraft flies itself home.
+     */
+    private fun setupApplyButton() {
+        val button = findViewById<Button>(R.id.limitApplyButton)
+        val bar = findViewById<android.widget.ProgressBar>(R.id.limitApplyProgress)
+        val status = findViewById<TextView>(R.id.limitApplyStatus)
+        button.setOnClickListener {
+            AppLog.v(TAG, "tap: Apply to Aircraft")
+            button.isEnabled = false
+            bar.visibility = View.VISIBLE
+            bar.progress = 0
+            status.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_tertiary))
+            FlightLimitsController.applyToAircraft(
+                this,
+                onProgress = { done, total, name ->
+                    bar.max = total
+                    bar.progress = done
+                    status.text = "Applying ($done/$total): $name …"
+                },
+                onDone = { ok, summary ->
+                    button.isEnabled = true
+                    bar.visibility = View.GONE
+                    status.text = summary
+                    status.setTextColor(ContextCompat.getColor(applicationContext,
+                        if (ok) R.color.tp_state_go else R.color.tp_state_unknown))
+                    renderBatteryReadBack()
+                },
+            )
+        }
     }
 
     private val takLockedFields = listOf(
@@ -235,7 +323,23 @@ class TakConnectActivity : AppCompatActivity() {
      * Unlocking asks for a password; locking does not. The asymmetry is deliberate — locking is
      * the safe direction, and gating it would only train people to dismiss dialogs.
      */
+    /** The aircraft-settings lock covers the numbers that decide when it flies itself home, and
+     *  the stick mode — plus Apply, so a locked configuration cannot be pushed either. */
+    private val aircraftLockedFields = listOf(
+        R.id.limitMaxAltitude, R.id.limitMaxRadius, R.id.limitRthAltitude,
+        R.id.limitLowBattery, R.id.limitCriticalBattery,
+        R.id.stickMode1, R.id.stickMode2, R.id.stickMode3,
+        R.id.failsafeGoHome, R.id.failsafeHover, R.id.failsafeLand,
+        R.id.limitApplyButton,
+    )
+
     private fun setupConfigLocks() {
+        setupOneLock(
+            R.id.limitBatteryLock, KEY_AIRCRAFT_LOCKED, aircraftLockedFields,
+            "Unlock aircraft settings?",
+            "These decide when the aircraft returns and lands on its own, and what the control " +
+                "sticks do. A wrong value can force a landing away from the pilot.",
+        )
         setupOneLock(
             R.id.takLockConfig, KEY_TAK_LOCKED, takLockedFields,
             "Unlock TAK server settings?",
@@ -967,6 +1071,7 @@ class TakConnectActivity : AppCompatActivity() {
          */
         private const val UNLOCK_PASSWORD = "takpilot"
 
+        private const val KEY_AIRCRAFT_LOCKED = "aircraft_config_locked"
         private const val KEY_TAK_LOCKED = "tak_config_locked"
         private const val KEY_VIDEO_LOCKED = "video_config_locked"
 
