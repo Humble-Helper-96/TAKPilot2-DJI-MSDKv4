@@ -71,7 +71,7 @@ class TakForegroundService : Service() {
                     NotificationChannel(
                         CHANNEL_ID, "TAKPilot2 Go Link",
                         NotificationManager.IMPORTANCE_LOW,
-                    ).apply { description = "Keeps the TAK connection and drone feed alive" }
+                    ).apply { description = "Keeps TAKPilot running while the screen is off." }
                 )
             }
         }
