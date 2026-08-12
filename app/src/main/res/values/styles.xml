@@ -343,6 +343,19 @@
         <item name="android:shadowRadius">3</item>
     </style>
 
+    <!-- One cell of the flight-screen resource row. Equal weight so the four cells never move
+         as their contents change width — this row is watched for a number that CHANGES, and a
+         cell that reflows drags the eye to the wrong thing. Monospace for the same reason. -->
+    <style name="flightResCell">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/tp_state_go_soft</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
     <!-- Button ROLES. Declares the green=go / blue=informational / red=destructive convention
          once, instead of re-typing it as an inline textColor + backgroundTint pair on every
          button. Width, height and margin stay on each button because those vary; the style

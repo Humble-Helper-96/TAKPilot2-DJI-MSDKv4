@@ -76,6 +76,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
     private lateinit var mapContainer: android.widget.FrameLayout
     private lateinit var mapZoomButton: TextView
+    private lateinit var resourceMonitorRow: View
+    private lateinit var resourceMonitorCells: List<TextView>
     private lateinit var noVideoCover: View
     private lateinit var fpvOverlayText: TextView
     private lateinit var toolbarBattery: BatteryGaugeView
@@ -231,6 +233,18 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         toolbarTakDot = findViewById(R.id.toolbarTakDot)
         toolbarSignal = findViewById(R.id.toolbarSignal)
         toolbarSignalText = findViewById(R.id.toolbarSignalText)
+
+        resourceMonitorRow = findViewById(R.id.flightResourceMonitorRow)
+        resourceMonitorCells = listOf(
+            findViewById(R.id.flightResSys),
+            findViewById(R.id.flightResApp),
+            findViewById(R.id.flightResCpu),
+            findViewById(R.id.flightResTak),
+        )
+        // Read once at open, not per tick: the Debug switch cannot change while this screen is
+        // in front, and re-reading a pref 2x a second for a debug overlay is silly.
+        resourceMonitorRow.visibility =
+            if (AppLog.resourceMonitor) View.VISIBLE else View.GONE
 
         mapContainer = findViewById(R.id.flightMapContainer)
         mapView = findViewById(R.id.flightMapView)
@@ -719,6 +733,25 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         mapContainer.layoutParams = lp
         mapContainer.elevation = if (mapExpanded) 8f * resources.displayMetrics.density else 0f
         AppLog.v(TAG, "mini-map ${if (mapExpanded) "expanded" else "compact"} (${size}px)")
+    }
+
+    private var hudTickCount = 0
+
+    /**
+     * Fills the debug resource row, every fourth HUD tick — 2 seconds.
+     *
+     * Not every tick: snapshot() reads /proc and takes a binder IPC for PSS, and none of these
+     * numbers move meaningfully in half a second. Skipped entirely when the row is hidden, which
+     * is the default, so it costs nothing in normal flight.
+     */
+    private fun updateResourceRow() {
+        if (resourceMonitorRow.visibility != View.VISIBLE) return
+        hudTickCount++
+        if (hudTickCount % 4 != 0) return
+        runCatching {
+            val segments = com.dji.sdk.sample.tak.ResourceMonitor.formattedSegments(applicationContext)
+            segments.forEachIndexed { i, text -> resourceMonitorCells[i].text = text }
+        }
     }
 
     private var lastResourceLogAt = 0L
@@ -1675,6 +1708,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // the no-GPS-fix early return — losing the fix is itself a condition worth showing.
         renderWarning()
         logResourcesPeriodically()
+        updateResourceRow()
 
         fpvClock.text = clockFormat.format(java.util.Date())
 

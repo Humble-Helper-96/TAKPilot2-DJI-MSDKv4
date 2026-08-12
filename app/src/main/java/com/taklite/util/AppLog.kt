@@ -38,6 +38,7 @@ object AppLog {
     private const val KEY_TAK = "debug_logging_tak"
     private const val KEY_OBSTACLE = "debug_logging_obstacle"
     private const val KEY_RESOURCE = "debug_logging_resource"
+    private const val KEY_RESOURCE_MONITOR = "debug_resource_monitor"
     private const val ACTIVE_FILE_NAME = "app.log"
     private const val MAX_FILE_SIZE_BYTES = 1L * 1024 * 1024
     private const val RETENTION_MS = 2L * 60 * 60 * 1000
@@ -131,6 +132,19 @@ object AppLog {
         get() = !initialized || prefs.getBoolean(KEY_RESOURCE, true)
         set(value) {
             if (initialized) prefs.edit().putBoolean(KEY_RESOURCE, value).apply()
+        }
+
+    /**
+     * Whether the flight screen shows the resource row ON SCREEN. Default **false**, separate
+     * from [resourceLogging] on purpose: a log line costs nothing and is read afterwards, while
+     * an overlay covers live video during a flight. Different costs, different defaults, so they
+     * get their own switches rather than one that means two things.
+     */
+    @JvmStatic
+    var resourceMonitor: Boolean
+        get() = initialized && prefs.getBoolean(KEY_RESOURCE_MONITOR, false)
+        set(value) {
+            if (initialized) prefs.edit().putBoolean(KEY_RESOURCE_MONITOR, value).apply()
         }
 
     private val RESOURCE_TAGS = setOf("TP2Resources")
