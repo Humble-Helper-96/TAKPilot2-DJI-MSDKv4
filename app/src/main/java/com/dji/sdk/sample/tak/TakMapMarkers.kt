@@ -692,7 +692,25 @@ object TakMapMarkers {
         return bmp
     }
 
+    /**
+     * SYMBOL SIZES, and they are named constants for a reason.
+     *
+     * These were bare literals repeated between symbolHeightPx and the make*Icon functions,
+     * which MUST agree — symbolHeightPx tells the centre-anchor padding how tall the symbol part
+     * is, and a mismatch hangs every marker off its own position by half a label. On the Autel
+     * sibling that duplication is exactly how a 32dp ground marker survived the pass that shrank
+     * the air icon: two places to change, one of them missed.
+     *
+     * VALUES ARE THE SIBLING'S, POST-SHRINK. They were 32 / 14 / 10sp here, which is what that
+     * tree had before it measured them against a real map: a 32dp marker plus its label came to
+     * 29% of a 180dp map's height. This map is SMALLER still at 130dp compact, so the old sizes
+     * were worse here than they were there — a 32dp marker was a quarter of the map's width.
+     * The expanded 260dp state makes the new sizes roomier again rather than tighter.
+     */
+    private const val MIL_ICON_DP = 14f    // shared markers AND the pilot's own dropped markers
     private const val AIR_ICON_DP = 12f    // ADS-B traffic — context, not something acted on
+    private const val PLI_DOT_DP = 10f     // team position dots
+    private const val LABEL_SP = 8f
 
     /**
      * The generated bitmaps are symbol-on-top, callsign-label-below. osmdroid could anchor at
@@ -712,7 +730,7 @@ object TakMapMarkers {
 
     /** Height of just the symbol part (above the label) — must match the make*Icon sizes. */
     private fun symbolHeightPx(isMil: Boolean): Int =
-        if (isMil) (32 * density).toInt() else (14 * density).toInt()
+        if (isMil) (MIL_ICON_DP * density).toInt() else (PLI_DOT_DP * density).toInt()
 
     /**
      * A 2525 affiliation frame + label, padded for MapLibre's center anchoring. Shared with
@@ -737,11 +755,11 @@ object TakMapMarkers {
     fun makeMilIcon(resId: Int, callsign: String): Bitmap {
         val ctx = appContext
         val d = density
-        val size = (32 * d).toInt()
+        val size = (MIL_ICON_DP * d).toInt()
         val icon = ctx?.let { drawableToBitmap(it, resId, size) }
 
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE; textSize = 10 * d; typeface = Typeface.DEFAULT_BOLD
+            color = Color.WHITE; textSize = LABEL_SP * d; typeface = Typeface.DEFAULT_BOLD
         }
         val tw = text.measureText(callsign)
         val fm = text.fontMetrics
@@ -768,12 +786,12 @@ object TakMapMarkers {
     private fun makeIcon(callsign: String, team: String?, isStale: Boolean): Bitmap {
         val color = if (isStale) Color.GRAY else teamColor(team)
         val d = density
-        val iconSize = (14 * d).toInt()
+        val iconSize = (PLI_DOT_DP * d).toInt()
         val r = iconSize / 2f
 
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = Color.WHITE
-            textSize = 10 * d
+            textSize = LABEL_SP * d
             typeface = Typeface.DEFAULT_BOLD
         }
         val textWidth = textPaint.measureText(callsign)
