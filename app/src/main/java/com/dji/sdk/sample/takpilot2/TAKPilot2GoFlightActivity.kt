@@ -599,7 +599,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         if (hud == null || !hud.hasFix) {
             fpvFaaCeiling.visibility = View.VISIBLE
             fpvFaaCeiling.text = "FAA — no fix"
-            fpvFaaCeiling.setTextColor(android.graphics.Color.parseColor("#B0B0B0"))
+            fpvFaaCeiling.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
             return
         }
 
@@ -628,7 +628,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             ceiling != null -> {
                 fpvFaaCeiling.text = "FAA $ceiling ft AGL$approx"
                 fpvFaaCeiling.setTextColor(
-                    if (aglFt > ceiling) android.graphics.Color.parseColor("#EF5350")
+                    if (aglFt > ceiling) ContextCompat.getColor(applicationContext, R.color.tp_btn_danger_dialog)
                     else android.graphics.Color.WHITE
                 )
             }
@@ -639,15 +639,16 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 val part107 = com.dji.sdk.sample.tak.UasfmIndex.PART_107_DEFAULT_CEILING_FT
                 fpvFaaCeiling.text = "Class G · $part107 ft AGL$approx"
                 fpvFaaCeiling.setTextColor(
-                    if (aglFt > part107) android.graphics.Color.parseColor("#EF5350")
-                    else android.graphics.Color.parseColor("#B0B0B0")
+                    if (aglFt > part107) ContextCompat.getColor(applicationContext, R.color.tp_btn_danger_dialog)
+                    else ContextCompat.getColor(applicationContext, R.color.tp_text_secondary)
                 )
             }
             // Outside the downloaded box entirely — we genuinely don't know. Amber, because
             // silently implying 400 ft here would be a guess dressed up as information.
             else -> {
                 fpvFaaCeiling.text = "FAA — no data here"
-                fpvFaaCeiling.setTextColor(android.graphics.Color.parseColor("#FFB74D"))
+                fpvFaaCeiling.setTextColor(
+                    ContextCompat.getColor(applicationContext, R.color.tp_state_unknown))
             }
         }
     }
@@ -745,7 +746,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         crosshairView.setGimbalPitch(pitch, dtedAvailable)
         if (pitch == null) {
             fpvGimbalPitch.text = "GIMBAL —"
-            fpvGimbalPitch.setTextColor(android.graphics.Color.parseColor("#B0B0B0"))
+            fpvGimbalPitch.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
             return
         }
         // Sign dropped in favour of an explicit DOWN/UP word: "-20" reads as a negative number
@@ -758,7 +759,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvGimbalPitch.text = label
         // Shared classifier, not a second copy of the thresholds — these two displays drifting
         // apart would be worse than having only one of them.
-        fpvGimbalPitch.setTextColor(CrosshairView.accuracyColorFor(pitch, dtedAvailable))
+        fpvGimbalPitch.setTextColor(CrosshairView.accuracyColorFor(this, pitch, dtedAvailable))
     }
 
     private fun onArToggleTapped() {
@@ -896,7 +897,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             if (on) R.drawable.bg_ar_pill_active else R.drawable.bg_zoom_pill
         )
         arButton.setTextColor(
-            if (on) android.graphics.Color.parseColor("#4CAF50") else android.graphics.Color.WHITE
+            if (on) ContextCompat.getColor(applicationContext, R.color.tp_state_go) else android.graphics.Color.WHITE
         )
     }
 

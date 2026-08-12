@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0E1116"
+    android:background="@color/tp_bg_data_sync"
     android:padding="20dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Data Sync — Feeds"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/tp_text_primary"
         android:textSize="22sp"
         android:textStyle="bold" />
 
@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:text="Loading feeds…"
-        android:textColor="#9AA4B2"
+        android:textColor="@color/tp_text_cool"
         android:textSize="13sp" />
 
     <LinearLayout
@@ -51,7 +51,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:text=""
-        android:textColor="#4CAF50"
+        android:textColor="@color/tp_state_go"
         android:textSize="14sp"
         android:textStyle="bold" />
 

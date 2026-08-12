@@ -1,5 +1,6 @@
 package com.dji.sdk.sample.tak
 
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -84,14 +85,14 @@ class TakConnectActivity : AppCompatActivity() {
         // screen is opened before that first attempt lands, or after a manual disconnect).
         when {
             TakManager.getInstance().isConnected ->
-                setStatus("Connected. Drone PLI streaming.", Color.parseColor("#4CAF50"))
+                setStatus("Connected. Drone PLI streaming.", ContextCompat.getColor(applicationContext, R.color.tp_state_go))
             prefs.getBoolean(KEY_LOGGED_OUT, false) ->
-                setStatus("Logged out. Enter host, username and password to sign in.", Color.parseColor("#B0B0B0"))
+                setStatus("Logged out. Enter host, username and password to sign in.", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
             hasSavedCerts(prefs) -> {
-                setStatus("Reconnecting with saved enrollment …", Color.parseColor("#B0B0B0"))
+                setStatus("Reconnecting with saved enrollment …", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
                 reconnectFromSaved(prefs, callsign.text.toString().trim().ifEmpty { "sUAS" })
             }
-            else -> setStatus("Not connected.", Color.parseColor("#B0B0B0"))
+            else -> setStatus("Not connected.", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
         }
 
         findViewById<Button>(R.id.takConnectButton).setOnClickListener {
@@ -104,7 +105,7 @@ class TakConnectActivity : AppCompatActivity() {
             val cp = cotPort.text.toString().trim().toIntOrNull() ?: 8089
 
             if (TakManager.getInstance().isConnected) {
-                setStatus("Already connected.", Color.parseColor("#4CAF50"))
+                setStatus("Already connected.", ContextCompat.getColor(applicationContext, R.color.tp_state_go))
                 return@setOnClickListener
             }
             prefs.edit()
@@ -122,7 +123,7 @@ class TakConnectActivity : AppCompatActivity() {
             }
             if (h.isEmpty() || u.isEmpty() || p.isEmpty()) {
                 setStatus("Host, username and password are required for first enrollment.",
-                    Color.parseColor("#F44336"))
+                    ContextCompat.getColor(applicationContext, R.color.tp_state_danger))
                 return@setOnClickListener
             }
             enrollAndConnect(h, ep, cp, u, p, cs)
@@ -148,7 +149,7 @@ class TakConnectActivity : AppCompatActivity() {
             runCatching { findViewById<android.widget.LinearLayout>(R.id.takChannelsList).removeAllViews() }
             runCatching { findViewById<TextView>(R.id.takChannelsStatus).text = "" }
             setStatus("Logged out. Enter host, username and password to sign in as another user.",
-                Color.parseColor("#B0B0B0"))
+                ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
         }
 
         setupVideoControls(prefs)
@@ -453,7 +454,7 @@ class TakConnectActivity : AppCompatActivity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
-                setBackgroundColor(Color.parseColor("#202020"))
+                setBackgroundColor(ContextCompat.getColor(applicationContext, R.color.tp_surface_dialog))
                 setPadding(12, 10, 12, 10)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -474,13 +475,13 @@ class TakConnectActivity : AppCompatActivity() {
                 val sizeStr = if (mb >= 1024) "%.1f GB".format(mb / 1024.0) else "%.0f MB".format(mb)
                 text = "Imported ${dtedDateFormat.format(java.util.Date(region.importedAtMs))} · " +
                     "${region.fileCount} file(s) · $sizeStr"
-                setTextColor(Color.parseColor("#909090"))
+                setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_tertiary))
                 textSize = 12f
             })
             row.addView(info)
             row.addView(TextView(this).apply {
                 text = "Delete"
-                setTextColor(Color.parseColor("#EF5350"))
+                setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_btn_danger_dialog))
                 textSize = 13f
                 setPadding(20, 8, 4, 8)
                 setOnClickListener {
@@ -600,7 +601,7 @@ class TakConnectActivity : AppCompatActivity() {
         host: String, enrollPort: Int, cotPort: Int,
         username: String, password: String, droneCallsign: String,
     ) {
-        setStatus("Enrolling with $host:$enrollPort …", Color.parseColor("#B0B0B0"))
+        setStatus("Enrolling with $host:$enrollPort …", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
 
         // Stable operator uid persisted across sessions.
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -622,13 +623,13 @@ class TakConnectActivity : AppCompatActivity() {
                             .putString(KEY_CLIENTCERT, clientCertPath)
                             .putBoolean(KEY_LOGGED_OUT, false)   // new enrollment → allow auto-reconnect again
                             .apply()
-                        runOnUiThread { setStatus("Enrolled. Connecting …", Color.parseColor("#B0B0B0")) }
+                        runOnUiThread { setStatus("Enrolled. Connecting …", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary)) }
                         connectWithCerts(uid, username, droneUid, droneCallsign,
                             host, cotPort, trustStorePath, clientCertPath)
                     }
 
                     override fun onError(error: String) {
-                        runOnUiThread { setStatus("Error: $error", Color.parseColor("#F44336")) }
+                        runOnUiThread { setStatus("Error: $error", ContextCompat.getColor(applicationContext, R.color.tp_state_danger)) }
                     }
                 })
         }.start()
@@ -646,7 +647,7 @@ class TakConnectActivity : AppCompatActivity() {
         )
         runOnUiThread {
             setStatus("Connected. Streaming drone PLI as \"$droneCallsign\".",
-                Color.parseColor("#4CAF50"))
+                ContextCompat.getColor(applicationContext, R.color.tp_state_go))
             TakBridgeHolder.start(droneUid, droneCallsign)
             TakForegroundService.start(applicationContext, droneCallsign)
         }
@@ -665,7 +666,7 @@ class TakConnectActivity : AppCompatActivity() {
             prefs.edit().putString(KEY_UID, uid).apply()
         }
         if (host.isEmpty() || ts.isEmpty() || cc.isEmpty()) {
-            setStatus("Saved enrollment incomplete — enroll again.", Color.parseColor("#F44336"))
+            setStatus("Saved enrollment incomplete — enroll again.", ContextCompat.getColor(applicationContext, R.color.tp_state_danger))
             return
         }
         Thread { connectWithCerts(uid, username, "$uid-DRONE", droneCallsign, host, cotPort, ts, cc) }.start()
@@ -713,11 +714,11 @@ class TakConnectActivity : AppCompatActivity() {
         val chanStatus = findViewById<TextView>(R.id.takChannelsStatus)
         if (!TakManager.getInstance().isConnected) {
             chanStatus.text = "Connect to TAK first, then pull channels."
-            chanStatus.setTextColor(Color.parseColor("#F44336"))
+            chanStatus.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_state_danger))
             return
         }
         chanStatus.text = "Pulling channels…"
-        chanStatus.setTextColor(Color.parseColor("#B0B0B0"))
+        chanStatus.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
         TakChannelsStore.pull(this) { all ->
             chanStatus.text = if (all.isEmpty()) "No channels found for this login."
                 else "${all.size} channel(s). Check the ones to publish to."

@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@color/tp_bg_flight">
 
     <com.dji.sdk.sample.takpilot2.FpvTextureView
         android:id="@+id/flightFpvView"
@@ -38,10 +38,10 @@
         android:id="@+id/flightNoVideoCover"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#1A1A1A"
+        android:background="@color/tp_bg_screen"
         android:gravity="center"
         android:text="Waiting for video…"
-        android:textColor="#666666"
+        android:textColor="@color/tp_text_disabled"
         android:textSize="16sp"
         android:visibility="visible" />
 
@@ -54,12 +54,12 @@
         android:layout_gravity="top|start"
         android:layout_marginTop="64dp"
         android:layout_marginStart="16dp"
-        android:shadowColor="#CC000000"
+        android:shadowColor="@color/tp_shadow"
         android:shadowDx="0"
         android:shadowDy="1"
         android:shadowRadius="3"
         android:text=""
-        android:textColor="#4CAF50"
+        android:textColor="@color/tp_state_go"
         android:textSize="13sp"
         android:textStyle="bold"
         android:visibility="gone" />
@@ -86,7 +86,7 @@
         android:paddingHorizontal="10dp"
         android:paddingVertical="6dp"
         android:text=""
-        android:textColor="#FFFFFF"
+        android:textColor="@color/tp_text_primary"
         android:textSize="13sp"
         android:textStyle="bold"
         android:visibility="gone" />
@@ -136,7 +136,7 @@
 
             <TextView style="@style/hudText" android:layout_width="0dp"
                 android:layout_weight="1" android:gravity="center"
-                android:letterSpacing="0.08" android:text="EV" android:textColor="#9AC4FF" />
+                android:letterSpacing="0.08" android:text="EV" android:textColor="@color/tp_accent" />
 
             <TextView style="@style/hudText" android:layout_width="0dp"
                 android:layout_weight="1" android:gravity="end" android:text="+2" />
@@ -269,7 +269,7 @@
             android:layout_marginEnd="14dp"
             android:alpha="0.4"
             android:text="—%"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="13sp"
             android:textStyle="bold" />
 
@@ -287,7 +287,7 @@
             android:layout_marginStart="4dp"
             android:layout_marginEnd="14dp"
             android:text="—"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="13sp"
             android:textStyle="bold" />
 
@@ -333,7 +333,7 @@
             android:contentDescription="Toggle AR marker overlay"
             android:gravity="center"
             android:text="AR"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="12sp"
             android:textStyle="bold" />
 
@@ -356,7 +356,7 @@
             android:contentDescription="Toggle camera zoom (1x/2x)"
             android:gravity="center"
             android:text="1X"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tp_text_primary"
             android:textSize="12sp"
             android:textStyle="bold" />
 

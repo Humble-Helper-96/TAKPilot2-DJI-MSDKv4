@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TAKPilot2 colour tokens — the single source of truth for the pilot-facing screens.
+
+  WHY. Before this, every colour was an inline #RRGGBB literal repeated across layouts,
+  styles.xml and Kotlin, with no shared names: 68 Color.parseColor call sites over 32 distinct
+  values, several of them near-duplicate greys that no longer agreed with each other. This file
+  names each colour by its ROLE so the same role always uses the same value, and a change is made
+  in one place. Reference these as @color/tp_* from layouts and styles, and through
+  ContextCompat.getColor from code.
+
+  VALUES ARE PRESERVED from the pre-token palette, with exactly three exceptions, all recorded
+  here so nobody has to diff for them:
+    #AAAAAA -> #B0B0B0  secondary text  (two greys 6/255 apart, sub-perceptual)
+    #E0E0E0 -> #DDDDDD  bright text     (3/255 apart, sub-perceptual)
+    #555555 -> #37474F  the Log Out button, folded onto the neutral button role like its
+                        siblings — see the comment at that button in activity_tak_connect.xml
+  The first two are the near-duplicate consolidation this file exists to make impossible to
+  reintroduce; the third is a deliberate role fix. Nothing else moved.
+
+  ⚠ res/values/colors.xml IS NOT THIS FILE. That one belongs to the stock DJI sample and is
+  consumed by its demo views; leave it alone. Everything TAKPilot draws comes from here.
+
+  ⚠ THE FLIGHT-HUD VIEWS ARE INCLUDED, DELIBERATELY. The Autel sibling introduced its token file
+  without them and that gap is still an open finding in its own audit — roughly fifty literals
+  that outlived the consolidation they were supposed to be part of. The HUD colours below carry a
+  FLIGHT-TUNED marker: their values were chosen against live video and must be tokenised without
+  being re-tuned. Change one only with the aircraft in front of you.
+-->
+<resources>
+
+    <!-- Surfaces / backgrounds -->
+    <color name="tp_bg_home">#0E0E10</color>        <!-- home screen root -->
+    <color name="tp_bg_flight">#000000</color>      <!-- flight screen root (under the video) -->
+    <color name="tp_bg_screen">#1A1A1A</color>      <!-- pre-flight / general screen bg -->
+    <color name="tp_bg_data_sync">#0E1116</color>   <!-- data-sync screen bg -->
+    <color name="tp_surface_card">#1A1B1E</color>   <!-- raised card on the home screen -->
+    <color name="tp_surface_row">#1A1F26</color>    <!-- data-sync list row -->
+    <color name="tp_surface_field">#2A2A2A</color>  <!-- text-input background -->
+    <color name="tp_surface_dialog">#202020</color> <!-- dialog background -->
+    <color name="tp_surface_guide">#202024</color>  <!-- field-guide section block -->
+    <color name="tp_surface_guide_code">#101014</color> <!-- field-guide inset/example block -->
+    <color name="tp_border">#333333</color>         <!-- hairline borders / dim separators -->
+    <color name="tp_divider">#33FFFFFF</color>      <!-- translucent-white divider -->
+
+    <!-- Text (a muted-grey scale, brightest first) -->
+    <color name="tp_text_primary">#FFFFFF</color>
+    <color name="tp_text_bright">#DDDDDD</color>    <!-- checkbox labels (debug screen) -->
+    <color name="tp_text_light">#CFCFCF</color>     <!-- body copy (field guide) -->
+    <color name="tp_text_secondary">#B0B0B0</color> <!-- status lines, secondary labels -->
+    <color name="tp_text_tertiary">#909090</color>
+    <color name="tp_text_cool">#9AA4B2</color>      <!-- data-sync captions (cool-tinted grey) -->
+    <color name="tp_text_muted">#9A9A9A</color>     <!-- captions -->
+    <color name="tp_text_hint">#777777</color>      <!-- input hint -->
+    <color name="tp_text_caption">#7A7A7A</color>   <!-- sub-labels under a setting -->
+    <color name="tp_text_disabled">#666666</color>  <!-- disabled / placeholder -->
+    <color name="tp_text_dim">#D8D8D8</color>       <!-- dialog body on dark -->
+    <color name="tp_text_warn">#E8B04B</color>      <!-- field-guide caution callout -->
+
+    <!-- Accent — the one "interactive / link" blue -->
+    <color name="tp_accent">#9AC4FF</color>
+
+    <!-- Button backgrounds (roles, not statuses) -->
+    <color name="tp_btn_primary">#2E7D32</color>       <!-- primary / go -->
+    <color name="tp_btn_info">#1565C0</color>          <!-- informational; also checkbox tint -->
+    <color name="tp_btn_neutral">#37474F</color>       <!-- neutral secondary -->
+    <color name="tp_btn_danger">#B71C1C</color>        <!-- destructive (STOP / QUIT) -->
+    <color name="tp_btn_danger_dialog">#EF5350</color> <!-- destructive-confirm dialog highlight -->
+
+    <!-- Status indicators (bright, used for text/dots that report a state) -->
+    <color name="tp_state_go">#4CAF50</color>       <!-- connected / on / accepted -->
+    <color name="tp_state_caution">#FF9800</color>  <!-- caution -->
+    <color name="tp_state_danger">#F44336</color>   <!-- off / rejected / danger -->
+    <!-- UNKNOWN is its own state and never collapses into "off" or into a guess — a standing
+         rule, see CLAUDE.md. Same value as tp_hud_toggle_reconnect, which is the same idea on
+         the HUD: in-between, not yet answerable. -->
+    <color name="tp_state_unknown">#FFB74D</color>
+    <color name="tp_state_go_soft">#CCFFCC</color>  <!-- pale confirmation text (debug) -->
+
+    <!--
+      FLIGHT-TUNED. Everything below was chosen against live video on the aircraft. Tokenised
+      here so there is one source of truth, but the VALUES are results, not preferences.
+    -->
+
+    <!-- Crosshair accuracy ring — how far the look-point can be trusted. -->
+    <color name="tp_hud_accuracy_good">#4CAF50</color>
+    <color name="tp_hud_accuracy_fair">#FFEB3B</color>
+    <color name="tp_hud_accuracy_poor">#F44336</color>
+
+    <!-- LIVE / REC toggles. The red is shared: both mean "this is going out right now". -->
+    <color name="tp_hud_toggle_off">#3A3A3A</color>
+    <color name="tp_hud_toggle_active">#E53935</color>
+    <color name="tp_hud_toggle_reconnect">#FFB74D</color>
+
+    <!-- AR overlay contact colours. Magenta is ADS-B air traffic and is deliberately unlike
+         anything else on the picture — see ArOverlayView.AIRCRAFT_COLOR. -->
+    <color name="tp_ar_aircraft">#E91E63</color>
+
+    <!-- HUD text drop-shadow, so readouts stay legible over bright video. -->
+    <color name="tp_shadow">#CC000000</color>
+
+</resources>

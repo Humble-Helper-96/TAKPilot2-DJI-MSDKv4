@@ -10,6 +10,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Live-stream badge — a "LIVE" pill with a fixed icon knob on the LEFT (matching
@@ -44,6 +46,13 @@ class LiveToggleView @JvmOverloads constructor(
 
     private val trackRect = RectF()
     private val iconPath = Path()
+
+    // FLIGHT-TUNED colours, resolved once here rather than parsed from literals. See the note in
+    // res/values/takpilot_colors.xml: the values are results, not preferences. The active red is
+    // shared with RecordToggleView on purpose — both mean "this is going out right now".
+    private val colorOffTrack = ContextCompat.getColor(context, R.color.tp_hud_toggle_off)
+    private val colorLiveTrack = ContextCompat.getColor(context, R.color.tp_hud_toggle_active)
+    private val colorReconnectTrack = ContextCompat.getColor(context, R.color.tp_hud_toggle_reconnect)
 
     // Reconnect-ring scratch. Fields rather than locals in onDraw — see the RECONNECTING branch.
     private val sweepRect = RectF()
@@ -96,9 +105,9 @@ class LiveToggleView @JvmOverloads constructor(
         val radius = h / 2f
 
         val trackColor = when (state) {
-            State.LIVE -> COLOR_LIVE_TRACK
-            State.RECONNECTING -> if (blinkOn) COLOR_RECONNECT_TRACK else COLOR_OFF_TRACK
-            State.OFF -> COLOR_OFF_TRACK
+            State.LIVE -> colorLiveTrack
+            State.RECONNECTING -> if (blinkOn) colorReconnectTrack else colorOffTrack
+            State.OFF -> colorOffTrack
         }
         trackPaint.color = trackColor
         canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
@@ -159,9 +168,6 @@ class LiveToggleView @JvmOverloads constructor(
     }
 
     companion object {
-        private val COLOR_OFF_TRACK = Color.parseColor("#3A3A3A")
-        private val COLOR_LIVE_TRACK = Color.parseColor("#E53935")
-        private val COLOR_RECONNECT_TRACK = Color.parseColor("#FFB74D")
         private const val BLINK_INTERVAL_MS = 500L
     }
 }

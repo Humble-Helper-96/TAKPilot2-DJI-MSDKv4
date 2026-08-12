@@ -1,5 +1,6 @@
 package com.dji.sdk.sample.takpilot2
 
+import androidx.core.content.ContextCompat
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
@@ -10,6 +11,7 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.dji.sdk.sample.BuildConfig
 import com.dji.sdk.sample.R
 import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
@@ -64,6 +66,13 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         sdk = findViewById(R.id.homeSdk)
         takStatus = findViewById(R.id.homeTakStatus)
         takDot = findViewById(R.id.homeTakDot)
+
+        // versionName + the build stamp, so a sideloaded APK can be identified without adb.
+        // BuildConfig.VERSION_NAME rather than the PackageManager: same string, no IPC, and it
+        // cannot disagree with what the TAK server was told (TakManager reports it as
+        // <takv version>).
+        findViewById<TextView>(R.id.homeVersion).text =
+            "v${BuildConfig.VERSION_NAME} · built ${BuildConfig.BUILD_TIME}"
 
         if (DjiSdkBridge.hasMissingPermissions(this)) {
             DjiSdkBridge.requestMissingPermissions(this)
@@ -166,7 +175,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         sdk.text = "MSDK 4.18"
 
         val connected = TakManager.getInstance().isConnected
-        val color = if (connected) Color.parseColor("#4CAF50") else Color.parseColor("#F44336")
+        val color = if (connected) ContextCompat.getColor(applicationContext, R.color.tp_state_go) else ContextCompat.getColor(applicationContext, R.color.tp_state_danger)
         takStatus.text = if (connected) "TAK: Connected" else "TAK: Disconnected"
         takStatus.setTextColor(color)
         (takDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
