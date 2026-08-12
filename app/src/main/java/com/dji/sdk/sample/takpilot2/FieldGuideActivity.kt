@@ -57,7 +57,10 @@ class FieldGuideActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_field_guide)
         AppLog.v(TAG, "field guide opened")
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setHomeAsUpIndicator(R.drawable.ic_menu)
+        }
         content = findViewById(R.id.fieldGuideContent)
 
         title("TAKPilot2 Field Guide")
