@@ -52,8 +52,23 @@ android {
         minSdkVersion 23
         targetSdkVersion 34
         multiDexEnabled true
-        versionCode 2
-        versionName "1.0"
+        // versionCode is a purely internal Android integer. It exists so `install -r` can tell
+        // one build is newer than another. Bump it on EVERY build you put on a device. It is not
+        // shown in the UI — the home screen shows versionName and BUILD_TIME instead, which is
+        // what makes "which APK is on the aircraft" answerable.
+        //
+        // versionName is real semver and is what TAKPilot reports to the TAK server as
+        // <takv version>, so it is visible in the server's Connected Users panel. Bump it when
+        // what goes on the wire changes, not only when the UI does.
+        //
+        // History:  1.0 first release  ·  1.1.0 Autel-parity pass (taklite core, UI, features)
+        // The Autel sibling has its own number line. Do not chase it — they are different apps
+        // with different feature sets and one operator who has to tell them apart.
+        versionCode 3
+        versionName "1.1.0-dev"
+        // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
+        // in a debugging session where a dozen builds go on the same phone in an afternoon.
+        buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""
         manifestPlaceholders = [djiApiKey: djiKeyProps['DJI_API_KEY'] ?: '']
         ndk {
             // On x86 devices that run Android API 23 or above, if the application is targeted with API 23 or
@@ -116,6 +131,12 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 }
+
+// Names the artifact for the version it holds, so an APK handed to a pilot identifies itself
+// without an install: TAKPilot2-DJI_1.1.0-dev-release.apk. Set on the base plugin after the
+// android block — `project.ext.set("archivesBaseName", …)` only creates an extra property with
+// that name and leaves the real one alone, which is why the APK stayed "app-release.apk".
+archivesBaseName = "TAKPilot2-DJI_" + android.defaultConfig.versionName
 
 dependencies {
     implementation 'androidx.multidex:multidex:2.0.0'
