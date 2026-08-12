@@ -106,6 +106,12 @@ public class DJISampleApplication extends Application {
         // now, so the flight screen's HUD tick never has to do a tens-of-thousands-of-rows read
         // on the main thread while video is running.
         com.dji.sdk.sample.tak.UasfmIndex.INSTANCE.preload(this);
+        // Flight records. init() only starts a worker thread; the sweep then runs on it and
+        // completes the GPX for any session whose process died before it could be written —
+        // which is exactly the case where the pilot most wants the track. Both are cheap and
+        // neither touches the SDK.
+        com.dji.sdk.sample.tak.FlightPathLogger.init(this);
+        com.dji.sdk.sample.tak.FlightPathLogger.sweepOrphans();
     }
 
     /** Real versionName from the manifest, not a hand-maintained string — so the CoT client

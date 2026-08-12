@@ -130,6 +130,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    // Unit tests over the pure-logic core. returnDefaultValues lets those tests run code that
+    // touches android.util.Log (AppLog forwards there) without a device or a mock framework.
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 // Names the artifact for the version it holds, so an APK handed to a pilot identifies itself
@@ -139,6 +145,10 @@ android {
 archivesBaseName = "TAKPilot2-DJI_" + android.defaultConfig.versionName
 
 dependencies {
+    // Unit tests for the pure-logic core — flight-record formats, CoT XML, conversions.
+    // See app/src/test.
+    testImplementation 'junit:junit:4.13.2'
+
     implementation 'androidx.multidex:multidex:2.0.0'
     implementation 'com.squareup:otto:1.3.8'
     implementation('com.dji:dji-sdk:4.18', {

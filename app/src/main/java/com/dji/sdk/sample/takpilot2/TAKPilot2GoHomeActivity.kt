@@ -18,6 +18,7 @@ import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.DebugActivity
 import com.dji.sdk.sample.tak.DjiSdkBridge
+import com.dji.sdk.sample.tak.FlightPathLogger
 import com.dji.sdk.sample.tak.TakAutoConnect
 import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakConnectActivity
@@ -130,6 +131,10 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private fun doQuit() {
         AppLog.i(TAG, "STOP/QUIT — tearing down and killing process")
         runCatching { VideoStreamerHolder.stop() }
+        // Before the bridge goes: this posts the GPX write to the logger's worker, and the
+        // 200ms delay before killProcess below is what lets it land. If it does not, the
+        // orphan sweep completes it at the next launch — the CSV is already on disk either way.
+        runCatching { FlightPathLogger.endSession("stop/quit") }
         runCatching { TakBridgeHolder.stop() }
         runCatching { TakManager.getInstance().disconnect() }
         runCatching { TakForegroundService.stop(applicationContext) }

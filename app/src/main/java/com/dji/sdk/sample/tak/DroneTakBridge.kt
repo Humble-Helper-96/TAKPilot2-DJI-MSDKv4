@@ -288,6 +288,9 @@ class DroneTakBridge(
         running = false
         handler.removeCallbacks(tick)
         OperatorLocation.stop()
+        // Close the track now rather than leaving it to the orphan sweep. The sweep is the
+        // crash path; a clean stop should produce a complete GPX immediately.
+        FlightPathLogger.endSession("bridge stopped")
         val aircraft = DJISampleApplication.getAircraftInstance()
         try { aircraft?.flightController?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
@@ -376,6 +379,19 @@ class DroneTakBridge(
 
         val isFlying = state.isFlying
         val flightTimeSec = state.flightTimeInSeconds
+
+        // Flight record. FED from this callback, never subscribed — the SDK state slot holds one
+        // client and it is this bridge's. Deliberately before the TAK publish and outside its
+        // connected-check: the record must be written with no server and no network, which is
+        // most of what it is for. `hae` here is DJI's height above the TAKEOFF point, not a
+        // geodetic altitude (the local name is older than that understanding); MSL is only
+        // available once the terrain reference has latched, and is passed as NaN until then so
+        // the GPX falls back rather than inventing a datum.
+        FlightPathLogger.onTelemetry(
+            lat, lon,
+            aircraftMsl(hae) ?: Double.NaN, hae,
+            speed, heading, battery, state.satelliteCount,
+        )
 
         val gimbal = lastGimbal
         val gimbalPitch = gimbal?.attitudeInDegrees?.pitch?.toDouble() ?: 0.0
