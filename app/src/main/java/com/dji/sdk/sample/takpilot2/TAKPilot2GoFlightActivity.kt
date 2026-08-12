@@ -88,6 +88,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var zoomButton: TextView
     private lateinit var fpvFaaCeiling: TextView
     private lateinit var fpvRthAltitude: TextView
+    private lateinit var fpvHomeDistance: TextView
     private lateinit var fpvClock: TextView
     private lateinit var fpvGimbalPitch: TextView
     private lateinit var crosshairView: CrosshairView
@@ -219,6 +220,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
         fpvRthAltitude = findViewById(R.id.fpvRthAltitude)
+        fpvHomeDistance = findViewById(R.id.fpvHomeDistance)
         fpvClock = findViewById(R.id.fpvClock)
         fpvGimbalPitch = findViewById(R.id.fpvGimbalPitch)
         toolbarBattery = findViewById(R.id.toolbarBattery)
@@ -1557,6 +1559,16 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvRthAltitude.text = hud?.rthHeightM
             ?.let { "RTH ${Units.feet(it.toDouble())}" } ?: "RTH --"
 
+        // Directly under RTH: how far home is, and how high the aircraft will climb to get
+        // there. Its own view rather than a line in the telemetry block, matching the sibling.
+        fpvHomeDistance.text = if (hud != null && hud.hasFix && hud.homeSet) {
+            val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
+            val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
+            "HOME %s  %03.0f°T".format(Units.feet(dist), bearing)
+        } else {
+            "HOME — ft  —°T"
+        }
+
         toolbarBattery.setPercent(hud?.batteryPct)
 
         // Show the real satellite count whenever telemetry exists, even below lock threshold —
@@ -1642,29 +1654,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             } else {
                 append("—, —")
             }
-            append('\n')
-            if (hud != null && hud.hasFix && hud.homeSet) {
-                val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                val bearing = CameraSlantPoint.initialBearingDeg(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
-                append("HOME %s  %03.0f°T".format(Units.feet(dist), bearing))
-            } else {
-                append("HOME — ft  —°T")
-            }
-            append('\n')
-            if (hud != null) {
-                // Remaining time is the AIRCRAFT's own estimate (GoHomeAssessment), which models
-                // real battery state and draw. The previous readout was battery-percent times a
-                // nominal 31-minute endurance, which ignored payload, wind, temperature and
-                // throttle — it read optimistically high in exactly the conditions where an
-                // accurate number matters most. Shown as "—" rather than a guess when the
-                // aircraft isn't reporting one.
-                val elapsedMin = hud.flightTimeSec / 60
-                val remaining = hud.remainingFlightTimeSec
-                    ?.let { "${it / 60} min" } ?: "— min"
-                append("$elapsedMin min / $remaining left")
-            } else {
-                append("— min / — min left")
-            }
+            // NO FLIGHT TIMER HERE ANY MORE, and no home line — home moved to its own view
+            // beneath the RTH height, where the two related numbers sit together.
+            //
+            // The timer was dropped for column height on a short landscape screen. Its elapsed
+            // half is on the aircraft's own display, and its remaining half was the aircraft's
+            // GoHomeAssessment estimate, which the battery gauge and the low-battery warnings
+            // already cover more directly. The values stay in the Hud object and the flight
+            // record; only the HUD line is gone.
         }
 
         if (hud == null || !hud.hasFix) return
