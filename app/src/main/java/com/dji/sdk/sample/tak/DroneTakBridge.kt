@@ -117,7 +117,12 @@ class DroneTakBridge(
         if (!gimbalRangeApplied) {
             gimbalRangeApplied = true
             applyPitchRangeExtension()
-            applyPitchSpeed()
+            // Fixed per-mode speed, owned by ControlResponse. This used to call a local
+            // applyPitchSpeed() that multiplied the CURRENT speed by 1.5 — which compounded on
+            // every connect (22 -> 33 -> 49 -> 73 -> 100 in the 2026-08-12 logs) and left the
+            // camera handling differently on each flight.
+            DJISampleApplication.getInstance()?.let { ControlResponse.apply(it) }
+            ControlResponse.logYawSmoothness()
         }
     }
 
@@ -154,62 +159,6 @@ class DroneTakBridge(
         }
     }
 
-    /**
-     * Speeds up how fast the gimbal pitches in response to the RC dial — the stock rate was
-     * reported as far too slow to work with in the field (2026-07-27).
-     *
-     * Reads the aircraft's CURRENT max speed and raises it by [PITCH_SPEED_BOOST], rather than
-     * writing a fixed number: the valid range is model-specific, and a hardcoded value that
-     * happens to suit the Mini 2 could be far too fast (or silently rejected) on the next
-     * airframe this app is pointed at. Clamped to the range the aircraft itself reports via
-     * [dji.common.gimbal.CapabilityKey.PITCH_CONTROLLER_MAX_SPEED], so it can only ask for
-     * something the gimbal has said it accepts.
-     *
-     * Logs the before/after values — with a percentage applied to an unknown starting point,
-     * the actual resulting speed is the only number that means anything, and if the pilot wants
-     * it faster or slower still, that log line is where the next adjustment starts from.
-     */
-    private fun applyPitchSpeed() {
-        val gimbal = DJISampleApplication.getAircraftInstance()?.gimbals?.firstOrNull() ?: return
-        val range = try {
-            gimbal.capabilities?.get(dji.common.gimbal.CapabilityKey.PITCH_CONTROLLER_MAX_SPEED)
-                as? dji.common.util.DJIParamMinMaxCapability
-        } catch (t: Throwable) {
-            AppLog.w(TAG, "gimbal pitch-speed capability check failed: ${t.message}")
-            null
-        }
-        if (range == null) {
-            AppLog.i(TAG, "gimbal does not report PITCH_CONTROLLER_MAX_SPEED — leaving speed alone")
-            return
-        }
-        val min = range.min?.toInt() ?: return
-        val max = range.max?.toInt() ?: return
-        gimbal.getControllerMaxSpeed(
-            dji.common.gimbal.Axis.PITCH,
-            object : CommonCallbacks.CompletionCallbackWith<Int> {
-                override fun onSuccess(current: Int) {
-                    val target = (current * PITCH_SPEED_BOOST).toInt().coerceIn(min, max)
-                    if (target == current) {
-                        AppLog.i(TAG, "gimbal pitch speed already at $current (range $min..$max) " +
-                            "— no change")
-                        return
-                    }
-                    gimbal.setControllerMaxSpeed(dji.common.gimbal.Axis.PITCH, target) { err ->
-                        if (err == null) {
-                            AppLog.i(TAG, "gimbal pitch speed $current -> $target " +
-                                "(range $min..$max)")
-                        } else {
-                            AppLog.w(TAG, "gimbal pitch speed change refused: ${err.description}")
-                        }
-                    }
-                }
-
-                override fun onFailure(err: DJIError) {
-                    AppLog.w(TAG, "could not read gimbal pitch speed: ${err.description}")
-                }
-            },
-        )
-    }
     private val batteryStateCallback = BatteryState.Callback { lastBattery = it }
     private val uplinkQualityCallback = SignalQualityCallback { lastUplinkQuality = it }
     private val downlinkQualityCallback = SignalQualityCallback { lastDownlinkQuality = it }
@@ -300,9 +249,24 @@ class DroneTakBridge(
         running = false
         handler.removeCallbacks(tick)
         OperatorLocation.stop()
-        // Close the track now rather than leaving it to the orphan sweep. The sweep is the
-        // crash path; a clean stop should produce a complete GPX immediately.
-        FlightPathLogger.endSession("bridge stopped")
+        // ⚠ ONLY close the track if the AIRCRAFT is down. Stopping this bridge is an APP event —
+        // the flight screen calls it on the way out — and it used to end the flight record every
+        // time, so backing out to Home mid-flight split one sortie into two. The 2026-08-12 logs
+        // show three such splits, one of them a 2-point stub.
+        //
+        // A session left open is not lost: rows go to the CSV as they are sampled, the landed
+        // rule closes it when the aircraft is grounded for 10 s, and the orphan sweep writes the
+        // GPX at next launch if the process dies first.
+        //
+        // A battery swap needs no special case. The aircraft has to land to be swapped, and
+        // 10 s grounded finalises the sortie long before the battery comes out — so a swap
+        // gives two records, one per sortie, which is what a flight log should show.
+        val airborne = lastState?.isFlying == true
+        if (airborne) {
+            AppLog.i(TAG, "bridge stopped while airborne — flight record stays open")
+        } else {
+            FlightPathLogger.endSession("bridge stopped, aircraft down")
+        }
         val aircraft = DJISampleApplication.getAircraftInstance()
         try { aircraft?.flightController?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
@@ -430,12 +394,15 @@ class DroneTakBridge(
         // without a live TAK server.
         // north reference = 0: the <sensor azimuth> is an ABSOLUTE true-north bearing (same
         // convention V5 settled on after ATAK testing — see BEARING_OFFSET_DEG note below).
-        // ⚠ videoUrl is NOT advertised here any more — it rides the OPERATOR marker instead; see
-        // pushPilotPli. The stream is a screen capture of the controller and keeps running when
-        // the aircraft is down, but this drone PLI stops the moment there is no GPS fix. A video
-        // advertised here became unreachable in exactly the case screen capture exists to cover.
+        // The video rides BOTH markers, and the aircraft is the primary one: an operator who
+        // wants the camera selects the aircraft, so that is where the play control has to be
+        // (operator, 2026-08-12). It stays on the operator marker as well — see pushPilotPli —
+        // because the stream is a screen capture of the controller and keeps running when the
+        // aircraft is down, while THIS report stops the moment there is no GPS fix. Two markers,
+        // one feed: appendVideo derives the video uid from the url, so both advertise the same
+        // uid and a client gets one video entry rather than two competing ones.
         tak.sendDronePLI(droneUid, droneCallsign, lat, lon, hae, heading, speed, battery,
-            null, spiUid,
+            videoUrl, spiUid,
             sensorFov, sensorVfov, sensorAzimuth, sensorElevation, sensorRange, 0.0,
             0.0, gimbalPitch, gimbalYaw,
             isFlying, flightTimeSec,
@@ -759,11 +726,6 @@ class DroneTakBridge(
          *  when they're diagnosing something and need this most. See [logReadinessIfChanged]. */
         private const val READY_TAG = "TP2Ready"
 
-        /** Gimbal pitch-rate multiplier applied on connect — see [applyPitchSpeed]. 1.5 = the
-         *  requested +50%. Applied to whatever the aircraft currently reports and clamped to its
-         *  own advertised range, so this stays meaningful across airframes rather than encoding
-         *  one model's units. */
-        private const val PITCH_SPEED_BOOST = 1.5
 
         // NOT YET FIELD-CALIBRATED for the Mini 2. V5's BEARING_OFFSET_DEG=105.0 was tuned
         // against the M30T's specific gimbal-to-airframe mounting by comparing the FOV cone
