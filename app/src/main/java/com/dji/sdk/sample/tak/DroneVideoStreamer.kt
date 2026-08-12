@@ -61,8 +61,21 @@ class DroneVideoStreamer(
             val q = if (tcp) "?tcp" else ""
             return "rtsp://$cred$host:$port/${path()}$q"
         }
+        /**
+         * The URL preview shown in Pre-Flight, with the password masked.
+         *
+         * An EMPTY password reads "(NO PASSWORD)" rather than the same `***` a real one gets.
+         * Masking both identically meant the preview — the one place a pilot would check — could
+         * not answer the question it exists to answer, and a blank password looked exactly like a
+         * correct one. That mattered because the password really was being erased on every visit
+         * to this screen; see the restore line in TakConnectActivity.setupVideoControls.
+         */
         fun urlSafe(): String {
-            val who = if (username.isNotEmpty()) "$username:***@" else ""
+            val who = when {
+                username.isEmpty() -> ""
+                password.isEmpty() -> "$username:(NO PASSWORD)@"
+                else -> "$username:***@"
+            }
             val q = if (tcp) "?tcp" else ""
             return "rtsp://$who$host:$port/${path()}$q"
         }

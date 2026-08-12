@@ -419,18 +419,20 @@ class TakConnectActivity : AppCompatActivity() {
         }
     }
 
-    /** Most recent GPS/network fix from the phone, or null. Same approach as the flight
-     *  screen's reset-home-point (the RC-N1 has no GPS of its own). */
+    /**
+     * Most recent GPS/network fix from the phone, or null. The RC-N1 has no GPS of its own, so
+     * the phone's position IS the controller's position.
+     *
+     * Goes through [OperatorLocation] rather than calling `getLastKnownLocation` here, because
+     * that method reads a CACHE that nothing fills unless some app has asked for position
+     * updates. On a phone dedicated to flying, nothing has, so it returned null for ever — which
+     * reads as a permission fault when it is not one. [OperatorLocation.start] issues the real
+     * `requestLocationUpdates` that fills it, and applies an age gate so a fix from days ago at
+     * some other location is not offered up as "here".
+     */
     private fun lastKnownPhoneLocation(): Pair<Double, Double>? {
-        val lm = getSystemService(android.content.Context.LOCATION_SERVICE)
-            as android.location.LocationManager
-        val loc = runCatching {
-            listOf(
-                android.location.LocationManager.GPS_PROVIDER,
-                android.location.LocationManager.NETWORK_PROVIDER,
-            ).mapNotNull { p -> if (lm.isProviderEnabled(p)) lm.getLastKnownLocation(p) else null }
-                .maxByOrNull { it.time }
-        }.getOrNull() ?: return null
+        OperatorLocation.start(this)
+        val loc = OperatorLocation.latest ?: return null
         return loc.latitude to loc.longitude
     }
 
@@ -529,6 +531,15 @@ class TakConnectActivity : AppCompatActivity() {
         vHost.setText(prefs.getString(KEY_V_HOST, ""))
         vPort.setText(prefs.getInt(KEY_V_PORT, 8554).toString())
         vUser.setText(prefs.getString(KEY_V_USER, ""))
+        // ⚠ THIS LINE WAS MISSING, AND ITS ABSENCE ERASED THE SAVED PASSWORD.
+        //
+        // Every other field was restored; this one was not, so the box came up blank. The
+        // TextWatcher below then calls refreshAndSave() — and refreshAndSave() also runs
+        // unconditionally at the end of this method — which writes vPass.text back to the store.
+        // Blank. So merely OPENING Pre-Flight Setup wiped the RTSP password, and the next stream
+        // failed to authenticate with nothing on screen to explain why: the field looked the same
+        // as it always did, because it had always come up empty.
+        vPass.setText(prefs.getString(KEY_V_PASS, ""))
         vStreamId.setText(prefs.getString(KEY_V_STREAMID, ""))
         vTcp.isChecked = prefs.getBoolean(KEY_V_TCP, true)
         when (prefs.getString(KEY_V_PROFILE, "standard")) {
@@ -564,7 +575,7 @@ class TakConnectActivity : AppCompatActivity() {
                 .putString(KEY_V_HOST, cfg.host)
                 .putInt(KEY_V_PORT, cfg.port)
                 .putString(KEY_V_USER, cfg.username)
-                .putString("video_pass", cfg.password)
+                .putString(KEY_V_PASS, cfg.password)
                 .putString(KEY_V_STREAMID, cfg.streamId)
                 .putBoolean(KEY_V_TCP, cfg.tcp)
                 .putString(KEY_V_PROFILE, cfg.profile)
@@ -769,6 +780,9 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_V_HOST = "video_host"
         private const val KEY_V_PORT = "video_port"
         private const val KEY_V_USER = "video_user"
+        /** Named constant, not a literal. The save site used a bare "video_pass" while the
+         *  restore site did not exist at all — a constant makes the pair impossible to miss. */
+        private const val KEY_V_PASS = "video_pass"
         private const val KEY_V_STREAMID = "video_streamid"
         private const val KEY_V_TCP = "video_tcp"
         private const val KEY_V_PROFILE = "video_profile"

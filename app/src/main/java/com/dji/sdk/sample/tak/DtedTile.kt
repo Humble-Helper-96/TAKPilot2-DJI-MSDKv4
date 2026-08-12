@@ -24,6 +24,18 @@ class DtedTile private constructor(
     private val nLat: Int,
     private val dataStartOffset: Long,
 ) {
+    /**
+     * Post spacing in degrees of latitude — i.e. this tile's RESOLUTION, straight from its own
+     * header. Smaller is finer: DTED0 is 30 arc-seconds (~0.00833°, roughly 900m posts), DTED2
+     * is 1 arc-second (~0.000278°, roughly 30m).
+     *
+     * Exposed so [DtedIndex] can prefer the finest tile covering a point. It matters more than
+     * it looks: pilots import archives holding several levels for the same cell, and reading
+     * the coarse one silently costs marker accuracy at shallow look angles — see the ordering
+     * note in DtedIndex.
+     */
+    val postSpacingDeg: Double get() = latIntervalDeg
+
     private val recordLength = 12L + 2L * nLat
 
     private val minLon = originLonDeg

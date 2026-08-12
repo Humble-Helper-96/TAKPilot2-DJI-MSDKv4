@@ -276,6 +276,10 @@ class DroneTakBridge(
             // back to the caller-provided session uid, which is enough for a live PLI.
         }
 
+        // The CONTROLLER's own position, for the operator marker. Idempotent, and it must be a
+        // real requestLocationUpdates — see OperatorLocation for why the cache alone is empty.
+        DJISampleApplication.getInstance()?.let { OperatorLocation.start(it) }
+
         handler.post(tick)
         AppLog.i(TAG, "DroneTakBridge started ($droneCallsign / $droneUid, every ${intervalMs}ms)")
     }
@@ -283,6 +287,7 @@ class DroneTakBridge(
     fun stop() {
         running = false
         handler.removeCallbacks(tick)
+        OperatorLocation.stop()
         val aircraft = DJISampleApplication.getAircraftInstance()
         try { aircraft?.flightController?.setStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.gimbals?.firstOrNull()?.setStateCallback(null) } catch (_: Throwable) {}
@@ -393,12 +398,69 @@ class DroneTakBridge(
         // without a live TAK server.
         // north reference = 0: the <sensor azimuth> is an ABSOLUTE true-north bearing (same
         // convention V5 settled on after ATAK testing — see BEARING_OFFSET_DEG note below).
+        // ⚠ videoUrl is NOT advertised here any more — it rides the OPERATOR marker instead; see
+        // pushPilotPli. The stream is a screen capture of the controller and keeps running when
+        // the aircraft is down, but this drone PLI stops the moment there is no GPS fix. A video
+        // advertised here became unreachable in exactly the case screen capture exists to cover.
         tak.sendDronePLI(droneUid, droneCallsign, lat, lon, hae, heading, speed, battery,
-            videoUrl, spiUid,
+            null, spiUid,
             sensorFov, sensorVfov, sensorAzimuth, sensorElevation, sensorRange, 0.0,
             0.0, gimbalPitch, gimbalYaw,
             isFlying, flightTimeSec,
             batteryMaxMah, batteryRemainMah, voltage)
+
+        pushPilotPli()
+    }
+
+    /**
+     * The PILOT's marker — the operator on the ground, at the controller's own position.
+     *
+     * Until now nothing published this. `TakManager.sendPLI` had no caller anywhere in the
+     * source, so the operator's callsign sat at latitude 0, longitude 0 (the connect-time
+     * registration message) until it went stale, and the team's map showed the pilot in the Gulf
+     * of Guinea.
+     *
+     * Returns without sending when there is no fix. That is deliberate: the marker REFRESHES its
+     * stale time on every push, so a wrong position never ages off the team's map the way silence
+     * does. No marker is better than a marker in the wrong place.
+     */
+    private fun pushPilotPli() {
+        val fix = OperatorLocation.latest ?: return
+        runCatching {
+            // No team argument — the pilot marker's colour is TakManager's PILOT_TEAM, always,
+            // so the operator is one consistent colour across both airframes.
+            tak.sendPilotPLI(fix, droneCallsign, "Team Member", pilotBatteryPct(), videoUrl)
+        }.onFailure { AppLog.w(TAG, "pilot PLI failed: ${it.message}") }
+    }
+
+    /**
+     * CONTROLLER battery, not the aircraft's — here the RC-N1's host phone. The aircraft has its
+     * own marker and its own number. A phone about to die is a reason to end the flight, and
+     * nothing else on the network reports it.
+     *
+     * Cached for [BATTERY_CACHE_MS]: getIntProperty is a binder IPC and paying it on every 2s
+     * tick buys nothing, since the value drifts about a percent a minute. On failure the LAST
+     * GOOD reading is returned, not 100 — a dead BatteryManager must not read as a full battery,
+     * which would mask exactly the dying-controller condition this number exists to report. 100
+     * as the very first value is the one honest exception: before any reading there is nothing
+     * better to say.
+     */
+    private var batteryPctCache = 100
+    private var batteryPctReadAt = 0L
+    private fun pilotBatteryPct(): Int {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - batteryPctReadAt < BATTERY_CACHE_MS && batteryPctReadAt != 0L) return batteryPctCache
+        runCatching {
+            val ctx = DJISampleApplication.getInstance() ?: return@runCatching
+            val bm = ctx.getSystemService(android.content.Context.BATTERY_SERVICE)
+                as? android.os.BatteryManager ?: return@runCatching
+            val pct = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            if (pct in 0..100) {
+                batteryPctCache = pct
+                batteryPctReadAt = now
+            }
+        }.onFailure { AppLog.w(TAG, "controller battery read failed: ${it.message}") }
+        return batteryPctCache
     }
 
     /**
@@ -426,6 +488,25 @@ class DroneTakBridge(
 
         // Slant-range calibration bias — see PITCH_OFFSET_DEG note below.
         val pitchAdj = pitch + PITCH_OFFSET_DEG
+
+        // ABOVE THE HORIZON THERE IS NO LOOK-POINT, SO PUBLISH NOTHING.
+        //
+        // The camera ray only meets the ground while pointing below horizontal. Looking up,
+        // CameraSlantPoint cannot solve and falls back to a FIXED range along the bearing
+        // (FALLBACK_RANGE_M) rather than returning nothing. Publishing that puts a confident-
+        // looking SPI on the TAK picture at a spot the camera is not seeing, and nobody
+        // downstream can tell it was invented. An absent SPI is honest; a fabricated one is worse
+        // than none, because the team will act on it.
+        //
+        // Threshold matches CameraSlantPoint's own `depression > 1.0` guard, so this suppresses
+        // exactly the cases it would otherwise have faked.
+        if (pitchAdj > -1.0) {
+            sensorFov = -1.0; sensorVfov = -1.0; sensorAzimuth = -1.0
+            sensorElevation = pitchAdj; sensorRange = -1.0
+            AppLog.d(TAG, "SPI suppressed: camera at or above horizon " +
+                "(pitch ${"%.1f".format(pitchAdj)}) — no ground intersection to publish")
+            return
+        }
 
         val gp = CameraSlantPoint.compute(
             lat, lon, aglMeters, bearing, pitchAdj, ::elevationLookup, aircraftMsl(aglMeters))
@@ -602,6 +683,9 @@ class DroneTakBridge(
 
     companion object {
         private const val TAG = "DroneTakBridge"
+
+        /** How long a controller-battery reading is reused before another binder IPC. */
+        private const val BATTERY_CACHE_MS = 30_000L
 
         /** Flight-readiness snapshots. Separate from [TAG] on purpose — [TAG] is in AppLog's
          *  TAK_TAGS and disappears when an operator filters TAK logging off, which is exactly

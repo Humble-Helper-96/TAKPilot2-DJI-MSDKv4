@@ -45,6 +45,13 @@ class LiveToggleView @JvmOverloads constructor(
     private val trackRect = RectF()
     private val iconPath = Path()
 
+    // Reconnect-ring scratch. Fields rather than locals in onDraw — see the RECONNECTING branch.
+    private val sweepRect = RectF()
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
     private val blinkHandler = Handler(Looper.getMainLooper())
     private val blinkRunnable = object : Runnable {
         override fun run() {
@@ -124,12 +131,14 @@ class LiveToggleView @JvmOverloads constructor(
             }
             State.RECONNECTING -> {
                 // Circular reconnect arrows — a broken ring with two arrowheads.
-                val sweepRect = RectF(knobCx - iconRadius, knobCy - iconRadius, knobCx + iconRadius, knobCy + iconRadius)
-                val ringPaint = Paint(iconPaint).apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = iconRadius * 0.35f
-                    strokeCap = Paint.Cap.ROUND
-                }
+                // Rect and paint are reused fields, not fresh objects: this branch is the
+                // BLINKING one, so it redraws twice a second for as long as the stream is down —
+                // exactly the state where the app is already under stress and should not be
+                // handing the collector work every frame.
+                sweepRect.set(knobCx - iconRadius, knobCy - iconRadius,
+                    knobCx + iconRadius, knobCy + iconRadius)
+                ringPaint.color = trackColor
+                ringPaint.strokeWidth = iconRadius * 0.35f
                 canvas.drawArc(sweepRect, -30f, 150f, false, ringPaint)
                 canvas.drawArc(sweepRect, 150f, 150f, false, ringPaint)
             }

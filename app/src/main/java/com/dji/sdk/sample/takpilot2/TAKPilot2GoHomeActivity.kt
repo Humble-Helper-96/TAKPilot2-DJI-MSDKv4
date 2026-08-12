@@ -54,6 +54,9 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything else that can throw: the flight screen's OOM-restart guard reads this
+        // to tell "the pilot walked here" from "Android resurrected the task into a cold process".
+        visitedThisProcess = true
         setContentView(R.layout.activity_takpilot2go_home)
         AppLog.v(TAG, "onCreate")
 
@@ -172,5 +175,16 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "TAKPilot2GoHome"
+
+        /**
+         * True once this PROCESS has passed through Home, which is the only place the DJI SDK is
+         * registered and the product connection is started.
+         *
+         * Deliberately a plain static, not a persisted flag: it must reset when the process dies.
+         * That is the whole signal — see the OOM-restart guard in [TAKPilot2GoFlightActivity].
+         */
+        @Volatile
+        var visitedThisProcess = false
+            private set
     }
 }
