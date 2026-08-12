@@ -108,6 +108,24 @@
                 android:text="One line each 30 seconds with the memory, the CPU and the number of TAK contacts. Keep this box selected. Use the line to find a problem before a crash."
                 android:textColor="@color/tp_text_caption" android:textSize="12sp" />
 
+            <!-- The OVERLAY, distinct from the log switch above. Off by default: it covers
+                 live video, which a log line does not. -->
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <CheckBox android:id="@+id/debugResourceMonitorToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Show system resources on flight screen" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="2dp"
+                android:text="Puts the same numbers in a bar at the bottom of the flight screen. The bar covers part of the video. Use it to watch the system during a flight."
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
+
             <Button
                 android:id="@+id/debugExportButton"
                 style="@style/TakButton.Primary"

@@ -31,9 +31,9 @@ import java.io.File
  * [Process.getElapsedCpuTime] and is always available. The read is wrapped and degrades to null
  * rather than throwing, so this is expected rather than a fault to chase.
  *
- * NOT SURFACED ON THE FLIGHT SCREEN in this tree. The sibling has an overlay row of fixed cells
- * sized against its 1024x720 controller; this app runs on a phone and that row has not been laid
- * out or seen here. The log line carries the whole diagnostic value in the meantime.
+ * TWO SINKS, TWO SWITCHES. [formattedLine] goes to the log every 30s and is on by default;
+ * [formattedSegments] fills the flight screen's overlay row and is off by default. A log line
+ * costs nothing and is read afterwards; an overlay covers live video while a pilot is flying.
  */
 object ResourceMonitor {
 
@@ -125,6 +125,24 @@ object ResourceMonitor {
         val total = fields.sum()
         total to idle
     }.getOrNull()
+
+    /**
+     * Four short strings for the flight-screen row: SYS / APP / CPU / TAK, one per fixed cell.
+     * ALWAYS four, in this order, even when a value is unavailable — a cell that disappears
+     * shifts the ones beside it, and this row is watched for a value that CHANGES.
+     *
+     * Four, not the sibling's five: there is no GPU cell here, because there is no GPU read.
+     */
+    fun formattedSegments(context: Context): List<String> {
+        val s = snapshot(context)
+        val lowFlag = if (s.lowMemory) " !" else ""
+        return listOf(
+            "SYS ${s.sysAvailMb}/${s.sysTotalMb}MB$lowFlag",
+            "APP ${s.appPssMb}MB/${s.heapUsedMb}MB",
+            "CPU ${s.sysCpuPct?.let { "$it%" } ?: "—"}/${s.appCpuPct?.let { "$it%" } ?: "—"}",
+            "TAK ${s.contactCount}",
+        )
+    }
 
     /**
      * One line for the log. Fixed field order so a session's lines can be diffed or eyeballed

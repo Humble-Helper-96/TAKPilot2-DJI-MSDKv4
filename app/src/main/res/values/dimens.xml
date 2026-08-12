@@ -22,4 +22,7 @@
          map. Shrinking the map rather than the text keeps the readout legible in daylight,
          which is the part that actually has to work in the field. -->
     <dimen name="flight_map_size">130dp</dimen>
+    <!-- Keeps the resource row clear of the HUD column: map width plus the column's end
+         padding. Tracks flight_map_size by hand, so change both together. -->
+    <dimen name="flight_resource_row_margin_end">144dp</dimen>
 </resources>

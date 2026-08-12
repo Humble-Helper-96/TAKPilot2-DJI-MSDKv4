@@ -91,6 +91,30 @@
         android:textStyle="bold"
         android:visibility="gone" />
 
+    <!-- DEBUG resource overlay: memory, CPU and the TAK contact count. Hidden unless switched
+         on in the Debug screen, and off by default — it covers live video.
+
+         Bottom-left, clear of the HUD column via marginEnd, because the bottom-left of this
+         screen is the one region with neither chrome nor crosshair on it. Four cells, not the
+         sibling's five: there is no GPU cell because there is no GPU read. -->
+    <LinearLayout
+        android:id="@+id/flightResourceMonitorRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginBottom="12dp"
+        android:layout_marginEnd="@dimen/flight_resource_row_margin_end"
+        android:background="#B0000000"
+        android:orientation="horizontal"
+        android:paddingVertical="6dp"
+        android:visibility="gone">
+
+        <TextView android:id="@+id/flightResSys" style="@style/flightResCell" />
+        <TextView android:id="@+id/flightResApp" style="@style/flightResCell" />
+        <TextView android:id="@+id/flightResCpu" style="@style/flightResCell" />
+        <TextView android:id="@+id/flightResTak" style="@style/flightResCell" />
+    </LinearLayout>
+
     <!-- ATAK-UAS-Tool-style telemetry overlay, stacked directly above the mini-map (same
          bottom|end corner/size/margin the map already had — "leave the mini map where it is").
          Plain text over video, no box, to match the reference look. -->

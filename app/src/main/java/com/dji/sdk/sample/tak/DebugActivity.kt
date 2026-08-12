@@ -116,6 +116,13 @@ class DebugActivity : AppCompatActivity() {
             AppLog.i(TAG, "system resource logs ${if (on) "INCLUDED" else "HIDDEN"}")
         }
 
+        val monitorToggle = findViewById<CheckBox>(R.id.debugResourceMonitorToggle)
+        monitorToggle.isChecked = AppLog.resourceMonitor
+        monitorToggle.setOnCheckedChangeListener { _, on ->
+            AppLog.resourceMonitor = on
+            AppLog.i(TAG, "flight-screen resource row ${if (on) "SHOWN" else "HIDDEN"}")
+        }
+
         findViewById<android.widget.Button>(R.id.debugExportButton).setOnClickListener {
             AppLog.v(TAG, "export tapped")
             exportLog()
