@@ -59,6 +59,18 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Cross-field warning: each limit is legal on its own, the pair is not. Hidden unless
+             it applies — see checkLimits() in TakConnectActivity. -->
+        <TextView
+            android:id="@+id/limitsWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/tp_state_unknown"
+            android:textSize="12sp"
+            android:visibility="gone"
+            android:text="" />
+
         <!-- Signal-loss failsafe. This is the aircraft's own firmware behavior for a lost RC
              link, so it still applies if this app or the phone dies mid-flight. NOT the same as
              the max-distance geofence above, which only stops the aircraft at the boundary —
@@ -362,6 +374,28 @@
             android:textSize="14sp"
             android:text="" />
 
+        <!-- The lock sits AFTER the fields it protects, not before them. A lock above a section
+             reads as a heading for it; below, it reads as a statement about what was just
+             entered — and the pilot has already seen the fields by the time they meet it. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="14dp"
+            android:gravity="center_vertical">
+            <CheckBox
+                android:id="@+id/takLockConfig"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:buttonTint="@color/tp_btn_info" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Lock these settings"
+                android:textColor="@color/tp_text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
@@ -559,6 +593,28 @@
             android:text="Starting/stopping the stream is done from the LIVE pill on the flight screen."
             android:textColor="@color/tp_text_caption"
             android:textSize="12sp" />
+
+        <!-- Same placement rule as the TAK lock: after the fields, not before. The quality
+             profile is deliberately NOT covered — it is a live in-flight choice, not part of
+             what the stream IS. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="14dp"
+            android:gravity="center_vertical">
+            <CheckBox
+                android:id="@+id/videoLockConfig"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:buttonTint="@color/tp_btn_info" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Lock these settings"
+                android:textColor="@color/tp_text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
 
         <View
             android:layout_width="match_parent"
