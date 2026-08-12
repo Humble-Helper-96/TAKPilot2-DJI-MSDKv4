@@ -35,6 +35,10 @@ class TakConnectActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
 
+    /** True only while code writes the battery fields for display — see the watcher in
+     *  [setupBattery], which must not mistake that for the pilot typing. */
+    private var suppressBatterySave = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_tak_connect)
@@ -93,7 +97,7 @@ class TakConnectActivity : AppCompatActivity() {
         // screen is opened before that first attempt lands, or after a manual disconnect).
         when {
             TakManager.getInstance().isConnected ->
-                setStatus("Connected. Drone PLI streaming.", ContextCompat.getColor(applicationContext, R.color.tp_state_go))
+                setStatus("Connected. Sending the aircraft position to TAK.", ContextCompat.getColor(applicationContext, R.color.tp_state_go))
             prefs.getBoolean(KEY_LOGGED_OUT, false) ->
                 setStatus("Logged out. Enter host, username and password to sign in.", ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
             hasSavedCerts(prefs) -> {
@@ -222,6 +226,7 @@ class TakConnectActivity : AppCompatActivity() {
 
         setupBattery()
         setupStickMode()
+        setupControlResponse()
         setupFailsafe()
         setupAvoidance()
         setupApplyButton()
@@ -236,6 +241,12 @@ class TakConnectActivity : AppCompatActivity() {
         crit.setText(FlightLimitsController.savedCriticalBatteryPct(this))
         val watcher = object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) {
+                // Suppressed while the refusal path writes the AIRCRAFT's values into these
+                // fields for display — those setText calls land here too, and without the guard
+                // they saved the aircraft's fixed 20/10 over the pilot's own preference. The
+                // preference must survive: it is what gets pushed to the next airframe, and the
+                // next airframe may accept it.
+                if (suppressBatterySave) return
                 FlightLimitsController.saveBattery(
                     this@TakConnectActivity, low.text.toString(), crit.text.toString())
             }
@@ -243,18 +254,80 @@ class TakConnectActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         }
         listOf(low, crit).forEach { it.addTextChangedListener(watcher) }
-        renderBatteryReadBack()
+        renderLimitsReadBack()
     }
 
     /** Shows what the AIRCRAFT reports, not what was typed. Blank until a read-back has landed —
      *  "unknown" and "what you asked for" must not look the same. */
-    private fun renderBatteryReadBack() {
-        val w = FlightLimitsController.aircraftWarningPct
-        val c = FlightLimitsController.aircraftCriticalPct
-        findViewById<TextView>(R.id.limitBatteryStatus).text =
-            if (w == null && c == null) ""
-            else "Aircraft reports: warning ${w?.let { "$it%" } ?: "—"}, " +
-                "critical ${c?.let { "$it%" } ?: "—"}"
+    private fun renderLimitsReadBack() {
+        val f = FlightLimitsController
+        // Metres in, feet out: the fields above take feet, so a read-back in metres would make
+        // the pilot convert to check their own entry.
+        fun ft(m: Int?) = m?.let { "${Math.round(it * 3.28084)} ft" } ?: "—"
+        val parts = listOfNotNull(
+            f.aircraftMaxAltM?.let { "max alt ${ft(it)}" },
+            f.aircraftMaxRadiusM?.let { "max dist ${ft(it)}" },
+            f.aircraftRthAltM?.let { "RTH ${ft(it)}" },
+            f.aircraftWarningPct?.let { "warning $it%" },
+            f.aircraftCriticalPct?.let { "critical $it%" },
+            f.aircraftFailsafe?.let { "signal loss ${it.name.replace('_', ' ').lowercase()}" },
+        )
+        findViewById<TextView>(R.id.limitReadBackStatus).text =
+            if (parts.isEmpty()) "" else "Aircraft reports: " + parts.joinToString(" · ")
+
+        // Once the aircraft has refused them, the two battery fields stop pretending. They are
+        // left in place rather than removed: the getters still work, so the levels the aircraft
+        // holds are worth showing, and an airframe that DOES accept them should get working
+        // fields. A field that takes a number and silently discards it is the worst of the three.
+        if (f.batteryThresholdsRefused) {
+            val low = findViewById<EditText>(R.id.limitLowBattery)
+            val crit = findViewById<EditText>(R.id.limitCriticalBattery)
+            suppressBatterySave = true
+            try {
+                f.aircraftWarningPct?.let { low.setText(it.toString()) }
+                f.aircraftCriticalPct?.let { crit.setText(it.toString()) }
+            } finally {
+                suppressBatterySave = false
+            }
+            for (field in listOf(low, crit)) {
+                field.isEnabled = false
+                field.isFocusable = false
+                field.isFocusableInTouchMode = false
+            }
+            findViewById<TextView>(R.id.limitBatteryNotice).apply {
+                visibility = View.VISIBLE
+                text = "This aircraft sets its own battery levels. The app cannot change them. " +
+                    "It warns at ${f.aircraftWarningPct ?: "—"}% and lands at " +
+                    "${f.aircraftCriticalPct ?: "—"}%."
+            }
+        }
+    }
+
+    /**
+     * Control response. Applies on selection rather than on the Apply button: it is a camera-feel
+     * setting the pilot wants to try, not a flight limit, and waiting for Apply to feel it would
+     * make it hard to compare the two.
+     */
+    private fun setupControlResponse() {
+        val group = findViewById<RadioGroup>(R.id.controlResponseGroup)
+        group.check(
+            if (ControlResponse.saved(this) == ControlResponse.Mode.PRECISION)
+                R.id.controlResponsePrecision else R.id.controlResponseNormal
+        )
+        renderControlResponse()
+        group.setOnCheckedChangeListener { _, id ->
+            val mode = if (id == R.id.controlResponsePrecision) ControlResponse.Mode.PRECISION
+                       else ControlResponse.Mode.NORMAL
+            ControlResponse.save(this, mode)
+            ControlResponse.apply(this) { runOnUiThread { renderControlResponse() } }
+        }
+    }
+
+    /** What the GIMBAL reports holding. Blank until a read-back lands. */
+    private fun renderControlResponse() {
+        val v = ControlResponse.aircraftPitchSpeed
+        findViewById<TextView>(R.id.controlResponseStatus).text =
+            if (v == null) "" else "Aircraft reports: gimbal speed $v"
     }
 
     private fun setupStickMode() {
@@ -306,7 +379,7 @@ class TakConnectActivity : AppCompatActivity() {
                     status.text = summary
                     status.setTextColor(ContextCompat.getColor(applicationContext,
                         if (ok) R.color.tp_state_go else R.color.tp_state_unknown))
-                    renderBatteryReadBack()
+                    renderLimitsReadBack()
                 },
             )
         }
@@ -332,13 +405,18 @@ class TakConnectActivity : AppCompatActivity() {
      * the safe direction, and gating it would only train people to dismiss dialogs.
      */
     /** The aircraft-settings lock covers the numbers that decide when it flies itself home, and
-     *  the stick mode — plus Apply, so a locked configuration cannot be pushed either. */
+     *  the stick mode.
+     *
+     *  ⚠ NOT the Apply button — same philosophy as the sibling, in its words: the lock guards
+     *  what the configuration IS, not what you do with it. A locked, known-good configuration
+     *  must still be pushable to a freshly connected aircraft; needing to re-send it is exactly
+     *  when a pilot must not be fighting a lock. (Apply was in this list until 2026-08-12, which
+     *  made the two apps behave differently for the same pilot.) */
     private val aircraftLockedFields = listOf(
         R.id.limitMaxAltitude, R.id.limitMaxRadius, R.id.limitRthAltitude,
         R.id.limitLowBattery, R.id.limitCriticalBattery,
         R.id.stickMode1, R.id.stickMode2, R.id.stickMode3,
         R.id.failsafeGoHome, R.id.failsafeHover, R.id.failsafeLand,
-        R.id.limitApplyButton,
     )
 
     private fun setupConfigLocks() {
@@ -452,6 +530,11 @@ class TakConnectActivity : AppCompatActivity() {
      */
     private fun applyLock(fieldIds: List<Int>, locked: Boolean) {
         for (id in fieldIds) {
+            // A field the AIRCRAFT has refused stays read-only through lock and unlock alike.
+            // The lock guards against an accidental edit; the refusal means an edit does
+            // nothing at all, and unlocking must not turn a dead field editable again.
+            if (!locked && FlightLimitsController.batteryThresholdsRefused &&
+                (id == R.id.limitLowBattery || id == R.id.limitCriticalBattery)) continue
             findViewById<View>(id)?.apply {
                 isEnabled = !locked
                 alpha = if (locked) 0.45f else 1.0f
@@ -932,7 +1015,7 @@ class TakConnectActivity : AppCompatActivity() {
             host, cotPort, trustStorePath, certPw, clientCertPath, certPw,
         )
         runOnUiThread {
-            setStatus("Connected. Streaming drone PLI as \"$droneCallsign\".",
+            setStatus("Connected. Sending the aircraft position to TAK as \"$droneCallsign\".",
                 ContextCompat.getColor(applicationContext, R.color.tp_state_go))
             TakBridgeHolder.start(droneUid, droneCallsign)
             TakForegroundService.start(applicationContext, droneCallsign)

@@ -124,8 +124,13 @@ class FieldGuideActivity : AppCompatActivity() {
         bullet("RTH altitude - the height the aircraft climbs to before it flies home. Set " +
             "this height more than the highest obstacle between you and the aircraft.")
         bullet("Battery Warning - the level where the aircraft tells you the battery is low.")
-        bullet("Battery Critical - the level where the aircraft lands on its own. Set this " +
-            "level with care. The aircraft lands where it is.")
+        bullet("Battery Critical - the level where the aircraft lands on its own. The aircraft " +
+            "lands where it is.")
+        warn("Do not rely on these two fields. Some aircraft keep their own battery levels and " +
+            "refuse a change. The Mini 2 is one of them: it warns at 20% and lands at 10%, and " +
+            "this app cannot change these levels. If your aircraft refuses them, the app makes " +
+            "the two fields read-only and tells you the levels the aircraft holds. Read that " +
+            "line and plan your flight for those levels.")
         bullet("Stick mode - what the two sticks do. Mode 2 is usual. Change this only if you " +
             "know the aircraft uses a different mode.")
         bullet("If the signal is lost - the action of the aircraft if it loses the " +
@@ -137,9 +142,12 @@ class FieldGuideActivity : AppCompatActivity() {
             "below the fields. The aircraft cannot climb to its return height. Correct one of " +
             "the two values.")
 
-        body("Apply to Aircraft sends all of these to the aircraft now. Then the app asks the " +
-            "aircraft what it holds and shows the answer below the button. Read that line. It " +
-            "shows the aircraft, not what you typed.")
+        body("Apply Updated Settings to Aircraft sends all of these to the aircraft now. Then " +
+            "the app asks the aircraft what it holds and shows the answer below the button. " +
+            "Read that line. It shows the aircraft, not what you typed.")
+        note("The line above the answer tells you how many settings the aircraft accepted. If " +
+            "the aircraft refused a setting, the app gives its name. A refused setting keeps " +
+            "the value the aircraft already holds.")
         note("The stick mode goes to the aircraft only when you touch Apply to Aircraft. The " +
             "app never changes the sticks on its own.")
         note("Lock these settings makes the fields read-only. To unlock them, the app asks " +
