@@ -109,6 +109,13 @@ class DebugActivity : AppCompatActivity() {
             AppLog.i(TAG, "obstacle distance logs ${if (on) "INCLUDED" else "HIDDEN"}")
         }
 
+        val resourceToggle = findViewById<CheckBox>(R.id.debugResourceToggle)
+        resourceToggle.isChecked = AppLog.resourceLogging
+        resourceToggle.setOnCheckedChangeListener { _, on ->
+            AppLog.resourceLogging = on
+            AppLog.i(TAG, "system resource logs ${if (on) "INCLUDED" else "HIDDEN"}")
+        }
+
         findViewById<android.widget.Button>(R.id.debugExportButton).setOnClickListener {
             AppLog.v(TAG, "export tapped")
             exportLog()

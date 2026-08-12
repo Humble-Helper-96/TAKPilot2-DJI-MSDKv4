@@ -89,30 +89,49 @@
                 android:text="The sensors fill the log. Select this box only to examine obstacle avoidance. Avoidance changes and warnings stay in the log."
                 android:textColor="@color/tp_text_caption" android:textSize="12sp" />
 
+            <!-- ON by default, unlike the obstacle filter. One line every 30 seconds, and it is
+                 the watchdog for the fault that OOM-killed the sibling in the air. See
+                 AppLog.resourceLogging. -->
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <CheckBox android:id="@+id/debugResourceToggle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:buttonTint="@color/tp_btn_info" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Include system resource logs" android:textColor="@color/tp_text_bright" android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="2dp"
+                android:text="One line each 30 seconds with the memory, the CPU and the number of TAK contacts. Keep this box selected. Use the line to find a problem before a crash."
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
+
             <Button
                 android:id="@+id/debugExportButton"
+                style="@style/TakButton.Primary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="Export Log"
-                android:textColor="@color/tp_text_primary"
-                android:backgroundTint="@color/tp_btn_primary" />
+                />
             <Button
                 android:id="@+id/debugClearButton"
+                style="@style/TakButton.Neutral"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Clear Log"
-                android:textColor="@color/tp_text_primary"
-                android:backgroundTint="@color/tp_btn_neutral" />
+                />
             <Button
                 android:id="@+id/debugDeleteButton"
+                style="@style/TakButton.Danger"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Delete Log"
-                android:textColor="@color/tp_text_primary"
-                android:backgroundTint="@color/tp_btn_danger" />
+                />
         </LinearLayout>
 
         <TextView
