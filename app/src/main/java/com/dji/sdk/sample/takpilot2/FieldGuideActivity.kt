@@ -67,6 +67,8 @@ class FieldGuideActivity : AppCompatActivity() {
         sectionOne()
         sectionTwo()
         sectionThree()
+        sectionFour()
+        sectionFive()
 
         divider()
         body("If this guide does not agree with the aircraft, obey the aircraft. Then tell " +
@@ -109,20 +111,36 @@ class FieldGuideActivity : AppCompatActivity() {
             "Usually you set them one time. Change them only for a new area, a new server or " +
             "a new task.")
 
-        sub("1. Drone Settings")
-        body("The app sends these safety limits to the aircraft at each connection. All " +
-            "values are in feet.")
+        sub("1. Aircraft Settings")
+        body("The app sends these safety limits to the aircraft at each connection. The " +
+            "heights and the distance are in feet.")
         bullet("Max altitude - the maximum height the aircraft lets you fly.")
         bullet("Max distance - the maximum distance from the home point. At this limit the " +
             "aircraft stops and holds its position. It does not come back without your " +
             "command.")
         bullet("RTH altitude - the height the aircraft climbs to before it flies home. Set " +
             "this height more than the highest obstacle between you and the aircraft.")
+        bullet("Battery Warning - the level where the aircraft tells you the battery is low.")
+        bullet("Battery Critical - the level where the aircraft lands on its own. Set this " +
+            "level with care. The aircraft lands where it is.")
+        bullet("Stick mode - what the two sticks do. Mode 2 is usual. Change this only if you " +
+            "know the aircraft uses a different mode.")
         bullet("If the signal is lost - the action of the aircraft if it loses the " +
             "controller: Return Home, Hover or Land. The aircraft does this action without " +
             "the app. It works if your phone stops during the flight. Usually, select Return " +
             "Home.")
         note("To keep the value that is already in the aircraft, leave the field empty.")
+        warn("If the RTH altitude is more than the Max altitude, the app shows a warning " +
+            "below the fields. The aircraft cannot climb to its return height. Correct one of " +
+            "the two values.")
+
+        body("Apply to Aircraft sends all of these to the aircraft now. Then the app asks the " +
+            "aircraft what it holds and shows the answer below the button. Read that line. It " +
+            "shows the aircraft, not what you typed.")
+        note("The stick mode goes to the aircraft only when you touch Apply to Aircraft. The " +
+            "app never changes the sticks on its own.")
+        note("Lock these settings makes the fields read-only. To unlock them, the app asks " +
+            "for a password. The lock stops a change by accident. It is not security.")
 
         body("Obstacle avoidance has three boxes. The app sends these three settings to the " +
             "aircraft at each connection.")
@@ -138,10 +156,15 @@ class FieldGuideActivity : AppCompatActivity() {
             "aircraft is armed or in the air, the app does not change them.")
         note("The Mini 2 has no obstacle sensors. These settings do nothing on a Mini 2.")
 
-        sub("2. Map Display")
-        body("This sets the map type for the small map on the flight screen. Select Street, " +
-            "Hybrid (satellite images), or a custom map of your team. Then touch Save Map " +
-            "Display.")
+        sub("2. Video Streaming")
+        body("This section is optional. If your team has a video server, type its address, " +
+            "its port, the video name for this aircraft, and the login. Then select the " +
+            "quality: Low, Standard or High. Usually, select Standard. If the connection is " +
+            "weak, select Low.")
+        note("These settings do not start the video. Use the LIVE button in flight to start " +
+            "and stop the video.")
+        note("The full address shows below the fields. If it shows (NO PASSWORD) and your " +
+            "server needs one, the video cannot connect.")
 
         sub("3. TAK Server Connection")
         body("These fields set the address of the TAK server of your team and your identity " +
@@ -151,16 +174,10 @@ class FieldGuideActivity : AppCompatActivity() {
         body("The channel list is below these fields. These are the groups for your login. " +
             "The channels you select receive the position of the aircraft and your markers. " +
             "If you select no channel, the server selects the channels.")
+        note("If the phone has no network, the app tells you. It does not show an error " +
+            "about the server. Look at the Network line on the home screen first.")
 
-        sub("4. Video Streaming")
-        body("This section is optional. If your team has a video server, type its address, " +
-            "its port, the video name for this aircraft, and the login. Then select the " +
-            "quality: Low, Standard or High. A low quality works better on a weak connection. " +
-            "Usually, select Standard. If the connection is weak, select Low.")
-        note("These settings do not start the video. Use the LIVE button in flight to start " +
-            "and stop the video.")
-
-        sub("5. Elevation Data (DTED)")
+        sub("4. Elevation Data (DTED)")
         body("This is the terrain data for your flight area. You import one file for each " +
             "region. The data tells the app the height of the ground below the aircraft.")
         body("The terrain data improves two functions:")
@@ -169,7 +186,7 @@ class FieldGuideActivity : AppCompatActivity() {
         bullet("The altitude shows the true height above the ground. Without the data, it " +
             "shows the height above your takeoff point.")
 
-        sub("6. FAA Airspace Ceilings (UASFM)")
+        sub("5. FAA Airspace Ceilings (UASFM)")
         body("This downloads the FAA UAS Facility Map altitudes for an area. The flight " +
             "screen then shows the ceiling at your position. Type a center point and a " +
             "radius, or touch Use My Location. Check the size, then download the data.")
@@ -178,6 +195,13 @@ class FieldGuideActivity : AppCompatActivity() {
         warn("Do not use this data as an approval to fly. It shows the altitude that the FAA " +
             "usually approves, but it is not an approval. The FAA changes these maps and the " +
             "data can become out of date. You must get your own airspace approval.")
+
+        sub("6. Map Display")
+        body("This sets the map type for the small map on the flight screen. Select Street, " +
+            "Hybrid (satellite images), or a custom map of your team. Then touch Save Map " +
+            "Display.")
+        note("This section is last because the Autel app does not have it. Sections 1 to 5 " +
+            "are the same on the two aircraft.")
     }
 
     // ---------------------------------------------------------------- Section 3
@@ -516,6 +540,77 @@ class FieldGuideActivity : AppCompatActivity() {
                 "Examples are a dark object against snow, or a bright sky above dark ground. " +
                 "The numbers below the slider show the values of the camera.",
         )
+
+        entry(
+            emptyList(),
+            "Warnings (top left)",
+            "A box at the top left shows a warning from the aircraft. RED means act now. " +
+                "AMBER means know it.\n\n" +
+                "The box shows one warning at a time — the most important one. If there are " +
+                "more, the box shows a count, for example \"+2\". Each warning stays on the " +
+                "screen for a few seconds, so you can read it. A more important warning " +
+                "replaces a less important one immediately.\n\n" +
+                "The aircraft writes its own warnings in its own words. The app shows these " +
+                "words and does not change them. The app adds warnings for the return to " +
+                "home, the battery levels you set, the altitude and distance limits, a " +
+                "missing home point, and high wind.",
+            listOf(
+                "The app hides no warning from you. If the aircraft reports it, you see it.",
+                "The warnings stop when you leave the flight screen. They start again when " +
+                    "you come back.",
+            ),
+        )
+    }
+
+    // ---------------------------------------------------------------- Section 4
+
+    private fun sectionFour() {
+        section("4. Flight path records")
+        body("The app records the path of each flight. The recording is automatic. There is " +
+            "no switch, and there is nothing to start or stop.")
+
+        sub("When the app records")
+        bullet("The recording starts when the aircraft leaves the ground.")
+        bullet("The recording stops when the aircraft is on the ground for 10 seconds. A " +
+            "short touch on the ground does not divide the flight into two records.")
+        bullet("A TAK server is not necessary. A network is not necessary. The app records " +
+            "each flight also when the phone is fully offline.")
+        bullet("No GPS, no points. When the aircraft flies without a GPS position, the app " +
+            "records nothing for that time. It does not write a false position.")
+
+        sub("Where the records are")
+        body("Open Downloads/TAKPilotFlights on the phone. Each flight makes two files with " +
+            "the same name:")
+        bullet(".gpx - the track. Import it into ATAK or Google Earth to see the flight path " +
+            "on a map.")
+        bullet(".csv - a table with one row each second: time, position, altitude, speed, " +
+            "heading, battery and satellite count. Open it in a spreadsheet.")
+
+        note("The folder keeps approximately 50 MB - months of flights. When it is full, the " +
+            "app deletes the oldest files. Copy a record to a different location if you must " +
+            "keep it permanently.")
+        note("If the app stops during a flight, the record is safe. The track file appears " +
+            "the next time you start the app.")
+    }
+
+    // ---------------------------------------------------------------- Section 5
+
+    private fun sectionFive() {
+        section("5. What this build cannot do")
+        body("All the controls on the flight screen operate. These functions are not in this " +
+            "build:")
+
+        bullet("A correction for the position of a marker. If the markers of the app are all " +
+            "in the same wrong direction, you cannot correct this in the app. Report the " +
+            "error. A new build is necessary.")
+        bullet("A measurement of the camera angle of view. The app uses the published values " +
+            "for the aircraft. A marker near the edge of the picture can be less accurate " +
+            "than a marker in the center. You can change the values by hand with the AR " +
+            "button on the flight screen.")
+        bullet("A thermal camera. This build is for a camera with visible light only.")
+
+        warn("NOTHING IN THIS BUILD HAS FLOWN. The app was tested on the ground only. " +
+            "Examine each control on your first flight, and keep the aircraft in sight.")
     }
 
     /** Action-bar back arrow behaves the same as the system back gesture. */
