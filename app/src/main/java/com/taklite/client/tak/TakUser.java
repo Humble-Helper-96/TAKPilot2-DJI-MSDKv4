@@ -23,6 +23,16 @@ public class TakUser {
     private boolean drone;
     private String operatorUid;
     private String type;   // raw CoT type (e.g. a-f-G-U-C, b-m-p-s-m), for map symbol resolution
+    /**
+     * A shared MARKER rather than a position report — set at parse by
+     * {@link CotParser#isPersistentType}. The stale sweep does not delete these; only an explicit
+     * delete, a local delete, or the 72-hour eviction in TakMapMarkers removes them.
+     * Never true for air-domain types — see that method for why that matters.
+     */
+    private boolean persistent;
+    /** <track course> in degrees true, or -1 when the sender did not report one. ADS-B
+     *  gateways populate it; most hand-placed markers and many PLIs do not. */
+    private double course = -1;
 
     public TakUser(String uid, String callsign, double lat, double lon, double alt, String team, String role, long staleTime) {
         this.uid = uid;
@@ -45,6 +55,9 @@ public class TakUser {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+
+    public boolean isPersistent() { return persistent; }
+    public void setPersistent(boolean persistent) { this.persistent = persistent; }
 
     public String getUid() { return uid; }
     public String getCallsign() { return callsign; }
@@ -88,4 +101,9 @@ public class TakUser {
     public String getOperatorUid() { return operatorUid; }
     public void setOperatorUid(String operatorUid) { this.operatorUid = operatorUid; }
     public boolean hasVideo() { return videoUrl != null && !videoUrl.isEmpty(); }
+
+    public double getCourse() { return course; }
+    public void setCourse(double course) { this.course = course; }
+    /** True when a real course was reported, so callers never rotate a symbol to a default. */
+    public boolean hasCourse() { return course >= 0; }
 }

@@ -79,7 +79,20 @@ public class TakManager implements TakClient.TakClientListener {
 
     public interface TakUserListener {
         void onTakUserUpdated(TakUser user);
+        /**
+         * The contact aged out. It may still be held somewhere durable (a saved marker), so a
+         * listener may legitimately keep showing it — see TakMapMarkers.
+         */
         void onTakUserRemoved(String uid);
+        /**
+         * The network EXPLICITLY deleted this item (a `t-x-d-d`), as opposed to it merely ageing
+         * out. Forget it for good, including any persisted copy.
+         *
+         * The distinction is the whole point of the persistent-marker work: a timeout must not
+         * remove a shared marker, but a real delete must — otherwise a marker the team has
+         * retracted lives on this aircraft for ever.
+         */
+        void onTakUserDeleted(String uid);
         void onTakConnectionChanged(boolean connected);
     }
 
@@ -128,6 +141,33 @@ public class TakManager implements TakClient.TakClientListener {
     public String getTrustStorePassword() { return trustStorePassword; }
     public String getClientCertPath() { return clientCertPath; }
     public String getClientCertPassword() { return clientCertPassword; }
+
+    /**
+     * Puts a marker restored from durable storage back into the live contact map, so views that
+     * read {@link #getTakUsers()} can see it.
+     *
+     * Needed because the AR overlay iterates that collection directly, while the map keeps its own
+     * saved-marker store — so a marker restored at map-open was drawn on the map and invisible in
+     * AR. It also matters for deletes: a `t-x-d-d` is matched against this map.
+     *
+     * Does NOT overwrite an existing entry — a live CoT is always better than a saved copy — and
+     * does not notify listeners, because the caller is the thing that restored it.
+     */
+    public void restorePersistentUser(TakUser user) {
+        if (user == null || user.getUid() == null) return;
+        takUsers.putIfAbsent(user.getUid(), user);
+    }
+
+    /**
+     * Drops a contact from the live map WITHOUT telling listeners.
+     *
+     * For a caller that is already removing the thing itself — the marker list's Clear All, which
+     * strips the overlay and the saved copy directly. Notifying would send it back through
+     * onTakUserRemoved and re-add the marker from the store it is in the middle of clearing.
+     */
+    public void forgetUser(String uid) {
+        if (uid != null) takUsers.remove(uid);
+    }
 
     public TakUser findUserByUid(String uid) {
         return takUsers.get(uid);
@@ -227,6 +267,48 @@ public class TakManager implements TakClient.TakClientListener {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
+
+    /**
+     * The PILOT's marker: the operator on the ground, at the controller's own position.
+     *
+     * ⚠ **The XML is NOT logged here, unlike the debug line below it used to do.** This message
+     * now carries the video url, and that url contains the media-server password. Logging it
+     * would write a credential to the log file and to logcat, which the security review of
+     * 2026-08-03 explicitly recorded this application as not doing.
+     *
+     * <p>No {@code team} parameter on purpose: the pilot marker is always {@link #PILOT_TEAM}.
+     * The signature used to take one and silently ignore it, which promised callers a choice
+     * the method never offered.
+     */
+    public void sendPilotPLI(Location location, String callsign, String role,
+                             int battery, String videoUrl) {
+        if (client != null && connected) {
+            lastLat = location.getLatitude();
+            lastLon = location.getLongitude();
+            String xml = CotBuilder.buildPLI(uid, pilotCallsign(callsign), PILOT_TEAM, role,
+                    location.getLatitude(), location.getLongitude(), location.getAltitude(),
+                    location.getBearing(), location.getSpeed(), battery,
+                    takvPlatform, deviceWithCallsign(callsign), takvOs, takvVersion, videoUrl);
+            sendCot(xml);
+            AppLog.d(TAG, "Pilot PLI sent: " + pilotCallsign(callsign) + " @ " + lastLat + ","
+                    + lastLon + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
+        }
+    }
+
+    /**
+     * The operator marker's callsign — the aircraft callsign with "-Pilot" (operator, 2026-08-05).
+     *
+     * Without it the operator marker and the aircraft marker share a name, and a viewer sees the
+     * same callsign twice at two positions with no way to tell which is the aircraft.
+     */
+    public static String pilotCallsign(String callsign) {
+        if (callsign == null || callsign.isEmpty()) return "Pilot";
+        return callsign.endsWith("-Pilot") ? callsign : callsign + "-Pilot";
+    }
+
+    /** The pilot marker is always Cyan (operator, 2026-08-05), whatever team the configuration
+     *  uses, so the operator is one consistent colour across every aircraft. */
+    private static final String PILOT_TEAM = "Cyan";
 
     public void sendPLI(Location location, String callsign, String team, String role, int battery) {
         if (client != null && connected) {
@@ -385,10 +467,20 @@ public class TakManager implements TakClient.TakClientListener {
         AppLog.d(TAG, "Connected to TAK server");
         if (uid != null) {
             String cs = callsign != null ? callsign : uid;
-            String initCot = CotBuilder.buildPLI(uid, cs, team, role, 0, 0, 0, 0, 0, 100,
+            // Registration message so the server lists this client and applies channel routing.
+            //
+            // ⚠ IT CARRIES 0,0 BECAUSE THERE IS NO FIX YET, AND THAT IS WHY IT MUST BE REPLACED.
+            // Until 2026-08-05 nothing replaced it: sendPLI had no caller anywhere, so the
+            // operator's callsign sat at latitude 0 longitude 0 on the team's map until it went
+            // stale. The bridge now publishes a real pilot position every tick once the
+            // controller has a fix. If it never gets one, this message simply goes stale and the
+            // marker disappears — which is the right outcome, because a marker at 0,0 is worse
+            // than no marker.
+            String initCot = CotBuilder.buildPLI(uid, pilotCallsign(cs), PILOT_TEAM, role,
+                    0, 0, 0, 0, 0, 100,
                     takvPlatform, deviceWithCallsign(cs), takvOs, takvVersion);
             client.sendMessage(initCot);
-            AppLog.d(TAG, "Initial PLI sent to register with server");
+            AppLog.d(TAG, "Initial PLI sent to register with server (position follows)");
         }
         mainHandler.post(() -> {
             synchronized (listeners) {
@@ -415,11 +507,26 @@ public class TakManager implements TakClient.TakClientListener {
             if (disconnectedUid != null) {
                 AppLog.d(TAG, "User disconnected: " + disconnectedUid);
                 TakUser user = takUsers.get(disconnectedUid);
-                if (user != null) {
+                if (user != null && !user.isPersistent()) {
+                    // A client went away. Backdate its stale time and let removeStaleUsers()
+                    // collect it, so it greys before it disappears.
                     user.setStaleTime(System.currentTimeMillis() - 1);
                     mainHandler.post(() -> {
                         synchronized (listeners) {
                             for (TakUserListener l : listeners) l.onTakUserUpdated(user);
+                        }
+                    });
+                } else {
+                    // A `t-x-d-d` is also TAK's DELETE for a map item. Persistent items are exempt
+                    // from the stale sweep, so backdating would never remove them — delete here.
+                    //
+                    // Fired even when the uid is NOT in takUsers: a marker restored from the saved
+                    // store may not be in memory as a contact, and the team deleting it must still
+                    // clear the persisted copy. Listeners treat this as "forget it for good".
+                    takUsers.remove(disconnectedUid);
+                    mainHandler.post(() -> {
+                        synchronized (listeners) {
+                            for (TakUserListener l : listeners) l.onTakUserDeleted(disconnectedUid);
                         }
                     });
                 }
@@ -484,11 +591,47 @@ public class TakManager implements TakClient.TakClientListener {
         });
     }
 
+    /**
+     * Drops contacts whose stale window has passed.
+     *
+     * ⚠ PERSISTENT ITEMS ARE EXEMPT FROM DELETION. A marker somebody shared is not a track: it does
+     * not re-broadcast on a heartbeat, and a sender may declare a stale window that is useless
+     * (CloudTAK sends ~3.6 s). Deleting on a timeout made shared markers vanish within minutes of
+     * arriving. They still go stale — the icon greys — but only an explicit delete, a local delete
+     * or the 72-hour eviction in TakMapMarkers removes them.
+     *
+     * ⚠ THIS EXEMPTION MUST NEVER REACH AIR TRACKS. Unbounded contact retention is what OOM-killed
+     * the flight app in the air on 2026-08-03. {@link CotParser#isPersistentType} is where that is
+     * enforced; read it before widening what counts as persistent.
+     */
     private void removeStaleUsers() {
+        // RETENTION WATCHDOG. This count is the number that mattered on 2026-08-03: the map held
+        // 161 distinct aircraft while the live picture showed a handful, and the process was
+        // OOM-killed in the air. It is cheap (one line per 30 s sweep) and it is the only thing
+        // that makes a slow retention leak visible before it becomes a crash.
+        //
+        // What to look for: `total` should oscillate around the size of the real picture, not
+        // climb steadily over a session. `persistent` should track the number of markers actually
+        // shared with this aircraft — if it grows with air traffic, the persistence rule has
+        // sprung a leak. See CotParser.isPersistentType.
+        int persistentCount = 0;
+        for (TakUser u : takUsers.values()) if (u != null && u.isPersistent()) persistentCount++;
+        AppLog.i(TAG, "contacts held: " + takUsers.size() + " total, "
+                + persistentCount + " persistent");
+
         for (String key : takUsers.keySet()) {
             TakUser user = takUsers.get(key);
             if (user != null) {
-                if (user.isExpired()) {
+                if (user.isPersistent()) {
+                    // Still notify while stale so the icon can grey — just never remove.
+                    if (user.isStale()) {
+                        mainHandler.post(() -> {
+                            synchronized (listeners) {
+                                for (TakUserListener l : listeners) l.onTakUserUpdated(user);
+                            }
+                        });
+                    }
+                } else if (user.isExpired()) {
                     takUsers.remove(key);
                     mainHandler.post(() -> {
                         synchronized (listeners) {

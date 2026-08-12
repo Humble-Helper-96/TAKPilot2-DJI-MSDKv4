@@ -75,6 +75,16 @@ public class TakCertEnroller {
             AppLog.d(TAG, "Got signed cert + CA chain from server");
 
             X509Certificate signedCert = decodeCert(signedCertB64);
+
+            // The server must have signed a cert for OUR public key. If it did not (a mismatched
+            // or substituted cert), bundling it with our private key produces a .p12 that fails
+            // TLS later, far from the cause. Verify here and fail with a clear message instead.
+            // See security review #5.
+            if (!java.util.Arrays.equals(signedCert.getPublicKey().getEncoded(),
+                    keyPair.getPublic().getEncoded())) {
+                throw new Exception("Signed certificate's public key does not match the generated key pair");
+            }
+
             X509Certificate caCert0 = ca0B64.isEmpty() ? null : decodeCert(ca0B64);
             X509Certificate caCert1 = ca1B64.isEmpty() ? null : decodeCert(ca1B64);
 
