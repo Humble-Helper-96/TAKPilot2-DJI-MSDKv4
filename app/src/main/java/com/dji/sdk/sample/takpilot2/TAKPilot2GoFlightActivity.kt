@@ -242,13 +242,35 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // 6C: tapping an inbound contact locally hides it (stays on the server). Confirmed
             // independent of setAllGesturesEnabled(false) above — the locked mini-map's pan/
             // zoom/rotate stay off, only this explicit click hook is added.
+            //
+            // SINGLE AND DOUBLE TAP ARE MUTUALLY EXCLUSIVE, and they have to be. A single tap
+            // hides an inbound marker; a double tap expands the map. Without this the first tap
+            // of a double would hide whatever marker was under the finger on the way to
+            // enlarging the map — a destructive side effect of a display gesture.
+            //
+            // MapLibre exposes no double-tap callback and its own gestures are off, so the
+            // single tap is DEFERRED by the platform's double-tap timeout and cancelled if a
+            // second click lands inside it. That is what Android's onSingleTapConfirmed does,
+            // and the cost is the same: a marker hide waits ~300ms.
             mapboxMap.addOnMapClickListener { latLng ->
+                val pending = pendingMapTap
+                if (pending != null) {
+                    handler.removeCallbacks(pending)
+                    pendingMapTap = null
+                    toggleMapExpanded()
+                    return@addOnMapClickListener true
+                }
                 val px = mapboxMap.projection.toScreenLocation(latLng)
                 val hit = mapboxMap.queryRenderedFeatures(px, com.dji.sdk.sample.tak.TakMapMarkers.LAYER_ID)
                     .firstOrNull()
                 val uid = hit?.getStringProperty(com.dji.sdk.sample.tak.TakMapMarkers.PROP_UID)
-                if (uid != null) onInboundMarkerTapped(uid)
-                uid != null
+                val r = Runnable {
+                    pendingMapTap = null
+                    if (uid != null) onInboundMarkerTapped(uid)
+                }
+                pendingMapTap = r
+                handler.postDelayed(r, android.view.ViewConfiguration.getDoubleTapTimeout().toLong())
+                true
             }
             // Zoom + center immediately, before any GPS fix — otherwise the map sits at its
             // default continent-scale zoom until the drone locks GPS (the per-tick recenter that
@@ -597,6 +619,39 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      * the uncorrected figure, and the readout marks itself `~` so the pilot can see the warning
      * is only as good as flat ground.
      */
+    /** A map tap waiting out the double-tap window — see the click listener. */
+    private var pendingMapTap: Runnable? = null
+
+    /** Not persisted, deliberately: the flight screen always opens with a compact map. An
+     *  expanded map covers the readouts, and inheriting that from a previous session is not
+     *  something a pilot asked for. */
+    private var mapExpanded = false
+
+    /**
+     * Double-tap: the mini-map grows to twice its size, and back.
+     *
+     * It grows OVER the video and the readouts rather than pushing them. Width is free because
+     * the HUD column is end-aligned; height comes from a negative top margin, so the extra size
+     * goes upward across the readouts instead of down off the bottom of a 411dp-tall screen.
+     * Elevation lifts it above its siblings so the readouts do not draw on top of it.
+     *
+     * THE ZOOM IS UNCHANGED. A bigger map at the same zoom shows four times the GROUND, which is
+     * what a pilot double-tapping a mini-map wants. Magnifying the same ground would be the
+     * WIDE/NEAR control's job, and this is not that.
+     */
+    private fun toggleMapExpanded() {
+        val base = resources.getDimensionPixelSize(R.dimen.flight_map_size)
+        mapExpanded = !mapExpanded
+        val size = if (mapExpanded) base * 2 else base
+        val lp = mapView.layoutParams as android.widget.LinearLayout.LayoutParams
+        lp.width = size
+        lp.height = size
+        lp.topMargin = if (mapExpanded) -(size - base) else 0
+        mapView.layoutParams = lp
+        mapView.elevation = if (mapExpanded) 8f * resources.displayMetrics.density else 0f
+        AppLog.v(TAG, "mini-map ${if (mapExpanded) "expanded" else "compact"} (${size}px)")
+    }
+
     private var lastResourceLogAt = 0L
 
     /**
@@ -1748,6 +1803,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         AppLog.v(TAG, "onPause")
         handler.removeCallbacks(refresh)
         handler.removeCallbacks(hideNotice)
+        // A deferred map tap must not fire into a screen the pilot has left — it would hide a
+        // marker with nothing on screen to show it happened.
+        pendingMapTap?.let { handler.removeCallbacks(it) }
+        pendingMapTap = null
         mapView.onPause()
         super.onPause()
     }
