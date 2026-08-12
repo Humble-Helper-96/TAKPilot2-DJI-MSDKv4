@@ -593,18 +593,50 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      * the uncorrected figure, and the readout marks itself `~` so the pilot can see the warning
      * is only as good as flat ground.
      */
+    private var lastResourceLogAt = 0L
+
+    /**
+     * One resource line every [RESOURCE_LOG_INTERVAL_MS] while the flight screen is up.
+     *
+     * On the HUD tick rather than a timer of its own, so it stops when the screen does. The
+     * interval is long because this is a trend, not an instrument: the thing being watched is
+     * whether the contact count and the memory figures CLIMB across a flight, which is what
+     * preceded the OOM kills on the sibling. A line every half second would bury that in noise
+     * and rotate the log file out from under the evidence.
+     */
+    private fun logResourcesPeriodically() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastResourceLogAt < RESOURCE_LOG_INTERVAL_MS) return
+        lastResourceLogAt = now
+        runCatching {
+            AppLog.i(RESOURCE_TAG,
+                com.dji.sdk.sample.tak.ResourceMonitor.formattedLine(applicationContext))
+        }
+    }
+
+    /** The one place the ceiling readout says "I do not know", so every unknown looks the same
+     *  and none of them look like an answer. */
+    private fun showFaaUnknown(text: String) {
+        fpvFaaCeiling.visibility = View.VISIBLE
+        fpvFaaCeiling.text = text
+        fpvFaaCeiling.setTextColor(
+            ContextCompat.getColor(applicationContext, R.color.tp_state_unknown))
+    }
+
     private fun updateFaaCeiling(
         hud: com.dji.sdk.sample.tak.DroneTakBridge.Hud?,
         agl: com.dji.sdk.sample.tak.TerrainAgl.Reading,
     ) {
+        // NEVER HIDDEN. This used to disappear entirely when no ceilings had been downloaded,
+        // and an absent readout reads as "nothing to worry about" rather than "I do not know" —
+        // the pilot cannot tell a 400 ft answer they have not been given from one that did not
+        // need giving. Unknown is its own state, in its own colour. (Standing rule, CLAUDE.md.)
         if (!com.dji.sdk.sample.tak.UasfmIndex.hasCoverage(this)) {
-            fpvFaaCeiling.visibility = View.GONE
+            showFaaUnknown("FAA — no data downloaded")
             return
         }
         if (hud == null || !hud.hasFix) {
-            fpvFaaCeiling.visibility = View.VISIBLE
-            fpvFaaCeiling.text = "FAA — no fix"
-            fpvFaaCeiling.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
+            showFaaUnknown("FAA — no fix")
             return
         }
 
@@ -650,11 +682,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             }
             // Outside the downloaded box entirely — we genuinely don't know. Amber, because
             // silently implying 400 ft here would be a guess dressed up as information.
-            else -> {
-                fpvFaaCeiling.text = "FAA — no data here"
-                fpvFaaCeiling.setTextColor(
-                    ContextCompat.getColor(applicationContext, R.color.tp_state_unknown))
-            }
+            else -> showFaaUnknown("FAA — no data here")
         }
     }
 
@@ -1103,36 +1131,71 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         lateinit var dialog: AlertDialog
 
         fun refresh() {
-            val pins = TakDropMarkers.listPins()
             val hud = TakBridgeHolder.hud()
-            val rows = pins.map { pin ->
-                val range = if (hud != null) {
-                    val d = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, pin.lat, pin.lon)
-                    val b = CameraSlantPoint.initialBearingDeg(hud.lat, hud.lon, pin.lat, pin.lon)
-                    // Units.distance (not .feet) here: a dropped marker has no geofence bound
-                    // the way the aircraft's own position does, so this can legitimately run to
-                    // five digits of feet where miles read better.
-                    "  ·  %s @ %03.0f°".format(Units.distance(d), b)
-                } else ""
-                IconListAdapter.Row("${pin.affiliation.label}: ${pin.name}$range", pin.affiliation.res, pin)
+            // Range/bearing from the AIRCRAFT to the marker, for either kind.
+            fun range(lat: Double, lon: Double): String {
+                if (hud == null) return ""
+                val d = CameraSlantPoint.distanceMeters(hud.lat, hud.lon, lat, lon)
+                val b = CameraSlantPoint.initialBearingDeg(hud.lat, hud.lon, lat, lon)
+                // Units.distance (not .feet) here: a marker has no geofence bound the way the
+                // aircraft's own position does, so this can legitimately run to five digits of
+                // feet where miles read better.
+                return "  ·  %s @ %03.0f°".format(Units.distance(d), b)
+            }
+
+            // Own pins first, then what the team shared. Own first because those are the ones the
+            // pilot can act on fully; a shared row offers a local delete and nothing else.
+            val rows = ArrayList<IconListAdapter.Row>()
+            TakDropMarkers.listPins().forEach { pin ->
+                rows.add(IconListAdapter.Row(
+                    "${pin.affiliation.label}: ${pin.name}${range(pin.lat, pin.lon)}",
+                    pin.affiliation.res, pin))
+            }
+            com.dji.sdk.sample.tak.TakMapMarkers.listShared().forEach { m ->
+                rows.add(IconListAdapter.Row(
+                    "Shared: ${m.callsign}${range(m.lat, m.lon)}",
+                    com.dji.sdk.sample.tak.TakMapMarkers.sharedIconRes(m.type),
+                    pin = null, shared = m))
             }
             adapter.setRows(rows)
         }
 
         adapter.onDeleteX = onDeleteX@{ row ->
-            val pin = row.pin ?: return@onDeleteX
-            AppLog.i(TAG, "marker delete (X): ${pin.key}")
-            TakDropMarkers.delete(pin.key)
-            refresh()
+            row.pin?.let {
+                AppLog.i(TAG, "marker delete (X): ${it.key}")
+                TakDropMarkers.delete(it.key)
+                refresh()
+                return@onDeleteX
+            }
+            row.shared?.let {
+                // Local only. Moving, renaming or re-sending a shared marker would edit it on
+                // every other client's picture, which is not the pilot's call to make from here.
+                AppLog.i(TAG, "shared marker hidden (X): ${it.uid}")
+                com.dji.sdk.sample.tak.TakMapMarkers.hideInbound(it.uid)
+                refresh()
+            }
         }
         view.findViewById<android.widget.ListView>(R.id.markersListView)
             .setOnItemClickListener { _, _, position, _ ->
-                adapter.rowAt(position).pin?.let { onMarkerRowTapped(it) }
-                dialog.dismiss()
+                val row = adapter.rowAt(position)
+                when {
+                    row.pin != null -> {
+                        onMarkerRowTapped(row.pin)
+                        dialog.dismiss()
+                    }
+                    // No action menu for a shared marker: every entry on that menu (move,
+                    // rename, change type, re-send) would change it for the whole team. The X
+                    // is the one thing the pilot may legitimately do to it.
+                    row.shared != null ->
+                        Toast.makeText(this, "Shared by another user — X removes it from your map only",
+                            Toast.LENGTH_SHORT).show()
+                }
             }
 
         dialog = AlertDialog.Builder(this, R.style.TakDialogTheme)
-            .setTitle("Dropped Markers")
+            // Not "Dropped Markers" any more — the list holds what the team shared as well, and
+            // a title naming only one kind is what made the other look missing.
+            .setTitle("Markers")
             .setView(view)
             .setNegativeButton("Close", null)
             // Placeholder — restyled/rewired in setOnShowListener below, same pattern as the
@@ -1150,15 +1213,34 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    /**
+     * Clears BOTH sets, and says so before committing.
+     *
+     * It used to clear only the pilot's own, which left a "cleared" map still carrying every
+     * marker the team had shared — the one outcome a pilot pressing Clear All is not expecting.
+     * The two counts are stated separately because the consequences differ: the pilot's own
+     * markers stay live on the server and may come back to other clients, while a shared one is
+     * only being taken off this picture.
+     */
     private fun onClearAllMarkersTapped(onCleared: () -> Unit) {
+        val ownCount = TakDropMarkers.listPins().size
+        val sharedCount = com.dji.sdk.sample.tak.TakMapMarkers.listShared().size
+        val body = buildString {
+            append("Remove ")
+            append(if (ownCount == 1) "1 marker you dropped" else "$ownCount markers you dropped")
+            append(" and ")
+            append(if (sharedCount == 1) "1 shared marker" else "$sharedCount shared markers")
+            append(" from your map?\n\nThis is local only. Your own markers stay on the TAK ")
+            append("server until they go stale (72h) and may still show on other clients. ")
+            append("Shared markers come back if the team sends them again.")
+        }
         AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
             .setTitle("Clear All Markers")
-            .setMessage("Remove all dropped markers from your map? This is local-only — each " +
-                "marker stays on the TAK server until it goes stale (14h) and may reappear on " +
-                "other clients' pictures until then.")
+            .setMessage(body)
             .setPositiveButton("Clear All Markers") { _, _ ->
-                AppLog.i(TAG, "markers: clear all confirmed")
+                AppLog.i(TAG, "markers: clear all confirmed ($ownCount own, $sharedCount shared)")
                 TakDropMarkers.clearAll()
+                com.dji.sdk.sample.tak.TakMapMarkers.clearAllShared()
                 onCleared()
             }
             .setNegativeButton("Cancel", null)
@@ -1234,7 +1316,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private class IconListAdapter(
         context: android.content.Context,
     ) : android.widget.BaseAdapter() {
-        data class Row(val label: String, val iconRes: Int?, val pin: TakDropMarkers.PinInfo?)
+        /** Exactly one of [pin] and [shared] is set on a markers-list row; both are null on the
+         *  change-type rows, which reuse this adapter and are neither. */
+        data class Row(
+            val label: String,
+            val iconRes: Int?,
+            val pin: TakDropMarkers.PinInfo?,
+            val shared: com.dji.sdk.sample.tak.TakMapMarkers.SharedMarker? = null,
+        )
 
         /** Fired when a row's delete-X is tapped (markers-list only; null for change-type rows,
          *  which never show an X). */
@@ -1267,7 +1356,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.rowMarkerTypeLabel).text = row.label
 
             val deleteX = view.findViewById<ImageView>(R.id.rowMarkerDeleteX)
-            if (row.pin != null) {
+            // A shared row gets an X too — it removes the marker from THIS picture only. The
+            // change-type rows (neither pin nor shared) get none.
+            if (row.pin != null || row.shared != null) {
                 deleteX.visibility = View.VISIBLE
                 deleteX.setOnClickListener { onDeleteX?.invoke(row) }
             } else {
@@ -1455,6 +1546,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // with the clock, not only when a warning changes, so it has to be re-asked. Also above
         // the no-GPS-fix early return — losing the fix is itself a condition worth showing.
         renderWarning()
+        logResourcesPeriodically()
 
         toolbarBattery.setPercent(hud?.batteryPct)
 
@@ -1698,6 +1790,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val REC_TAG = "TP2Record"
         private const val REQUEST_MEDIA_PROJECTION = 3001
         private const val HUD_INTERVAL_MS = 500L
+
+        private const val RESOURCE_LOG_INTERVAL_MS = 30_000L
+
+        /** Separate from [TAG] on purpose: [TAG] is in AppLog's TAK_TAGS and disappears when an
+         *  operator filters TAK logging off — which is exactly when they are chasing a memory
+         *  problem and need this most. Same reasoning as the bridge's readiness tag. */
+        private const val RESOURCE_TAG = "TP2Resources"
         /** Post-still VIDEO-mode restore: poll interval and total attempts (~3.6s of patience).
          *  Comfortably longer than the Air 2 takes to write a still, while still giving up in
          *  time to warn the pilot rather than retrying silently forever. */
