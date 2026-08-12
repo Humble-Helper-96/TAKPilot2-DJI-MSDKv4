@@ -142,25 +142,25 @@
                 android:layout_weight="1" android:gravity="end" android:text="+2" />
         </LinearLayout>
 
-        <!-- Wall clock, directly below the EV scale — same slot the sibling uses, so the
-             column reads the same on either aircraft. The flight screen is full-screen and
-             covers the system status bar, so without this there is no time anywhere on it, and
-             the time is what a pilot writes in a log, calls on the radio, and matches against
-             the flight record afterwards. Seconds included: a pilot timing a leg or noting an
-             event wants them. -->
-        <TextView
-            android:id="@+id/fpvClock"
-            style="@style/hudText"
-            android:layout_width="@dimen/flight_map_size"
-            android:gravity="center"
-            android:text="00:00:00" />
-
         <!-- Absorbs leftover height: exposure stays pinned to the top, the rest to the bottom,
              and neither can run into the other. -->
         <View
             android:layout_width="1dp"
             android:layout_height="0dp"
             android:layout_weight="1" />
+
+        <!-- Wall clock. Right-aligned and directly above the telemetry block so it reads as
+             part of the readouts, not as a label on the EV slider. The flight screen is
+             full-screen and covers the system status bar, so without this there is no time
+             anywhere on it, and the time is what a pilot writes in a log, calls on the radio,
+             and matches against the flight record afterwards. Seconds included: the HUD ticks
+             at 500ms, so the digit is live for a pilot timing a leg. -->
+        <TextView
+            android:id="@+id/fpvClock"
+            style="@style/hudText"
+            android:layout_marginBottom="2dp"
+            android:gravity="end"
+            android:text="00:00:00" />
 
         <TextView
             android:id="@+id/fpvOverlayText"
@@ -189,6 +189,16 @@
             android:layout_marginBottom="2dp"
             android:gravity="end"
             android:text="RTH --" />
+
+        <!-- Home distance and bearing. Moved out of the telemetry block and down here, under
+             RTH: the two belong together — how far home is, and how high the aircraft will
+             climb to get there. -->
+        <TextView
+            android:id="@+id/fpvHomeDistance"
+            style="@style/hudText"
+            android:layout_marginBottom="2dp"
+            android:gravity="end"
+            android:text="HOME" />
 
         <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
         <TextView
