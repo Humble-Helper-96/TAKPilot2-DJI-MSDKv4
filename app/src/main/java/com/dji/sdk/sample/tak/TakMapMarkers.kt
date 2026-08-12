@@ -342,6 +342,57 @@ object TakMapMarkers {
     /** For dedupe / AR checks: is this uid locally hidden? */
     fun isHidden(uid: String): Boolean = hidden.contains(uid)
 
+    /** One shared marker, for the markers list. Deliberately not a TakUser: the list only needs
+     *  what it draws, and a snapshot cannot change under the open dialog. */
+    data class SharedMarker(
+        val uid: String, val callsign: String, val type: String,
+        val lat: Double, val lon: Double,
+    )
+
+    /**
+     * Markers other people shared, newest first — the same set [savedMarkers] persists.
+     *
+     * Exists because they were on the map and absent from the list, which made them look
+     * missing: a pilot who can see a marker but cannot find it anywhere to act on has no way to
+     * tell whether the app knows about it.
+     */
+    fun listShared(): List<SharedMarker> =
+        savedMarkers.values.reversed()
+            .filter { !hidden.contains(it.uid) }
+            .map { SharedMarker(it.uid, it.callsign, it.type, it.lat, it.lon) }
+
+    /** The 2525 frame for a shared marker's type, for the list row's icon. Null leaves the row
+     *  iconless rather than borrowing a symbol that means something else. */
+    fun sharedIconRes(type: String?): Int? = milMarkerRes(type)
+
+    /**
+     * Local-only removal of every shared marker. Returns how many went.
+     *
+     * ⚠ Deliberately does NOT add these uids to the permanently-hidden set. That is right for
+     * one deliberate delete of one marker, but a bulk clear must not blind the pilot to those
+     * identities for the life of the install — if the team re-sends one, it should come back.
+     */
+    fun clearAllShared(): Int {
+        val uids = savedMarkers.keys.toList()
+        if (uids.isEmpty()) return 0
+        AppLog.i(TAG, "clearing ${uids.size} shared marker(s) locally")
+        savedMarkers.clear()
+        saveSavedMarkers()
+        val tak = TakManager.getInstance()
+        main.post {
+            var changed = false
+            for (uid in uids) {
+                if (shown.remove(uid) != null) changed = true
+                iconKeys.remove(uid)
+                // Same leak as hideInbound: persistent markers never age out of the contact map,
+                // so dropping them from the drawing model alone would leave them held forever.
+                tak.forgetUser(uid)
+            }
+            if (changed) rebuild()
+        }
+        return uids.size
+    }
+
     /** The inbound contact currently rendered under this uid, or null (used by the 6C list
      *  panel to label an inbound marker before hiding it). */
     fun inboundUser(uid: String): TakUser? = shown[uid]
@@ -355,6 +406,18 @@ object TakMapMarkers {
         hidden.add(uid)
         savedMarkers.remove(uid)
         saveSavedMarkers()
+        // ⚠ ALSO DROP IT FROM THE LIVE CONTACT MAP, OR IT LEAKS.
+        //
+        // Hiding used to be enough on its own: the contact stopped being drawn and then aged out
+        // of TakManager on the next stale sweep. Persistent markers are now EXEMPT from that
+        // sweep — which is the whole point of the persistence work — so a hidden marker would sit
+        // in takUsers forever, invisible and never released. That is the same
+        // accumulate-until-OOM shape as 2026-08-03, just slower and harder to see, because
+        // nothing on screen shows it growing.
+        //
+        // forgetUser, not remove: this listener is the thing doing the removing, and a
+        // notification would come straight back through onTakUserRemoved.
+        TakManager.getInstance().forgetUser(uid)
         main.post {
             if (shown.remove(uid) != null) rebuild()
             iconKeys.remove(uid)
