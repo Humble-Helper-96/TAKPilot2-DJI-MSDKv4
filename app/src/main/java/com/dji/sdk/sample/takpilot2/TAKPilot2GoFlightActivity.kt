@@ -22,7 +22,9 @@ import com.dji.sdk.sample.tak.ArSettings
 import com.dji.sdk.sample.tak.CameraSlantPoint
 import com.dji.sdk.sample.tak.DjiObstacleState
 import com.dji.sdk.sample.tak.DjiSdkBridge
+import android.content.Intent
 import com.dji.sdk.sample.tak.ExposureController
+import com.dji.sdk.sample.tak.OperatorLocation
 import com.dji.sdk.sample.tak.TakBridgeHolder
 import com.dji.sdk.sample.tak.TakDropMarkers
 import com.dji.sdk.sample.tak.VideoStreamerHolder
@@ -127,6 +129,24 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         Mapbox.getInstance(applicationContext)
         super.onCreate(savedInstanceState)
+
+        // OOM-restart guard. If the app is killed for memory in flight, Android restores the task
+        // and recreates THIS activity directly — into a cold process where the DJI SDK was never
+        // registered and no product connection was started (that only happens in Home). Coming up
+        // here would show a dead aircraft link and a frozen HUD that looks live, which is worse
+        // than an obvious failure. The tell: we were restored (savedInstanceState != null) yet
+        // this process never passed through Home. Bounce there, which re-registers the SDK and
+        // lets the pilot re-enter the flight screen deliberately.
+        if (savedInstanceState != null && !TAKPilot2GoHomeActivity.visitedThisProcess) {
+            AppLog.w(TAG, "restored into a cold process (OOM restart) — routing to Home")
+            startActivity(
+                Intent(this, TAKPilot2GoHomeActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+            finish()
+            return
+        }
+
         setContentView(R.layout.activity_takpilot2go_flight)
         AppLog.v(TAG, "onCreate")
 
@@ -466,12 +486,14 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
             return
         }
-        val lm = getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
-        val loc = runCatching {
-            listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
-                .mapNotNull { provider -> if (lm.isProviderEnabled(provider)) lm.getLastKnownLocation(provider) else null }
-                .maxByOrNull { it.time }
-        }.getOrNull()
+        // Via OperatorLocation, not getLastKnownLocation. Two reasons, and the second is the
+        // safety one: that method reads a cache nothing fills unless an app has requested
+        // updates, so on a flying phone it returned null for ever; and the cache has NO expiry,
+        // so it can hand back a fix from days ago at wherever the phone last saw sky.
+        // OperatorLocation issues the real request and refuses a stale seed — which matters
+        // here more than anywhere, because this value decides where RTH flies the aircraft.
+        OperatorLocation.start(this)
+        val loc = OperatorLocation.latest
         if (loc == null) {
             AppLog.w(TAG, "reset home point aborted — no phone GPS fix from GPS/NETWORK providers")
             Toast.makeText(this, "No phone GPS fix available", Toast.LENGTH_SHORT).show()

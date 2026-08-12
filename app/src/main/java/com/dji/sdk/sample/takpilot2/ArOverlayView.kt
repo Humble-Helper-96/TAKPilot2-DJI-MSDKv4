@@ -541,12 +541,31 @@ class ArOverlayView @JvmOverloads constructor(
      * outside the image, and drawn as a triangle pointing outward along the direction to the
      * target rather than a plain dot, so the direction is readable at a glance.
      */
+    /**
+     * Normalise an off-axis angle to [-1, 1] in the same tangent space [project] uses, so an
+     * edge arrow and the marker it stands for agree about direction.
+     *
+     * Beyond ±90° the target is behind the camera and `tan` flips sign (it does not simply grow),
+     * so the result is pinned to the correct side by the angle's sign instead of by its value.
+     */
+    private fun tanNorm(angleDeg: Double, fovDeg: Double): Double {
+        if (abs(angleDeg) >= 90.0) return if (angleDeg > 0) 1.0 else -1.0
+        val half = tan(Math.toRadians(fovDeg / 2.0))
+        if (half <= 0.0 || !half.isFinite()) return 0.0
+        return (tan(Math.toRadians(angleDeg)) / half).coerceIn(-1.0, 1.0)
+    }
+
     private fun drawEdgeArrow(canvas: Canvas, dBearingDeg: Double, dElevDeg: Double, color: Int) {
         // Normalised direction; clamped because a target directly behind produces a huge value
         // that would otherwise dominate the angle.
+        //
+        // TANGENT-NORMALISED, MATCHING [project]. This used to divide the raw angles linearly
+        // while project() worked in tangent space, so an arrow pointed somewhere slightly other
+        // than the marker it stood for — and the two diverge fastest near the frame edge, which
+        // is precisely where arrows live.
         val zoom = TakBridgeHolder.currentZoomFactor
-        val nx = (dBearingDeg / (DroneTakBridge.hFovDeg(zoom) / 2.0)).coerceIn(-1.0, 1.0)
-        val ny = (-dElevDeg / (DroneTakBridge.vFovDeg(zoom) / 2.0)).coerceIn(-1.0, 1.0)
+        val nx = tanNorm(dBearingDeg, DroneTakBridge.hFovDeg(zoom))
+        val ny = tanNorm(-dElevDeg, DroneTakBridge.vFovDeg(zoom))
         val margin = 16f * d
         val cx = videoRect.centerX()
         val cy = videoRect.centerY()

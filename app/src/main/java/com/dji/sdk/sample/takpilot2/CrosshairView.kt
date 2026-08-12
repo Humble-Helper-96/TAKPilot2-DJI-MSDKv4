@@ -90,6 +90,10 @@ class CrosshairView @JvmOverloads constructor(
         style = Paint.Style.STROKE
     }
 
+    /** Draw order for the reticle arms: dark outline underneath, white on top. Held as a field
+     *  so onDraw does not allocate an array on every frame. */
+    private val armPaints = arrayOf(outline, line)
+
     /** Tap inside the reticle — quick-drop a marker at the look point. Set by the flight screen. */
     var onReticleTap: (() -> Unit)? = null
 
@@ -138,7 +142,9 @@ class CrosshairView @JvmOverloads constructor(
         val gap = 6f * resources.displayMetrics.density
         val ringR = 5f * resources.displayMetrics.density
         // Arms: dark outline then white, unchanged — the sighting reference stays constant.
-        for (p in arrayOf(outline, line)) {
+        // Iterates a reused array, not a fresh arrayOf() per frame: this view redraws over live
+        // video, and the FPV pipeline is the one thing that must not regress.
+        for (p in armPaints) {
             canvas.drawLine(cx - armLen, cy, cx - gap, cy, p)
             canvas.drawLine(cx + gap, cy, cx + armLen, cy, p)
             canvas.drawLine(cx, cy - armLen, cx, cy - gap, p)
