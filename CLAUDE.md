@@ -81,8 +81,11 @@ the Autel tree is the reference and lives at `../../Autel/AutelTAKPilot2/takpilo
 
 Open items, in order of consequence:
 
-1. **The Autel tree still sends the unplayable `__video` shape** and has the read-back
-   placement bug. `com.taklite` is shared by contract; the operator ports this separately.
+1. **The Autel tree has the read-back placement bug.** `com.taklite` is shared by contract;
+   the operator ports this separately. (The `__video` shape is no longer part of this item:
+   the ConnectionEntry fix went to the Autel tree on 2026-08-12 and is flight-verified there.
+   `CotParser.java` is now identical in both trees and `CotBuilder.java` differs only in the
+   three airframe-identity constants. Keep it that way.)
 2. **Yaw is measured, not wired.** The aircraft reports heading-turning smoothness 20/4/84
    across the three switch positions (logged each connect). Cine is identifiable as the
    smoothest value — wire Precision's yaw from the aircraft's own numbers, never from a
