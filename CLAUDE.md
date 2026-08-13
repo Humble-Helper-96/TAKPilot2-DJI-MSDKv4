@@ -90,11 +90,16 @@ Open items, in order of consequence:
    across the three switch positions (logged each connect). Cine is identifiable as the
    smoothest value — wire Precision's yaw from the aircraft's own numbers, never from a
    guessed POSITION-to-name mapping.
-3. **The advertised video url carries credentials** (`user:pass@`) to every TAK client on the
-   channel. The video wall plays without them, so read access looks open. Decision pending.
-4. **Control-response values are a starting point** — Normal 35 / Precision 15 felt right on
+3. **Control-response values are a starting point** — Normal 35 / Precision 15 felt right on
    the bench; nobody has tuned them in flight.
-5. **Per-aircraft AR/FOV** for the planned Air 2S support.
+4. **Per-aircraft AR/FOV** for the planned Air 2S support.
+
+Settled, and NOT open items:
+
+- **The advertised video url carries credentials** (`user:pass@`). There is no other transport
+  for them — the `ConnectionEntry` shape has no credential field, so a url without them does not
+  authenticate and the feed does not play (operator, 2026-08-12). Do not raise it again and do
+  not propose stripping them.
 
 The printable Field Guide regenerates with `python3 tools/generate_field_guide_md.py` after
 any FieldGuideActivity change. Output lands OUTSIDE the repo, beside the SDK folder.
