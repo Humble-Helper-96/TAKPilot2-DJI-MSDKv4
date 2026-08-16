@@ -78,14 +78,9 @@ class TakConnectActivity : AppCompatActivity() {
         }
         TakBridgeHolder.setCameraPointEnabled(cameraPoint.isChecked)
 
-        // My Channels: restore saved selection → apply to TakManager, wire the Pull button.
-        // The display list already reflects any auto-pull that ran at app launch
-        // (TakAutoConnect.reconnect → TakChannelsStore.pull), so this screen opens with a
-        // current list even if the pilot never taps Pull Channels themselves.
-        selectedChannels = TakChannelsStore.selected(this).toMutableSet()
-        TakManager.getInstance().setChannels(selectedChannels.toList())
-        renderChannels(TakChannelsStore.displayList(this))
-        findViewById<Button>(R.id.takPullChannels).setOnClickListener { pullChannels() }
+        // My Channels: REMOVED 2026-08-15. The control let a pilot pick channels, and every
+        // marker they then sent was DROPPED BY THE SERVER — see the note on TakManager for the
+        // evidence. Routing is the certificate's group membership now.
 
         // Reflect live state on open. Auto-connect already happened at app launch
         // (TakAutoConnect.attemptOnAppLaunch, from the home screen) — if we're still not
@@ -146,16 +141,11 @@ class TakConnectActivity : AppCompatActivity() {
             runCatching { VideoStreamerHolder.stop() }
             runCatching { TakBridgeHolder.stop() }
             runCatching { TakManager.getInstance().disconnect() }
-            runCatching { TakManager.getInstance().setChannels(emptyList()) }
             runCatching { TakForegroundService.stop(applicationContext) }
             runCatching { clearEnrollment(prefs) }
             // Reset the UI fields so it's clearly a fresh login.
             username.setText("")
             password.setText("")
-            selectedChannels.clear()
-            runCatching { TakChannelsStore.clearAll(this) }
-            runCatching { findViewById<android.widget.LinearLayout>(R.id.takChannelsList).removeAllViews() }
-            runCatching { findViewById<TextView>(R.id.takChannelsStatus).text = "" }
             setStatus("Logged out. Enter host, username and password to sign in as another user.",
                 ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
         }
@@ -993,61 +983,6 @@ class TakConnectActivity : AppCompatActivity() {
     }
 
     // ---- My Channels ----
-    private var selectedChannels: MutableSet<String> = mutableSetOf()
-
-    /** Pull the channels the logged-in user belongs to from the TAK server (needs a connection). */
-    private fun pullChannels() {
-        val chanStatus = findViewById<TextView>(R.id.takChannelsStatus)
-        if (!TakManager.getInstance().isConnected) {
-            chanStatus.text = "Connect to TAK first, then pull channels."
-            chanStatus.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_state_danger))
-            return
-        }
-        chanStatus.text = "Pulling channels…"
-        chanStatus.setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
-        TakChannelsStore.pull(this) { all ->
-            chanStatus.text = if (all.isEmpty()) "No channels found for this login."
-                else "${all.size} channel(s). Check the ones to publish to."
-            renderChannels(all)
-        }
-    }
-
-    /** Render a 3-column grid of checkboxes, left-to-right then down; toggling a box saves the
-     *  selection + applies it to routing. Evenly spaced via equal-weight cells; short rows are
-     *  padded with invisible spacers so column alignment stays consistent. */
-    private fun renderChannels(channels: List<String>) {
-        val container = findViewById<android.widget.LinearLayout>(R.id.takChannelsList)
-        container.orientation = LinearLayout.VERTICAL
-        container.removeAllViews()
-        val cols = 3
-        for (rowChannels in channels.chunked(cols)) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = 6 }
-            }
-            for (name in rowChannels) {
-                row.addView(android.widget.CheckBox(this).apply {
-                    text = name
-                    setTextColor(Color.WHITE)
-                    textSize = 14f
-                    isChecked = selectedChannels.contains(name)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    setOnCheckedChangeListener { _, checked ->
-                        if (checked) selectedChannels.add(name) else selectedChannels.remove(name)
-                        TakChannelsStore.saveSelected(this@TakConnectActivity, selectedChannels)
-                    }
-                })
-            }
-            repeat(cols - rowChannels.size) {
-                row.addView(View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-            }
-            container.addView(row)
-        }
-    }
 
     companion object {
         private const val TAG = "TakConnectActivity"
