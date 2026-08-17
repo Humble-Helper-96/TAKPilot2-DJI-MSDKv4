@@ -666,9 +666,42 @@
             android:layout_marginTop="20dp"
             android:background="@color/tp_border" />
 
-        <!-- My Channels: REMOVED 2026-08-15. The control let a pilot pick channels, and the
-             markers they sent were then dropped by the server. See TakManager. Routing is the
-             certificate's group membership. A correct implementation is a future release. -->
+        <!-- My Channels: pull the groups the logged-in user belongs to and pick which ones this
+             The server holds the state and enforces it — this is a mirror, not the control.
+             Editing is behind Lock Config. Locking must NOT stop the rows reflecting the
+             server, so the rows stay readable and only lose their touch response. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="My Channels"
+            android:textColor="@color/tp_text_primary"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="The TAK server holds these channels. A change here goes to the server."
+            android:textColor="@color/tp_text_tertiary"
+            android:textSize="12sp" />
+
+
+        <TextView
+            android:id="@+id/takChannelsStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/tp_text_secondary"
+            android:textSize="13sp"
+            android:text="" />
+
+        <LinearLayout
+            android:id="@+id/takChannelsList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="4dp" />
 
         <View
             android:layout_width="match_parent"

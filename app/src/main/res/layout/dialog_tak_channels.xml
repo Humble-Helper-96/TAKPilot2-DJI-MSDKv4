@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TAK channels, from the flight screen (FlightActivity.onTakChannelsTapped).
+
+     Reached by a touch-and-hold on the TAK badge, so a pilot can change the scope of this
+     aircraft WITHOUT leaving the flight screen. Leaving it stops the video to the team, which is
+     the last thing a pilot wants in the middle of a sortie.
+
+     Scrolls because it opens over live video in landscape, the same reason dialog_ar_options.xml
+     does.
+
+     Inflated with a ContextThemeWrapper on TakDialogTheme — specification §6.3. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <!-- Says where the state lives. A pilot must not think this screen is the control: the
+             server holds it, and an administrator can change it from TAK Portal at any time. -->
+        <TextView
+            android:id="@+id/takChanNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textColor="@color/tp_text_secondary"
+            android:textSize="13sp"
+            android:text="The TAK server holds these channels. A change here goes to the server." />
+
+        <!-- Shown only when the TAK configuration is locked. -->
+        <TextView
+            android:id="@+id/takChanLocked"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textColor="@color/tp_state_caution"
+            android:textSize="13sp"
+            android:visibility="gone"
+            android:text="Locked. Touch Unlock to change a channel." />
+
+        <!-- Filled in code, one row for each channel. -->
+        <LinearLayout
+            android:id="@+id/takChanList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/takChanStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textColor="@color/tp_text_secondary"
+            android:textSize="13sp"
+            android:text="" />
+
+    </LinearLayout>
+
+</ScrollView>
