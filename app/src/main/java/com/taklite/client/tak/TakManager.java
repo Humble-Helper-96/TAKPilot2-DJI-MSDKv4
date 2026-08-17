@@ -28,10 +28,6 @@ public class TakManager implements TakClient.TakClientListener {
     private String clientCertPassword;
     private String team;
     private String role;
-    /** Channels/groups the user selected on the TAK Setup screen. Empty = server default routing
-     *  (whatever the cert's group membership dictates). When set, outbound CoT is directed to
-     *  ONLY these channels via <marti><dest group="…"/></marti>. */
-    private volatile List<String> channels = new ArrayList<>();
     private boolean connected = false;
     private double lastLat = 0;
     private double lastLon = 0;
@@ -210,13 +206,32 @@ public class TakManager implements TakClient.TakClientListener {
         initialPliSent = false;
     }
 
-    /** Set the channels/groups outbound CoT should be directed to (from TAK Setup). */
-    public void setChannels(List<String> ch) {
-        this.channels = (ch != null) ? new ArrayList<>(ch) : new ArrayList<>();
-        AppLog.i(TAG, "outbound channels set: " + this.channels);
-    }
-    public List<String> getChannels() { return new ArrayList<>(channels); }
 
+    /**
+     * CHANNEL SELECTION IS REMOVED (operator, 2026-08-15), and this note is why.
+     *
+     * This class used to hold the channels a pilot picked on TAK Setup and inject
+     * {@code <marti><dest group="…" send="true"/></marti>} into every CoT that went through
+     * {@link #sendCot}. IT SILENTLY DESTROYED MARKERS. The server would not route them and
+     * simply dropped them; with no channel selected they arrived at once. Proved on the Autel
+     * sibling's controller 2026-08-15 by sending one marker each way and reading the bytes.
+     *
+     * It would have done the same to an alert — {@link #sendAlert} takes the same path — but
+     * nothing in this application calls sendAlert, so no alert was lost. That method and its
+     * listener are unreachable code carried by this shared core.
+     *
+     * It was also never applied evenly: the drone PLI and the camera point call
+     * {@link TakClient#sendMessage} directly and ignored the selection entirely, so a pilot who
+     * picked channels to LIMIT who saw this aircraft still broadcast its position to everyone.
+     * The feature failed in both directions, and had done since it was written.
+     *
+     * Routing is now the certificate's group membership, which is what the server does with no
+     * marti block and what every working message here already relied on.
+     *
+     * DO NOT RE-ADD {@code <dest group>} WITHOUT TESTING A MARKER END TO END on a real server.
+     * What a TAK Server accepts for client-chosen channel routing is an open question — that is
+     * the work this removal defers, not a detail to guess at.
+     */
     /**
      * Send CoT, directing it to the selected channels if any. Injects a
      * {@code <marti><dest group="X" send="true"/>…</marti>} for each selected channel into the
@@ -226,28 +241,7 @@ public class TakManager implements TakClient.TakClientListener {
      */
     private void sendCot(String xml) {
         if (client == null || !connected) return;
-        client.sendMessage(withChannelDest(xml));
-    }
-
-    private String withChannelDest(String xml) {
-        List<String> ch = channels;
-        if (ch == null || ch.isEmpty() || xml == null) return xml;
-        StringBuilder dests = new StringBuilder();
-        for (String g : ch) {
-            if (g == null || g.isEmpty()) continue;
-            dests.append("<dest group=\"").append(escapeXmlAttr(g)).append("\" send=\"true\" />");
-        }
-        if (dests.length() == 0) return xml;
-        int marti = xml.indexOf("<marti>");
-        if (marti >= 0) {
-            // Merge into the existing <marti> block.
-            int insertAt = marti + "<marti>".length();
-            return xml.substring(0, insertAt) + dests + xml.substring(insertAt);
-        }
-        // No <marti> yet — add one just before </detail>.
-        int detailEnd = xml.indexOf("</detail>");
-        if (detailEnd < 0) return xml;   // malformed; leave as-is
-        return xml.substring(0, detailEnd) + "<marti>" + dests + "</marti>" + xml.substring(detailEnd);
+        client.sendMessage(xml);
     }
 
     /**
@@ -261,11 +255,6 @@ public class TakManager implements TakClient.TakClientListener {
     private String deviceWithCallsign(String cs) {
         if (cs == null || cs.isEmpty()) return takvDevice;
         return takvDevice + " (" + cs + ")";
-    }
-
-    private static String escapeXmlAttr(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     /**

@@ -666,48 +666,9 @@
             android:layout_marginTop="20dp"
             android:background="@color/tp_border" />
 
-        <!-- My Channels: pull the groups the logged-in user belongs to and pick which ones this
-             drone's markers/PLI are directed to. Requires an active connection. -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="My Channels"
-            android:textColor="@color/tp_text_primary"
-            android:textStyle="bold"
-            android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Selected channels receive this aircraft's position and markers. None selected = server default."
-            android:textColor="@color/tp_text_tertiary"
-            android:textSize="12sp" />
-
-        <Button
-            android:id="@+id/takPullChannels"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Pull Channels"
-            android:textColor="@color/tp_text_primary"
-            android:backgroundTint="@color/tp_btn_info" />
-
-        <TextView
-            android:id="@+id/takChannelsStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:textColor="@color/tp_text_secondary"
-            android:textSize="13sp"
-            android:text="" />
-
-        <LinearLayout
-            android:id="@+id/takChannelsList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginTop="4dp" />
+        <!-- My Channels: REMOVED 2026-08-15. The control let a pilot pick channels, and the
+             markers they sent were then dropped by the server. See TakManager. Routing is the
+             certificate's group membership. A correct implementation is a future release. -->
 
         <View
             android:layout_width="match_parent"
