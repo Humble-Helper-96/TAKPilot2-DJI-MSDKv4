@@ -465,7 +465,8 @@ class ArOverlayView @JvmOverloads constructor(
             drawAircraft(canvas, x, y, u, dzMeters, dzIsTrusted, withLabel)
             return
         }
-        val milRes = TakMapMarkers.milMarkerRes(u.type)
+        // A live client is a position, not a placed marker — the same rule the map follows.
+        val milRes = if (u.isLiveClient) null else TakMapMarkers.milMarkerRes(u.type)
         if (milRes != null) {
             val size = (ICON_DP * d).toInt()
             val bmp = iconCache.getOrPut(milRes) {

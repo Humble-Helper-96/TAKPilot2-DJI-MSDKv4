@@ -182,6 +182,9 @@ public class CotParser {
             TakUser user = new TakUser(uid, callsign, lat, lon, alt, team, role, staleTime);
             user.setType(type);   // raw CoT type, used to resolve the map symbol/icon
             user.setPersistent(isPersistentType(type, archived));
+            // Both flags were computed and only logged. The map needs them: they are what
+            // separates a live client from a placed marker when the TYPE cannot.
+            user.setLiveClient(hasTakv || hasEndpoint);
 
             // Retention diagnostic — AIR DOMAIN EXCLUDED ON PURPOSE.
             //

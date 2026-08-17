@@ -99,17 +99,12 @@ object TakAutoConnect {
                 uid, callsign, "Cyan", "Team Member",
                 host, cotPort, ts, "atakatak", cc, "atakatak",
             )
-            TakChannelsStore.saveSelected(context, TakChannelsStore.selected(context))
             TakBridgeHolder.start(droneUid, callsign)
             TakBridgeHolder.setCameraPointEnabled(prefs.getBoolean(KEY_CAMERA_POINT, false))
             TakForegroundService.start(context, callsign)
             AppLog.i(TAG, "connected to $host:$cotPort as $callsign")
-            // Give the socket a moment to finish handshaking before asking for channels.
-            Handler(Looper.getMainLooper()).postDelayed({
-                TakChannelsStore.pull(context) { chans ->
-                    AppLog.i(TAG, "auto-pulled ${chans.size} channel(s)")
-                }
-            }, 1500)
+            // The channel auto-pull is gone with channel selection (2026-08-15): the feature
+            // silently destroyed markers. See TakManager.
         }.start()
     }
 }
