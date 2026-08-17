@@ -551,7 +551,8 @@ object TakMapMarkers {
         val team = (user.team ?: "Cyan").lowercase()
         val stale = if (user.isStale) "S" else "A"
         val drone = if (user.isDrone) "D" else "U"
-        val mil = milMarkerRes(user.type) ?: 0
+        // A live client never takes a 2525 frame, whatever its type says — see iconFor.
+        val mil = if (user.isLiveClient) 0 else milMarkerRes(user.type) ?: 0
         return "$team|$stale|$drone|$mil|${user.callsign}"
     }
 
@@ -655,7 +656,16 @@ object TakMapMarkers {
                 if (user.hasCourse()) courseBucket(user.course).toDouble() else null,
             )
         }
-        val res = milMarkerRes(user.type)
+        // ⚠ A LIVE CLIENT IS ALWAYS A TEAM DOT, whatever its CoT type says.
+        //
+        // CloudTAK reports its own users as `a-f-G-E-V-C`. That is not the `-G-U-` unit form,
+        // so the type test in milMarkerRes accepts it and drew a CloudTAK operator with a 2525
+        // marker frame while every other TAK client got a dot (operator, 2026-08-16). The type
+        // cannot answer this question; `takv`/`endpoint` can, and the parser has always known.
+        //
+        // Nulling res here rather than adding a branch keeps symbolHeightPx correct too — a dot
+        // and a 2525 frame are not the same height.
+        val res = if (user.isLiveClient) null else milMarkerRes(user.type)
         val raw = if (res != null) makeMilIcon(res, user.callsign ?: user.uid)
                   else makeIcon(user.callsign ?: user.uid, user.team, user.isStale)
         return centerOnSymbol(raw, symbolHeightPx(res != null))

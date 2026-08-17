@@ -30,6 +30,17 @@ public class TakUser {
      * Never true for air-domain types — see that method for why that matters.
      */
     private boolean persistent;
+
+    /**
+     * True when this contact announced itself as a LIVE TAK CLIENT — it carried {@code <takv>}
+     * or a {@code <contact endpoint=…>}.
+     *
+     * This is the only reliable way to tell a person running a client from a point somebody
+     * placed. The CoT TYPE cannot do it: CloudTAK reports its own users as {@code a-f-G-E-V-C},
+     * which is not the {@code -G-U-} unit form, so a type test draws them with a 2525 marker
+     * frame instead of a team dot (operator, 2026-08-16).
+     */
+    private boolean liveClient;
     /** <track course> in degrees true, or -1 when the sender did not report one. ADS-B
      *  gateways populate it; most hand-placed markers and many PLIs do not. */
     private double course = -1;
@@ -55,6 +66,9 @@ public class TakUser {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+
+    public boolean isLiveClient() { return liveClient; }
+    public void setLiveClient(boolean liveClient) { this.liveClient = liveClient; }
 
     public boolean isPersistent() { return persistent; }
     public void setPersistent(boolean persistent) { this.persistent = persistent; }
