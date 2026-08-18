@@ -62,10 +62,12 @@ android {
         // what goes on the wire changes, not only when the UI does.
         //
         // History:  1.0 first release  ·  1.1.0 Autel-parity pass (taklite core, UI, features)
+        //           1.2.0 the Autel v1.6.2 pass — server-held channels, two video servers, a
+        //                 codec choice, the Pre-Flight rearrangement and the Field Guide cut
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 5
-        versionName "1.1.0"
+        versionCode 6
+        versionName "1.2.0"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""
