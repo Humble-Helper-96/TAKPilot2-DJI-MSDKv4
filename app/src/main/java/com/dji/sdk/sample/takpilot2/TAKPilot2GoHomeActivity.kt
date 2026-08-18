@@ -18,6 +18,7 @@ import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.DebugActivity
 import com.dji.sdk.sample.tak.DjiSdkBridge
+import com.dji.sdk.sample.tak.FlightLimitsController
 import com.dji.sdk.sample.tak.FlightPathLogger
 import com.dji.sdk.sample.tak.TakAutoConnect
 import com.dji.sdk.sample.tak.TakBridgeHolder
@@ -46,6 +47,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var aircraft: TextView
     private lateinit var sdk: TextView
+    private lateinit var batteryLevels: TextView
     private lateinit var takStatus: TextView
     private lateinit var takDot: android.view.View
     private lateinit var network: TextView
@@ -68,6 +70,7 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
 
         aircraft = findViewById(R.id.homeAircraft)
         sdk = findViewById(R.id.homeSdk)
+        batteryLevels = findViewById(R.id.homeBatteryLevels)
         takStatus = findViewById(R.id.homeTakStatus)
         takDot = findViewById(R.id.homeTakDot)
         network = findViewById(R.id.homeNetwork)
@@ -185,6 +188,25 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         aircraft.text = product?.model?.displayName ?: "Not connected"
         sdk.text = "MSDK 4.18"
 
+        // Battery levels, straight from the AIRCRAFT — never the saved preference. If Apply
+        // did not take, this is where it shows, so falling back to what the pilot typed would
+        // hide the one failure this line exists to catch. Blank before a product is connected
+        // and a dash until the aircraft answers: unknown must not look like a value.
+        val warn = FlightLimitsController.aircraftWarningPct
+        val crit = FlightLimitsController.aircraftCriticalPct
+        batteryLevels.text = when {
+            product == null -> ""
+            warn != null && crit != null -> "BATTERY: WARN $warn% \u00b7 CRIT $crit%"
+            else -> "BATTERY: \u2014"
+        }
+        batteryLevels.setTextColor(
+            ContextCompat.getColor(
+                applicationContext,
+                if (product != null && (warn == null || crit == null)) R.color.tp_state_unknown
+                else R.color.tp_text_secondary,
+            )
+        )
+
         val connected = TakManager.getInstance().isConnected
         val color = if (connected) ContextCompat.getColor(applicationContext, R.color.tp_state_go) else ContextCompat.getColor(applicationContext, R.color.tp_state_danger)
         takStatus.text = if (connected) "TAK: Connected" else "TAK: Disconnected"
@@ -213,7 +235,8 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
             applicationContext,
             when (net.state) {
                 NetworkStatus.State.CONNECTED -> R.color.tp_state_go
-                NetworkStatus.State.NO_INTERNET -> R.color.tp_state_unknown
+                // We KNOW there is no route out — that is caution, not unknown. §6.1.
+                NetworkStatus.State.NO_INTERNET -> R.color.tp_state_caution
                 NetworkStatus.State.OFF -> R.color.tp_state_danger
             }
         )

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Translucent backing for the flight screen's HUD text blocks. Ported from the Autel
+     sibling 2026-08-14 (conformance D4).
+
+     WHY: the readouts sit over live video whose brightness the pilot does not control. Over
+     dark terrain the white text is fine; over snow, wet asphalt or a white roof it washes out,
+     and the drop-shadow in hudText is not enough on its own. A fixed backing means legibility
+     no longer depends on what the camera happens to be pointing at.
+
+     WHY THIS LIGHT: this covers live video the pilot is flying from, and the HUD column
+     overlaps the right-hand side of the image. At full opacity these panels would be two solid
+     blind spots. The value is flight-tuned on the sibling (operator, 2026-08-04) — do not
+     re-tune it here. If the readouts wash out over snow, raise it rather than growing the text.
+
+     VERTICAL PADDING IS 4dp HERE, NOT THE SIBLING'S 6dp. This is a PER-DEVICE value and the
+     reason is the column height budget: the sibling has a 720dp controller to spend and this
+     tree's base target is a 411dp phone, where two panels at 6dp would overflow the column and
+     silently clip the map. See the budget in the flight layout. 4dp against 6dp is not a
+     legibility difference; the panel is a wash behind text, not a card. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="@color/tp_hud_panel_scrim" />
+
+    <corners android:radius="6dp" />
+
+    <padding
+        android:left="8dp"
+        android:top="4dp"
+        android:right="8dp"
+        android:bottom="4dp" />
+</shape>

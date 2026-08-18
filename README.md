@@ -39,7 +39,8 @@ ends, the field-measured findings, and the things that look like bugs but aren't
 
 | Doc | Read when |
 |---|---|
-| `TAKPILOT2_V4_PORT_SUMMARY.md` | **Start here.** The full project reference — why it's built this way, architecture, status, known limitations |
+| `../../../../TAKPILOT2-UI-SPEC.md` | **Before any user-interface change.** The single source of truth for the UI of all three TAKPilot2 applications. It outranks every document in this tree. Its gap list is `../../../../TAKPILOT2-UI-CONFORMANCE.md` |
+| `TAKPILOT2_V4_PORT_SUMMARY.md` | **Start here for the code.** The full project reference — why it's built this way, architecture, status, known limitations |
 | `TAKPILOT2_FPV_ARTIFACTING_OPTIONS.md` | Active research on the one significant unresolved issue — read before touching video decode |
 
 They are snapshots, not a live view. `git log --oneline` is the reliable changelog; re-verify
@@ -77,7 +78,9 @@ and stored on the device. A fresh install starts empty.
 
 ## Hardware notes
 
-Developed and field-tested against a **Mini 2 with RC-N1** on a Pixel 8 Pro. The video pipeline
+Developed and field-tested against a **Mini 2 with RC-N1**. Early development used a Pixel 8
+Pro; the target device is a **Samsung Galaxy S20 Ultra** (about 914x411dp landscape), which is
+the device the layouts and the `values-*/dimens.xml` buckets are sized for. The video pipeline
 in particular is tuned to Mini 2 behaviour — notably that it emits no periodic SPS/PPS/IDR, only
 on request, which drove the custom MediaCodec decoder in `FpvTextureView.kt`. That file is the
 most fragile piece in the app; re-test on real hardware after any change near it. The port plan's

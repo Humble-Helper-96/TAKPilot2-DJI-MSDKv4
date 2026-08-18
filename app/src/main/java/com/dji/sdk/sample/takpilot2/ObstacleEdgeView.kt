@@ -9,6 +9,8 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import dji.common.flightcontroller.VisionSensorPosition
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Obstacle proximity drawn as arcs on the edges of the FPV, one per aircraft face.
@@ -43,6 +45,11 @@ import dji.common.flightcontroller.VisionSensorPosition
 class ObstacleEdgeView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : View(context, attrs, defStyle) {
+
+    // Flight-tuned HUD colours, resolved once per view. Were literals here until
+    // 2026-08-14 (conformance A1); the values are unchanged — see takpilot_colors.xml.
+    private val COLOR_DANGER = ContextCompat.getColor(context, R.color.tp_hud_obstacle_danger)
+    private val COLOR_WARN = ContextCompat.getColor(context, R.color.tp_hud_obstacle_warn)
 
     private val videoRect = RectF()
 
@@ -197,8 +204,6 @@ class ObstacleEdgeView @JvmOverloads constructor(
 
         // Precomputed so onDraw never runs Color.parseColor (a string parse + allocation) per
         // face per frame. Red inside DANGER_M, amber beyond it.
-        private const val COLOR_DANGER = 0xFFFF3B30.toInt()
-        private const val COLOR_WARN = 0xFFFFCC00.toInt()
 
         private const val FEET_PER_METRE = 3.28084f
 

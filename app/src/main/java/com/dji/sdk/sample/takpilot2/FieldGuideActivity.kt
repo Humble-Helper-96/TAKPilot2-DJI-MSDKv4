@@ -1,5 +1,6 @@
 package com.dji.sdk.sample.takpilot2
 
+import androidx.annotation.ColorRes
 import androidx.core.content.ContextCompat
 import android.graphics.Color
 import android.os.Bundle
@@ -148,7 +149,8 @@ class FieldGuideActivity : AppCompatActivity() {
         note("The line above the answer tells you how many settings the aircraft accepted. If " +
             "the aircraft refused a setting, the app gives its name. A refused setting keeps " +
             "the value the aircraft already holds.")
-        note("The stick mode goes to the aircraft only when you touch Apply to Aircraft. The " +
+        note("The stick mode goes to the aircraft only when you touch Apply Updated Settings " +
+            "to Aircraft. The " +
             "app never changes the sticks on its own.")
         note("Lock these settings makes the fields read-only. To unlock them, the app asks " +
             "for a password. The lock stops a change by accident. It is not security.")
@@ -319,6 +321,12 @@ class FieldGuideActivity : AppCompatActivity() {
             listOf(
                 "If the aircraft does not have a GPS position and a gimbal position, the app " +
                     "does not put the marker.",
+                "If the ring of the crosshair is red, the app does not put the marker. The " +
+                    "angle of the camera is too small for an accurate position. Point the " +
+                    "camera down more.",
+                "If the aircraft is less than 25 ft above the ground, the app does not put " +
+                    "the marker. Near the ground the app cannot calculate a position: the " +
+                    "marker would go to the position of the aircraft. Climb higher.",
                 "If you delete a marker, the app removes it from your screen only. It stays " +
                     "on the screens of your team for 3 days.",
             ),
@@ -444,19 +452,38 @@ class FieldGuideActivity : AppCompatActivity() {
                 "questions. The type is always Unknown and the name is always " +
                 "${com.dji.sdk.sample.tak.TakDropMarkers.QUICK_NAME}. Your team can " +
                 "identify it quickly.\n\n" +
-                "There is only one quick marker. To move it, point the camera at the new " +
-                "target and touch and hold the crosshair. The marker moves on the screens of " +
-                "all your team. If you touch the crosshair again, the app does not put a " +
-                "second marker.\n\n" +
+                "There is only one quick marker. Point the camera at a new target and " +
+                "touch the crosshair again: the marker MOVES to the new target. It moves " +
+                "on the screens of all your team. The app does not put a second marker.\n\n" +
                 "Use the quick marker to show your team what you look at now. To keep a " +
                 "record of a position, use the marker button. With that button you can set a " +
                 "name and a type.",
             listOf(
                 "To remove the quick marker, delete it from the marker list. Touch and hold " +
-                    "the marker button to open the list. Then you can put a new quick marker.",
-                "The quick marker has the same rules as other markers. If you delete it, the " +
-                    "app removes it from your screen only. It stays on the screens of your " +
-                    "team.",
+                    "the marker button to open the list.",
+                "The quick marker follows the same rules as other markers.",
+            ),
+        )
+
+        entry(
+            emptyList(),
+            "Unknown marker: touch and hold the crosshair",
+            "Touch the crosshair and hold it to put a marker of the type Unknown immediately. " +
+                "The controller makes a short vibration. The app does not ask you questions and " +
+                "sends the marker immediately.\n\n" +
+                "This marker DOES NOT MOVE. It stays at the position where you put it. If you " +
+                "touch and hold the crosshair again, the app puts a SECOND marker. This is " +
+                "different from the quick marker, which moves.\n\n" +
+                "The name is the callsign of the aircraft and a number, for example MINI2-P7. " +
+                "The number increases with each marker. This is the same name that the marker " +
+                "button gives.\n\n" +
+                "This is a quick way to put an Unknown marker. The result is the same as the " +
+                "marker button with the type Unknown, but with no windows.",
+            listOf(
+                "The rules of the crosshair ring apply. If the ring is red, the app does not " +
+                    "put the marker.",
+                "Use this to keep a record of a position. Use the quick marker to show your " +
+                    "team what you look at now.",
             ),
         )
 
@@ -562,7 +589,7 @@ class FieldGuideActivity : AppCompatActivity() {
             listOf(
                 "The RTH line shows the AIRCRAFT, not the value you typed in Pre-Flight " +
                     "Setup. If the two are different, the aircraft did not accept the value. " +
-                    "Send it again with Apply to Aircraft.",
+                    "Send it again with Apply Updated Settings to Aircraft.",
                 "The HOME line shows dashes until the aircraft has a GPS position and a home " +
                     "point.",
             ),
@@ -731,21 +758,30 @@ class FieldGuideActivity : AppCompatActivity() {
     })
 
     /** Neutral aside — worth knowing, not a hazard. */
-    private fun note(text: String) = calloutView(text, "#9AC4FF", "#14202C")
+    private fun note(text: String) =
+        calloutView(text, R.color.tp_accent, R.color.tp_surface_guide_note)
 
     /** Something that can bite you in the air or on the ground. */
-    private fun warn(text: String) = calloutView(text, "#EF5350", "#2A1616")
+    private fun warn(text: String) =
+        calloutView(text, R.color.tp_btn_danger_dialog, R.color.tp_surface_guide_warn)
 
-    private fun calloutView(text: String, barColor: String, bgColor: String) {
+    /**
+     * Callout row: a coloured tint bar against a low-saturation background of the same hue.
+     *
+     * Takes colour RESOURCES, not hex strings. These four values were literals here until
+     * 2026-08-14 (conformance X1) — a literal in Kotlin is easy to reach for and easy to miss
+     * in review, which is why §6.1 puts this file inside the token rule.
+     */
+    private fun calloutView(text: String, @ColorRes barColor: Int, @ColorRes bgColor: Int) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor(bgColor))
+            setBackgroundColor(ContextCompat.getColor(applicationContext, bgColor))
             layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply {
                 topMargin = dp(4); bottomMargin = dp(10)
             }
         }
         row.addView(View(this).apply {
-            setBackgroundColor(Color.parseColor(barColor))
+            setBackgroundColor(ContextCompat.getColor(applicationContext, barColor))
             layoutParams = LinearLayout.LayoutParams(dp(3), MATCH)
         })
         row.addView(TextView(this).apply {

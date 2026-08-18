@@ -24,6 +24,8 @@ import com.taklite.util.AppLog
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.tan
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Augmented-reality overlay: projects TAK marker positions onto the live FPV so they appear
@@ -58,6 +60,11 @@ class ArOverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
+
+    // Flight-tuned HUD colours, resolved once per view. Were literals here until
+    // 2026-08-14 (conformance A1); the values are unchanged — see takpilot_colors.xml.
+    private val AIRCRAFT_COLOR = ContextCompat.getColor(context, R.color.tp_ar_aircraft)
+    private val ARROW_COLOR_PIN = ContextCompat.getColor(context, R.color.tp_accent)
 
     /** Video image bounds within this view, fed from [FpvTextureView.onVideoRectChanged]. */
     private val videoRect = RectF()
@@ -700,7 +707,6 @@ class ArOverlayView @JvmOverloads constructor(
         /** TAK's "unknown altitude" sentinel — see isUsableAltitude. */
         private const val UNKNOWN_ALT_SENTINEL = 999_999.0
         /** Matches the magenta the ADS-B gateway tags its tracks with. */
-        private val AIRCRAFT_COLOR = 0xFFFF00FF.toInt()
         private const val MAX_PROJECT_ANGLE = 85.0
         /** Projection trace cadence — the draw loop runs at 10Hz, which is far too fast to log. */
         private const val DIAG_INTERVAL_MS = 1000L
@@ -709,6 +715,5 @@ class ArOverlayView @JvmOverloads constructor(
         /** On-screen contacts that get a name+range plate; the rest keep just their icon. */
         private const val MAX_LABELS = 6
         /** Edge arrows for our own pins use the app's marker-drop accent, not a team colour. */
-        private val ARROW_COLOR_PIN = 0xFF9AC4FF.toInt()
     }
 }
