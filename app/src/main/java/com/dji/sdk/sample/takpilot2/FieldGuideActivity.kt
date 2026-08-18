@@ -70,8 +70,10 @@ import com.taklite.util.AppLog
  *    hardware-button listener on the flight screen. Write that section when there is.
  *  - **The aim calibration.** There are no Aim Offsets in this build. Section 5 says so.
  *
- * The sibling also picks channels in flight, with a touch and hold on the TAK badge. This
- * build does not, so the guide sends the pilot to Pre-Flight Setup and nowhere else.
+ * The in-flight channel picker (touch and hold on the TAK badge) arrived on 2026-08-18 and
+ * is documented in BOTH places it can be reached from — section 2 with the rest of the
+ * channel rules, and on the TAK connection entry in section 3, where a pilot looking at the
+ * badge will find it. The sibling documents it in section 2 only.
  */
 class FieldGuideActivity : AppCompatActivity() {
 
@@ -202,6 +204,8 @@ class FieldGuideActivity : AppCompatActivity() {
             "sends: the position, the camera point and the markers.")
         bullet("A channel with \"Rx Only\" gives you data but does not take data from you.")
         bullet("If the list is empty, the server has no channels. This is not a fault.")
+        bullet("You can also change the channels in flight. Touch and hold the TAK icon on " +
+            "the flight screen.")
         warn("The channels belong to your certificate, not to this controller. If two " +
             "controllers sign in as the same user, a change on one changes the other.")
 
@@ -254,7 +258,12 @@ class FieldGuideActivity : AppCompatActivity() {
             "TAK connection",
             "A green dot shows that your aircraft is on the TAK map of your team. A red dot " +
                 "shows that it is not on the map. You can fly, but your team cannot see the " +
-                "aircraft. Touch the icon to connect or disconnect.",
+                "aircraft.\n\n" +
+                "Touch: connect or disconnect.\n\n" +
+                "Touch and hold: the TAK Channels. Here you select which channels of your team " +
+                "get this aircraft. You do not leave the flight screen, thus the video to your " +
+                "team continues. If the settings are locked, touch Unlock and give the " +
+                "password. The unlock stops when you leave the flight screen.",
         )
 
         entry(
