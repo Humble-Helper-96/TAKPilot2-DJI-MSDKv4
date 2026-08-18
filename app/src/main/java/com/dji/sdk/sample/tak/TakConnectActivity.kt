@@ -1447,7 +1447,7 @@ class TakConnectActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "TakConnectActivity"
         private const val REQUEST_CODE_DTED_PICK = 2001
-        private const val PREFS = "takpilot2_tak"
+        internal const val PREFS = "takpilot2_tak"
         private const val KEY_HOST = "host"
         private const val KEY_ENROLL_PORT = "enroll_port"
         private const val KEY_COT_PORT = "cot_port"
@@ -1475,10 +1475,10 @@ class TakConnectActivity : AppCompatActivity() {
          *
          * The entered attempt is never logged, right or wrong.
          */
-        private const val UNLOCK_PASSWORD = "takpilot"
+        internal const val UNLOCK_PASSWORD = "takpilot"
 
         private const val KEY_AIRCRAFT_LOCKED = "aircraft_config_locked"
-        private const val KEY_TAK_LOCKED = "tak_config_locked"
+        internal const val KEY_TAK_LOCKED = "tak_config_locked"
         private const val KEY_VIDEO_LOCKED = "video_config_locked"
 
         private const val KEY_V_USER = "video_user"

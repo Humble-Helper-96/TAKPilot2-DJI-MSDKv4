@@ -409,6 +409,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
             }
         }
+        // Same long-press idiom as the RTH button, the AR button and the drop-pin: the short
+        // press does the common thing, the long press opens what belongs to it.
+        findViewById<View>(R.id.toolbarTakButton).setOnLongClickListener {
+            AppLog.v(TAG, "long-press: TAK channels")
+            onTakChannelsTapped()
+            true
+        }
 
         findViewById<ImageButton>(R.id.flightResyncButton).setOnClickListener {
             AppLog.v(TAG, "tap: Video Re-Sync")
@@ -1177,6 +1184,191 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvNotice.visibility = View.VISIBLE
         handler.removeCallbacks(hideNotice)
         handler.postDelayed(hideNotice, HOME_NOTICE_MS)
+    }
+
+    // ---- TAK channels, from the flight screen ------------------------------------------------
+
+    /**
+     * True when the pilot has entered the unlock password on THIS visit to the flight screen.
+     *
+     * SESSION ONLY — it is never written to the preferences. The pilot wants to change a channel
+     * in flight, not to leave the TAK configuration unlocked after they land. Pre-Flight keeps
+     * its own lock, and this does not touch it. Leaving the flight screen clears this.
+     */
+    private var takChannelsUnlockedThisSession = false
+
+    /**
+     * Asks for the unlock password, in the flight dialog.
+     *
+     * Going to Pre-Flight to unlock defeats the point of a control on the flight screen. The
+     * password is Pre-Flight's own constant, not a copy of it — one password and one idea of
+     * "locked", with no second string to drift.
+     *
+     * A wrong password and Cancel do the same thing, the same as Pre-Flight: the only way out
+     * with the rows editable is the right password.
+     */
+    private fun promptChannelUnlock(onUnlocked: () -> Unit) {
+        // STYLED AS PRE-FLIGHT'S UNLOCK FIELD. A programmatic EditText takes the PLATFORM's
+        // colours and no background at all, so without this it renders as a bare line of text
+        // across the dialog — and on this dark theme, very nearly invisible.
+        val field = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            // Built in code, so takFieldStyle's flagNoExtractUi does not reach it — without this
+            // the keyboard takes the whole landscape screen and covers the live video.
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            hint = "Password"
+            textSize = 15f
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary))
+            setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
+            setBackgroundResource(R.drawable.bg_dialog_field)
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        val wrap = android.widget.FrameLayout(this).apply {
+            val padH = (16 * resources.displayMetrics.density).toInt()
+            val padV = (8 * resources.displayMetrics.density).toInt()
+            setPadding(padH, padV, padH, padV)
+            addView(field)
+        }
+        // Destructive theme, as Pre-Flight's unlock uses: getting this wrong changes who sees
+        // the aircraft.
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+            // No body text. It is a password prompt, and the pilot already knows what they
+            // touched.
+            .setTitle("Unlock channels")
+            .setView(wrap)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Unlock") { _, _ ->
+                if (field.text.toString() == com.dji.sdk.sample.tak.TakConnectActivity.UNLOCK_PASSWORD) {
+                    takChannelsUnlockedThisSession = true
+                    AppLog.i(TAG, "channels unlocked for this flight-screen session")
+                    onUnlocked()
+                } else {
+                    // Never log the attempt, right or wrong — the same rule every other
+                    // credential in this app follows.
+                    AppLog.w(TAG, "channel unlock refused — wrong password")
+                    showNotice("The password is wrong.", refused = true)
+                }
+            }
+            .show()
+    }
+
+    /**
+     * The TAK channels, from the flight screen.
+     *
+     * A pilot must be able to change the scope of this aircraft IN FLIGHT. Pre-Flight can do it,
+     * but going there stops the video to the team, which is the wrong thing to do in the middle
+     * of a sortie.
+     *
+     * THE SERVER HOLDS THE STATE. This dialog reads it, writes to it and follows it. It is not
+     * the control — an administrator can change the same thing from TAK Portal, and the rows
+     * follow that within about a second because of the t-x-g-c listener below.
+     *
+     * LOCKED BY THE TAK CONFIGURATION LOCK. When the lock is on, the rows show the channels and
+     * refuse a change. Reading is never locked: a pilot must always be able to SEE the scope of
+     * the aircraft, and the lock exists to stop an accidental change and not to hide the truth.
+     */
+    private fun onTakChannelsTapped() {
+        if (!TakManager.getInstance().isConnected) {
+            showNotice("TAK is not connected. The channels are on the server.", refused = true)
+            return
+        }
+        val themed = android.view.ContextThemeWrapper(this, R.style.TakDialogTheme)
+        val view = android.view.LayoutInflater.from(themed)
+            .inflate(R.layout.dialog_tak_channels, null)
+        val list = view.findViewById<LinearLayout>(R.id.takChanList)
+        val status = view.findViewById<TextView>(R.id.takChanStatus)
+        val configLocked = getSharedPreferences(
+            com.dji.sdk.sample.tak.TakConnectActivity.PREFS, MODE_PRIVATE)
+            .getBoolean(com.dji.sdk.sample.tak.TakConnectActivity.KEY_TAK_LOCKED, false)
+        // The session unlock is what the pilot just typed; the pref is what Pre-Flight holds.
+        var locked = configLocked && !takChannelsUnlockedThisSession
+        val lockedNote = view.findViewById<TextView>(R.id.takChanLocked)
+
+        var channels: List<com.taklite.client.tak.TakMissionClient.Channel> = emptyList()
+        var painting = false
+
+        fun paint(chans: List<com.taklite.client.tak.TakMissionClient.Channel>) {
+            channels = chans
+            painting = true
+            list.removeAllViews()
+            if (chans.isEmpty()) {
+                // Channels turned off on this server. Show nothing to change — a write to such
+                // a server is reported to cause real trouble on it.
+                status.text = "This server has no channels."
+                painting = false
+                return
+            }
+            for (ch in chans) {
+                val row = android.widget.CheckBox(themed).apply {
+                    // Two-way is the normal case and gets no label — a note on every row is
+                    // noise, and the exception is what a pilot needs to see.
+                    text = when {
+                        ch.canSend && ch.canReceive -> ch.name
+                        ch.canReceive -> "${ch.name} - Rx Only"
+                        ch.canSend -> "${ch.name} - Tx Only"
+                        else -> "${ch.name} - no direction"
+                    }
+                    // ⚠ LOCKED IS NOT DISABLED — see the same note in TakConnectActivity.
+                    // Disabling greys the tick, and the tick is what the pilot came to read.
+                    setTextColor(ContextCompat.getColor(applicationContext,
+                        if (locked) R.color.tp_text_secondary else R.color.tp_text_primary))
+                    isChecked = ch.active
+                    isClickable = !locked
+                    isFocusable = !locked
+                    buttonTintList = android.content.res.ColorStateList.valueOf(
+                        ContextCompat.getColor(applicationContext, R.color.tp_accent))
+                    setOnCheckedChangeListener { _, checked ->
+                        if (painting) return@setOnCheckedChangeListener
+                        ch.active = checked
+                        val bits = channels.filter { it.active && it.bitpos >= 0 }.map { it.bitpos }
+                        status.text = "Sending ${bits.size} active channel(s)…"
+                        // The COMPLETE set every time — activebits is absolute.
+                        com.dji.sdk.sample.tak.TakMissionManager.setActiveChannels(bits) { ok ->
+                            status.text = if (ok) "The server has ${bits.size} active channel(s)."
+                                          else "The server refused the change."
+                        }
+                    }
+                }
+                list.addView(row)
+            }
+            painting = false
+        }
+
+        fun reload() = com.dji.sdk.sample.tak.TakMissionManager.listChannels { paint(it) }
+        lockedNote.visibility = if (locked) View.VISIBLE else View.GONE
+        reload()
+
+        // Follow the server while the dialog is open, and stop when it closes.
+        val onGroups = TakManager.GroupChangeListener {
+            AppLog.i(TAG, "channels changed on the server — re-reading (flight screen)")
+            reload()
+        }
+        TakManager.getInstance().addGroupChangeListener(onGroups)
+
+        val dialog = AlertDialog.Builder(this, R.style.TakDialogTheme)
+            .setTitle("TAK Channels")
+            .setView(view)
+            .setNegativeButton("Close", null)
+            // Unlock HERE. Going to Pre-Flight for it defeats the point of this dialog.
+            .apply { if (locked) setNeutralButton("Unlock…", null) }
+            .setOnDismissListener {
+                TakManager.getInstance().removeGroupChangeListener(onGroups)
+            }
+            .create()
+        dialog.show()
+        // Set after show() so the dialog does NOT close when the password prompt opens over it.
+        if (locked) {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+                promptChannelUnlock {
+                    locked = false
+                    lockedNote.visibility = View.GONE
+                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility = View.GONE
+                    paint(channels)     // repaint the rows, now editable
+                }
+            }
+        }
     }
 
     /**
