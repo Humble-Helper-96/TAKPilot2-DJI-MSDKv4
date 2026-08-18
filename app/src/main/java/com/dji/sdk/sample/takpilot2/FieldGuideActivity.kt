@@ -49,6 +49,29 @@ import com.taklite.util.AppLog
  * its status dot — constructed here and driven into the state being described. Screenshots or
  * hand-drawn copies would silently go stale the next time an icon changes; these can't, because
  * they ARE the icons. It also means a state shown here is genuinely reachable in the app.
+ *
+ * ## The 2026-08-18 cut, following the Autel sibling
+ *
+ * The guide was cut by roughly half, applying the rule the operator set on the sibling
+ * (2026-08-15): **keep every fact that changes a flight decision, delete the explanation of
+ * why.** A pilot needs "land when the ring is yellow", not a paragraph on how the gauge is
+ * computed. A guide long enough that a pilot does not read it is worse than a short one that
+ * omits something.
+ *
+ * What survived the cut and must not be trimmed again, because each one changes what a pilot
+ * does: the battery-refusal warning (this airframe holds its own levels), the crosshair angle
+ * and error table, the marker refusal conditions, what a marker delete does NOT do, and the
+ * FAA "not an approval" warning.
+ *
+ * ## Two sections the sibling has and this build does not
+ *
+ * Both are absent because the FUNCTION is absent, not because the guide is behind:
+ *  - **The controller buttons.** Nothing on the RC-N1 is wired in this app — there is no
+ *    hardware-button listener on the flight screen. Write that section when there is.
+ *  - **The aim calibration.** There are no Aim Offsets in this build. Section 5 says so.
+ *
+ * The sibling also picks channels in flight, with a touch and hold on the TAK badge. This
+ * build does not, so the guide sends the pilot to Pre-Flight Setup and nowhere else.
  */
 class FieldGuideActivity : AppCompatActivity() {
 
@@ -65,8 +88,8 @@ class FieldGuideActivity : AppCompatActivity() {
         content = findViewById(R.id.fieldGuideContent)
 
         title("TAKPilot2 Field Guide")
-        lede("This guide shows what the app does. It also shows what each control on the " +
-            "flight screen does. Read it before you fly.")
+        lede("What each control does, on the screen and in Pre-Flight Setup. Read it before " +
+            "you fly. This is the DJI build.")
 
         sectionOne()
         sectionTwo()
@@ -84,129 +107,116 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun sectionOne() {
         section("1. What this app is for")
-        body("TAKPilot2 flies your DJI aircraft. At the same time, it sends what the aircraft " +
-            "sees to the shared TAK map of your team. The app does these three things together:")
+        body("TAKPilot2 flies your DJI aircraft. At the same time it puts the aircraft on the " +
+            "shared TAK map of your team.")
 
-        bullet("Your aircraft shows on the TAK map of all your team. Its position, heading " +
-            "and altitude change as it flies.")
-        bullet("The app also sends the point on the ground where the camera looks. Your team " +
-            "sees where the aircraft is and what it looks at.")
-        bullet("You can put markers on what you see. The markers show on the screens of your " +
-            "team in a few seconds.")
+        bullet("Your team sees the position, the heading and the altitude of the aircraft.")
+        bullet("Your team sees the point on the ground where the camera looks.")
+        bullet("You put markers on what you see. Your team gets them in a few seconds.")
+        bullet("The quick marker is a single marker. You put it with one touch, and each new " +
+            "touch moves it to a new position.")
+        bullet("The app can send live video to a server of your team.")
 
-        spacer(10)
-        body("The app can also send live video to a server, and your team can look at this " +
-            "video. It shows the TAK markers of other operators on your map. It shows the FAA " +
-            "altitude limit where you fly.")
+        note("Do the firmware updates, the compass calibration, the gimbal calibration and " +
+            "the aircraft registration with the DJI app first. Do not do them here.")
 
-        note("Do not use this app for firmware updates, compass calibration, gimbal " +
-            "calibration or aircraft registration. Do these tasks first with the DJI app.")
-
-        note("If the TAK icon on the flight screen is red, the app does not send data to your " +
-            "team. The aircraft flies correctly, but your team cannot see the aircraft or " +
-            "your markers.")
+        note("If the TAK icon on the flight screen is red, your team cannot see the aircraft " +
+            "or your markers. The aircraft flies correctly.")
     }
 
     // ---------------------------------------------------------------- Section 2
 
     private fun sectionTwo() {
         section("2. Pre-Flight Setup")
-        body("You set these items on the ground. The app keeps them for the next flight. " +
-            "Usually you set them one time. Change them only for a new area, a new server or " +
-            "a new task.")
+        body("Set these on the ground prior to flight. Change them for a new area, a new " +
+            "server or a new task.")
 
         sub("1. Aircraft Settings")
-        body("The app sends these safety limits to the aircraft at each connection. The " +
-            "heights and the distance are in feet.")
-        bullet("Max altitude - the maximum height the aircraft lets you fly.")
-        bullet("Max distance - the maximum distance from the home point. At this limit the " +
-            "aircraft stops and holds its position. It does not come back without your " +
-            "command.")
-        bullet("RTH altitude - the height the aircraft climbs to before it flies home. Set " +
-            "this height more than the highest obstacle between you and the aircraft.")
-        bullet("Battery Warning - the level where the aircraft tells you the battery is low.")
-        bullet("Battery Critical - the level where the aircraft lands on its own. The aircraft " +
-            "lands where it is.")
-        warn("Do not rely on these two fields. Some aircraft keep their own battery levels and " +
-            "refuse a change. The Mini 2 is one of them: it warns at 20% and lands at 10%, and " +
-            "this app cannot change these levels. If your aircraft refuses them, the app makes " +
-            "the two fields read-only and tells you the levels the aircraft holds. Read that " +
-            "line and plan your flight for those levels.")
-        bullet("Stick mode - what the two sticks do. Mode 2 is usual. Change this only if you " +
-            "know the aircraft uses a different mode.")
-        bullet("If the signal is lost - the action of the aircraft if it loses the " +
-            "controller: Return Home, Hover or Land. The aircraft does this action without " +
-            "the app. It works if your phone stops during the flight. Usually, select Return " +
-            "Home.")
-        note("To keep the value that is already in the aircraft, leave the field empty.")
-        warn("If the RTH altitude is more than the Max altitude, the app shows a warning " +
-            "below the fields. The aircraft cannot climb to its return height. Correct one of " +
-            "the two values.")
+        body("Max altitude, max distance and RTH altitude, in feet. The app sends them to " +
+            "the aircraft at each connection. To keep the value the aircraft already holds, " +
+            "leave the field empty.")
+        bullet("Max distance - at this limit the aircraft stops and holds its position. It " +
+            "does not come home without your command.")
+        bullet("RTH altitude - the height the aircraft climbs to before it flies home. Set it " +
+            "more than the highest obstacle between you and the aircraft.")
+        warn("Set the RTH altitude less than the Max altitude. If it is more, the app shows a " +
+            "warning below the fields: the aircraft cannot climb to its return height.")
 
-        body("Apply Updated Settings to Aircraft sends all of these to the aircraft now. Then " +
-            "the app asks the aircraft what it holds and shows the answer below the button. " +
-            "Read that line. It shows the aircraft, not what you typed.")
-        note("The line above the answer tells you how many settings the aircraft accepted. If " +
-            "the aircraft refused a setting, the app gives its name. A refused setting keeps " +
-            "the value the aircraft already holds.")
-        note("The stick mode goes to the aircraft only when you touch Apply Updated Settings " +
-            "to Aircraft. The " +
-            "app never changes the sticks on its own.")
-        note("Lock these settings makes the fields read-only. To unlock them, the app asks " +
-            "for a password. The lock stops a change by accident. It is not security.")
+        body("Control response sets the speed of the camera controls. Stick mode sets what " +
+            "the two sticks do. Mode 2 is usual. The app sends the stick mode only when you " +
+            "touch Apply Updated Settings to Aircraft.")
 
-        body("Obstacle avoidance has three boxes. The app sends these three settings to the " +
-            "aircraft at each connection.")
-        bullet("Obstacle avoidance enabled - the aircraft looks for obstacles and stops before " +
-            "it hits them.")
-        bullet("Avoid obstacles during Return to Home - the aircraft looks for obstacles also " +
-            "when it flies home on its own.")
-        bullet("Landing protection - the aircraft looks at the ground before it lands. If the " +
-            "ground is not safe, it does not land.")
-        body("Below the boxes, the app shows what the aircraft reports now. Read this line. " +
-            "The boxes show what you selected, but this line shows the aircraft.")
-        note("The app sends these settings only when the aircraft is on the ground. If the " +
-            "aircraft is armed or in the air, the app does not change them.")
-        note("The Mini 2 has no obstacle sensors. These settings do nothing on a Mini 2.")
+        body("If the signal is lost sets the action of the aircraft when it loses the " +
+            "controller: Return Home, Hover or Land. The aircraft does this without the app, " +
+            "thus it applies also if your phone stops in flight. Select Return Home.")
+
+        body("Obstacle avoidance has three boxes: System, During Return to Home, and Landing " +
+            "protection. The app sends them at each connection, thus you fly your settings " +
+            "and not the settings of a different app. The line below the boxes shows what the " +
+            "aircraft reports now. Read that line.")
+        note("The Mini 2 has no obstacle sensors. These three boxes do nothing on a Mini 2.")
+
+        body("Battery Warning and Battery Critical are the levels where the aircraft warns " +
+            "you and where it lands on its own. Lock battery levels makes the two fields " +
+            "read-only.")
+        warn("Some aircraft keep their own battery levels and refuse a change. The Mini 2 " +
+            "warns at 20% and lands at 10%, and this app cannot change these levels. If your " +
+            "aircraft refuses them, the app makes the two fields read-only and shows the " +
+            "levels the aircraft holds. Plan your flight for those levels.")
+
+        body("Apply Updated Settings to Aircraft sends all of these now. The app then asks " +
+            "the aircraft what it holds and shows the answer below the button. Read that " +
+            "line: it shows the aircraft, not what you typed. A refused setting keeps the " +
+            "value the aircraft already holds.")
 
         sub("2. Video Streaming")
-        body("This section is optional. If your team has a video server, type its address, " +
-            "its port, the video name for this aircraft, and the login. Then select the " +
-            "quality: Low, Standard or High. Usually, select Standard.")
-        bullet("Low - 480 lines. Use it if the connection is weak or you use mobile data.")
-        bullet("Standard - 720 lines. Use it for a usual flight.")
-        bullet("High - 1080 lines. Use it only on a strong connection.")
-        body("The app sends the video as H.264. Video servers and web browsers can show this " +
-            "video.")
-        note("These settings do not start the video. Use the LIVE button in flight to start " +
-            "and stop the video.")
+        body("Optional. Select the quality first. Select Standard. If the connection is weak, " +
+            "select Low.")
+
+        body("Active server selects between two video servers. Each one keeps its own " +
+            "address, login and quality, thus you change server with one touch and do not " +
+            "type an address again. The fields below show the server you selected, and the " +
+            "video goes to that server.")
+
+        body("For each server, type the name, the address, the port, the broadcast ID and the " +
+            "login. Then select the codec. Select H.264: more clients can show it. H.265 " +
+            "gives a better picture for the same connection, but fewer clients can show it.")
+        warn("If your team cannot see the video and this screen shows no fault, select H.264. " +
+            "A client that cannot show H.265 gives no error that you can see here.")
+        note("Lock configuration makes the fields read-only. It does not lock the quality: " +
+            "you can change the quality in flight.")
+        note("These settings do not start the video. Use the LIVE button in flight.")
         note("The full address shows below the fields. If it shows (NO PASSWORD) and your " +
             "server needs one, the video cannot connect.")
 
         sub("3. TAK Server Connection")
-        body("These fields set the address of the TAK server of your team and your identity " +
-            "on it. Type the address, the two ports, your username and your password. Type " +
-            "the callsign for your aircraft. Then touch Enroll & Connect. Usually you do this " +
-            "one time for each server.")
-        body("The channel list is below these fields. These are the groups for your login. " +
-            "The channels you select receive the position of the aircraft and your markers. " +
-            "If you select no channel, the server selects the channels.")
-        note("If the phone has no network, the app tells you. It does not show an error " +
-            "about the server. Look at the Network line on the home screen first.")
+        body("Type the address of the TAK server, the two ports, your username, your password " +
+            "and the callsign of the aircraft. Then touch Enroll & Connect. Usually you do " +
+            "this one time for each server.")
+        note("If the phone has no network, the app tells you. It does not show an error about " +
+            "the server. Look at the Network line on the home screen first.")
+
+        body("My Channels shows the channels of the TAK server. The server holds them, not " +
+            "the app. When you select or clear a channel, the app sends the change to the " +
+            "server immediately. The server then applies it to everything this aircraft " +
+            "sends: the position, the camera point and the markers.")
+        bullet("A channel with \"Rx Only\" gives you data but does not take data from you.")
+        bullet("If the list is empty, the server has no channels. This is not a fault.")
+        warn("The channels belong to your certificate, not to this controller. If two " +
+            "controllers sign in as the same user, a change on one changes the other.")
 
         sub("4. Elevation Data (DTED)")
-        body("This is the terrain data for your flight area. You import one file for each " +
-            "region. The data tells the app the height of the ground below the aircraft.")
-        body("The terrain data improves two functions:")
-        bullet("Markers go to the correct position. Without the data, a marker on a slope " +
-            "can be too near or too far.")
-        bullet("The altitude shows the true height above the ground. Without the data, it " +
-            "shows the height above your takeoff point.")
+        body("The terrain data for your area. Import one file for each region. It improves " +
+            "two things:")
+        bullet("Marker accuracy. Without the data, a marker on a slope can be too near or too " +
+            "far.")
+        bullet("The altitude shows the true height of the aircraft above the ground. Without " +
+            "the data, it shows the height above your takeoff point.")
 
         sub("5. FAA Airspace Ceilings (UASFM)")
-        body("This downloads the FAA UAS Facility Map altitudes for an area. The flight " +
-            "screen then shows the ceiling at your position. Type a center point and a " +
-            "radius, or touch Use My Location. Check the size, then download the data.")
+        body("This downloads the FAA ceiling data for an area. The flight screen then shows " +
+            "the ceiling at the position of the aircraft. Type a center point and a radius, " +
+            "or touch Use My Location. Check the size, then download the data.")
         note("Download this data on a wifi connection before you go to the flight area. In " +
             "flight, the app reads the data from the phone and does not need a signal.")
         warn("Do not use this data as an approval to fly. It shows the altitude that the FAA " +
@@ -216,19 +226,16 @@ class FieldGuideActivity : AppCompatActivity() {
         sub("6. Map Display")
         body("This sets the map type for the small map on the flight screen. Select Street, " +
             "Hybrid (satellite images), or a custom map of your team. Then touch Save Map " +
-            "Display.")
-        note("This setting changes the small map on the flight screen only. It does not " +
-            "change the map of your team.")
+            "Display. It changes your small map only, not the map of your team.")
     }
 
     // ---------------------------------------------------------------- Section 3
 
     private fun sectionThree() {
         section("3. The Flight Screen")
-        body("The live camera image fills the screen. The toolbar is across the top: the " +
-            "status icons are on the left and the buttons are on the right. The readout is " +
-            "down the right side, and the small map is in the bottom right corner. This " +
-            "section shows each control in sequence.")
+        body("The live camera image fills the screen. The toolbar is across the top, with the " +
+            "status icons on the left and the buttons on the right. The readout is down the " +
+            "right side and the small map is in the bottom right corner.")
 
         sub("Toolbar: left side (status)")
 
@@ -257,10 +264,9 @@ class FieldGuideActivity : AppCompatActivity() {
                 battery(9) to "9%",
             ),
             "Battery",
-            "This ring shows the charge in the battery of the aircraft. The ring becomes " +
-                "empty as you fly. Green shows more than 30%. Yellow shows 16% to 30%, and " +
-                "red shows 15% or less. Land the aircraft when the ring is yellow. Do not " +
-                "wait for red.",
+            "The charge in the battery of the aircraft. Green shows more than 30%. Yellow " +
+                "shows 16% to 30%, and red shows 15% or less. Land the aircraft when the ring " +
+                "is yellow. Do not wait for red.",
         )
 
         entry(
@@ -270,11 +276,10 @@ class FieldGuideActivity : AppCompatActivity() {
                 signal(20) to "Weak",
             ),
             "Controller signal",
-            "These bars show the strength of the signal between the controller and the " +
-                "aircraft. The percentage is next to the bars. Three or two green bars show a " +
-                "good signal. One yellow bar shows a weak signal. Red with no bars shows that " +
-                "you can lose the signal. If the signal is weak, fly the aircraft nearer or " +
-                "lift the controller.",
+            "The strength of the signal between the controller and the aircraft. Two or three " +
+                "green bars show a good signal. One yellow bar shows a weak signal. Red with " +
+                "no bars shows that you can lose the signal. If the bars decrease, fly the " +
+                "aircraft nearer or lift the controller.",
         )
 
         entry(
@@ -283,11 +288,10 @@ class FieldGuideActivity : AppCompatActivity() {
                 gps(hasFix = false) to "No position",
             ),
             "GPS satellites",
-            "This shows the quantity of satellites that the aircraft receives. Green shows " +
-                "that the aircraft has its position. Grey shows that it does not have its " +
-                "position. Wait for green before you take off. Without a position, the " +
-                "aircraft cannot hold its position, cannot set a home point, and cannot come " +
-                "home correctly.",
+            "The quantity of satellites that the aircraft receives. Green shows that the " +
+                "aircraft has its position. Wait for green before you take off. Without a " +
+                "position the aircraft cannot hold its position, cannot set a home point, and " +
+                "cannot come home correctly.",
         )
 
         entry(
@@ -296,13 +300,11 @@ class FieldGuideActivity : AppCompatActivity() {
                 image(R.drawable.ic_rth) to "No home",
             ),
             "Return to Home",
-            "Touch this button to send the aircraft home. The app asks you to confirm. Touch " +
-                "the button again during the return to stop it and get control.\n\n" +
-                "The house becomes green when the home point is set. This shows that the " +
-                "aircraft has a position to return to.\n\n" +
-                "Touch and hold the button to move the home point to your position. Use this " +
-                "function if you moved away from the takeoff point. The app asks you to " +
-                "confirm, because this changes where the aircraft flies.",
+            "Touch: sends the aircraft home. The app asks you to confirm. Touch the button " +
+                "again during the return to stop it and get control.\n\n" +
+                "Touch and hold: moves the home point to your position. Use this if you moved " +
+                "away from the takeoff point. The app asks you to confirm.\n\n" +
+                "The house is green when the home point is set.",
         )
 
         sub("Toolbar: right side (buttons)")
@@ -310,52 +312,35 @@ class FieldGuideActivity : AppCompatActivity() {
         entry(
             listOf(image(R.drawable.ic_drop_pin) to "Marker"),
             "Put a marker",
-            "This button puts a marker on the ground at the center of the camera image. " +
-                "Point the camera at the target, then touch the button. The app opens the " +
-                "\"Drop Marker at Crosshair\" window. Select the type (Friendly, Hostile, " +
-                "Neutral or Unknown) and type a name. The app then sends the marker to your " +
-                "team.\n\n" +
-                "Touch and hold the button to open the \"Dropped Markers\" list. In the list " +
-                "you can move a marker to the camera position, change its name, change its " +
-                "type, send it again, or delete it.",
+            "Touch: puts a marker at the center of the camera image. Point the camera at the " +
+                "target first. Select the type (Friendly, Hostile, Neutral or Unknown) and " +
+                "type a name. The app sends the marker to your team.\n\n" +
+                "Touch and hold: opens the \"Dropped Markers\" list, with your markers and the " +
+                "markers of your team. Here you can move a marker to the camera position, " +
+                "change it, send it again, or remove it.\n\n" +
+                "DELETE REMOVES A MARKER FROM THIS AIRCRAFT ONLY. It stays on the screens of " +
+                "your team for about 3 days.",
             listOf(
-                "If the aircraft does not have a GPS position and a gimbal position, the app " +
-                    "does not put the marker.",
-                "If the ring of the crosshair is red, the app does not put the marker. The " +
-                    "angle of the camera is too small for an accurate position. Point the " +
-                    "camera down more.",
-                "If the aircraft is less than 25 ft above the ground, the app does not put " +
-                    "the marker. Near the ground the app cannot calculate a position: the " +
-                    "marker would go to the position of the aircraft. Climb higher.",
-                "If you delete a marker, the app removes it from your screen only. It stays " +
-                    "on the screens of your team for 3 days.",
+                "The app does not put a marker if the ring of the crosshair is red, if the " +
+                    "aircraft has no GPS position, or if the aircraft is less than 25 ft above " +
+                    "the ground. Point the camera down more, or climb higher.",
             ),
         )
 
         entry(
             listOf(arPill(on = false) to "Off", arPill(on = true) to "On"),
             "AR: markers on the video",
-            "This function draws the markers on the live image at their true positions. You " +
-                "can then see which building, vehicle or hill a marker identifies. The button " +
-                "becomes green when the function is on.\n\n" +
-                "A marker outside the camera image shows as a small arrow at the edge of the " +
-                "image. The arrow shows the direction to turn the camera.\n\n" +
-                "Touch and hold the button to select what the app draws:\n" +
-                "- My Markers\n" +
-                "- Team Markers\n" +
-                "- Team Positions\n" +
-                "- Air Traffic\n" +
-                "- Weather\n\n" +
-                "You can also set the range for air traffic to 2.5, 5 or 15 miles. If you " +
-                "set an item to off, the app removes it from the image immediately. The app " +
-                "always shows ground markers to 5 miles.",
+            "This draws the markers on the live image near their positions. The button is " +
+                "green when it is on.\n\n" +
+                "A marker outside the camera image shows as an arrow at the edge. The arrow " +
+                "shows the direction to turn the camera.\n\n" +
+                "Touch and hold: select what the app draws (My Markers, Team Markers, Team " +
+                "Positions, Air Traffic, Weather) and set the range for air traffic to 2.5, 5 " +
+                "or 15 miles. The app always shows ground markers to 5 miles.",
             listOf(
-                "If you move the camera quickly, the markers move on the image. They become " +
-                    "correct when you stop. This is normal, because the position data and the " +
-                    "video do not arrive at the same time.",
-                "This function shows which object a marker identifies. It does not give an " +
-                    "accurate position. For an accurate position, put the crosshair on the " +
-                    "object and put a marker.",
+                "THE AR VIEW IS NOT ACCURATE FOR A POINT. It shows the general area of a " +
+                    "marker. Do not use it to choose between objects that are close together, " +
+                    "such as one house in a tight row of houses.",
                 "Air traffic positions can be about ten seconds old. A fast aircraft is in " +
                     "front of its marker.",
             ),
@@ -415,75 +400,52 @@ class FieldGuideActivity : AppCompatActivity() {
         entry(
             emptyList(),
             "The crosshair",
-            "The crosshair shows the center of the camera image. This is the position where " +
-                "a marker goes.\n\n" +
-                "The ring in the center changes color. The color shows the accuracy of a " +
-                "marker at this moment. The accuracy changes with the angle of the camera. " +
-                "You can read this angle on the GIMBAL line of the readout. The angles are " +
-                "different if you loaded terrain data (DTED) for your area.\n\n" +
+            "The crosshair is the center of the camera image, and the position where a marker " +
+                "goes. The colour of the ring shows the approximate accuracy. It changes with " +
+                "the angle of the camera, which you read on the GIMBAL line.\n\n" +
                 "WITH terrain data:\n" +
                 "GREEN: 25° down or more. The error is about 10 ft.\n" +
                 "YELLOW: 10° to 25° down. The error is about 50 ft.\n\n" +
                 "WITHOUT terrain data:\n" +
                 "GREEN: 30° down or more. The error is about 50 ft.\n" +
                 "YELLOW: 15° to 30° down. The error is about 100 ft.\n\n" +
-                "RED: less than the yellow angle. Do not put a marker. Point the camera down " +
-                "more, or fly nearer.\n\n" +
-                "When the camera is near horizontal, a small error in the angle moves the " +
-                "marker a long distance on the ground. A steep angle is more accurate than a " +
-                "view from a long distance. If the position of a marker is important, fly " +
-                "nearer and point the camera down. Do not use the zoom from a long distance. " +
-                "Without terrain data, the app must calculate with flat ground, and this " +
-                "adds more error.",
+                "RED: less than the yellow angle. The app does not put a marker. Point the " +
+                "camera down more, or fly nearer.\n\n" +
+                "If the position of a marker is important, fly nearer and point the camera " +
+                "down. Do not use the zoom from a long distance.",
             listOf(
-                "These values are correct only with a good GPS position. A weak GPS position " +
-                    "or large metal structures near the aircraft cause more error at all " +
-                    "angles.",
-                "The app uses the terrain data at the current position of the aircraft. If " +
-                    "you fly out of the area of your data, the ring changes to the angles for " +
-                    "no terrain data.",
+                "These values need a good GPS position. If you fly out of the area of your " +
+                    "terrain data, the ring changes to the angles for no terrain data.",
             ),
         )
 
         entry(
             emptyList(),
             "Quick marker: touch the crosshair",
-            "Touch the crosshair to put a marker immediately. The app does not ask you " +
-                "questions. The type is always Unknown and the name is always " +
-                "${com.dji.sdk.sample.tak.TakDropMarkers.QUICK_NAME}. Your team can " +
-                "identify it quickly.\n\n" +
-                "There is only one quick marker. Point the camera at a new target and " +
-                "touch the crosshair again: the marker MOVES to the new target. It moves " +
-                "on the screens of all your team. The app does not put a second marker.\n\n" +
-                "Use the quick marker to show your team what you look at now. To keep a " +
-                "record of a position, use the marker button. With that button you can set a " +
-                "name and a type.",
+            "Touch the crosshair to put a marker immediately, with no questions. The name is " +
+                "always ${com.dji.sdk.sample.tak.TakDropMarkers.QUICK_NAME}.\n\n" +
+                "THERE IS ONLY ONE QUICK MARKER. Point the camera at a new location and touch " +
+                "the crosshair again: the marker MOVES to the new location, on the screens of " +
+                "all your team.\n\n" +
+                "Use the quick marker to show your team what you look at now. To keep a record " +
+                "of a position, use the static marker or the marker button.",
             listOf(
                 "To remove the quick marker, delete it from the marker list. Touch and hold " +
                     "the marker button to open the list.",
-                "The quick marker follows the same rules as other markers.",
             ),
         )
 
         entry(
             emptyList(),
-            "Unknown marker: touch and hold the crosshair",
-            "Touch the crosshair and hold it to put a marker of the type Unknown immediately. " +
-                "The controller makes a short vibration. The app does not ask you questions and " +
-                "sends the marker immediately.\n\n" +
-                "This marker DOES NOT MOVE. It stays at the position where you put it. If you " +
-                "touch and hold the crosshair again, the app puts a SECOND marker. This is " +
-                "different from the quick marker, which moves.\n\n" +
-                "The name is the callsign of the aircraft and a number, for example MINI2-P7. " +
-                "The number increases with each marker. This is the same name that the marker " +
-                "button gives.\n\n" +
-                "This is a quick way to put an Unknown marker. The result is the same as the " +
-                "marker button with the type Unknown, but with no windows.",
+            "Static marker: touch and hold the crosshair",
+            "Touch the crosshair and hold it to put a static marker of the type Unknown. The " +
+                "controller makes a short vibration. THIS MARKER DOES NOT MOVE. A second touch " +
+                "and hold puts a SECOND marker.\n\n" +
+                "The name of the static marker is the callsign of the aircraft and a number, " +
+                "for example MINI2-P7.",
             listOf(
                 "The rules of the crosshair ring apply. If the ring is red, the app does not " +
                     "put the marker.",
-                "Use this to keep a record of a position. Use the quick marker to show your " +
-                    "team what you look at now.",
             ),
         )
 
@@ -491,22 +453,16 @@ class FieldGuideActivity : AppCompatActivity() {
             emptyList(),
             "Obstacle distances",
             "If the aircraft sees an obstacle, the app draws a mark at the edge of the video " +
-                "nearest to it. The mark shows the distance in feet.\n\n" +
-                "A curved line at the left or the right edge shows an obstacle at that side. " +
-                "An arrow with the word FWD shows an obstacle in front. An arrow with the word " +
-                "REAR shows an obstacle behind. The camera cannot show you what is behind, so " +
-                "read the REAR arrow with care.\n\n" +
-                "A mark shows when an obstacle is nearer than about 39 ft. The marks are " +
-                "yellow first. They become red, thicker and brighter as the aircraft gets " +
-                "nearer. Red is 13 ft or less.",
+                "nearest to it, with the distance in feet. A curved line at the left or the " +
+                "right edge shows an obstacle at that side. An arrow with FWD shows an " +
+                "obstacle in front, and an arrow with REAR shows one behind.\n\n" +
+                "A mark shows at about 39 ft. The marks are yellow first, then red at 13 ft " +
+                "or less.",
             listOf(
-                "An edge with no mark does not mean the direction is clear. It can also mean " +
-                    "the aircraft has no sensor for that direction. The Air 2S has sensors in " +
-                    "front, behind, up and down, but none at the sides. The Mini 2 has no " +
-                    "obstacle sensors, and this display always stays empty.",
-                "The app does not show the distance up or down yet.",
-                "These marks are an aid. They do not replace your eyes. Keep the aircraft in " +
-                    "sight.",
+                "AN EDGE WITH NO MARK DOES NOT MEAN THE DIRECTION IS CLEAR. It can also mean " +
+                    "the aircraft has no sensor for that direction. The Mini 2 has no obstacle " +
+                    "sensors, and this display always stays empty.",
+                "The camera cannot show you what is behind. Read the REAR arrow with care.",
             ),
         )
 
@@ -514,24 +470,12 @@ class FieldGuideActivity : AppCompatActivity() {
             emptyList(),
             "Warnings (top left)",
             "A box below the toolbar shows a warning. RED means act now. AMBER means know " +
-                "it.\n\n" +
-                "Most warnings come from the aircraft, in the words of the aircraft. Examples " +
-                "are \"Cannot takeoff in a no-fly zone\", a compass problem, or a request to " +
-                "calibrate. If the motors do not start, read this box first. The app adds its " +
-                "own warnings for the return to home, the battery levels you set, the " +
+                "it. IF THE MOTORS DO NOT START, READ THIS BOX FIRST.\n\n" +
+                "Most warnings come from the aircraft, in the words of the aircraft. The app " +
+                "adds its own for the return to home, the battery levels you set, the " +
                 "altitude and distance limits, a missing home point, and high wind.\n\n" +
-                "The box shows one warning at a time, the most important one. If there are " +
-                "more, the box shows a count, for example \"+2\". Each warning stays on the " +
-                "screen for a few seconds, so you can read it. A more important warning " +
-                "replaces a less important one immediately. The box goes away when the " +
-                "condition goes away.",
-            listOf(
-                "The app hides no warning from you. If the aircraft reports it, you see it. " +
-                    "Some warnings are only reminders, such as a request to examine the " +
-                    "propellers.",
-                "The warnings stop when you leave the flight screen. They start again when " +
-                    "you come back.",
-            ),
+                "The box shows the most important warning. If there are more, it shows a " +
+                "count, for example \"+2\". The box goes away when the condition goes away.",
         )
 
         sub("The readout: right side")
@@ -539,18 +483,14 @@ class FieldGuideActivity : AppCompatActivity() {
         entry(
             emptyList(),
             "Exposure slider (top right)",
-            "This slider makes the image brighter or darker. The camera adjusts the exposure " +
-                "automatically. Use the slider when the automatic exposure is not correct. " +
-                "Examples are a dark object against snow, or a bright sky above dark ground. " +
-                "The numbers below the slider show the values of the camera.",
+            "This slider makes the image brighter or darker. Use it when the automatic " +
+                "exposure is not correct, for example a dark object against snow.",
         )
 
         entry(
             emptyList(),
             "Clock",
-            "Below the slider the app shows the time of the phone, as hours, minutes and " +
-                "seconds. Use it to give a time to your team, and to make a note of an event " +
-                "in the flight.",
+            "Below the slider, the time of the phone. Use it to give a time to your team.",
         )
 
         entry(
@@ -561,68 +501,54 @@ class FieldGuideActivity : AppCompatActivity() {
                 "- its height above the ground, then its height above sea level\n" +
                 "- its latitude and longitude\n\n" +
                 "Below these lines the app shows GIMBAL and the angle of the camera. The " +
-                "color of this angle is the color of the crosshair ring. It tells you if a " +
-                "marker at this angle is accurate.",
+                "colour of this angle is the colour of the crosshair ring.",
             listOf(
-                "The height shows AGL if terrain data covers your position. AGL is the true " +
-                    "height above the ground below the aircraft.",
-                "The height shows ALT if there is no terrain data. ALT is the height above " +
-                    "your takeoff point. This value is different if the ground below the " +
-                    "aircraft is higher or lower.",
+                "AGL is the true height above the ground below the aircraft. It needs terrain " +
+                    "data. ALT shows instead when there is no data: that is the height above " +
+                    "your takeoff point, and it is different if the ground is higher or lower.",
                 "MSL is the height above sea level. Aviation charts and airspace limits use " +
-                    "this value. MSL needs terrain data for your takeoff point only. If there " +
-                    "is no data, MSL shows a dash. MSL can show a value when the line above " +
-                    "shows ALT, because the app calculates the two values separately.",
+                    "this value.",
             ),
         )
 
         entry(
             emptyList(),
             "RTH and HOME lines",
-            "RTH shows the return height that the aircraft holds now. This is the height the " +
-                "aircraft climbs to before it flies home. It shows two dashes until the " +
-                "aircraft reports the height. Two dashes mean that the app does not know the " +
-                "height. They do not mean that the height is zero.\n\n" +
+            "RTH shows the return height that the AIRCRAFT holds now. Two dashes mean the app " +
+                "does not know the height. They do not mean the height is zero.\n\n" +
                 "HOME shows the distance to the home point, then the direction to it in " +
-                "degrees true. Use these two numbers to know how far the aircraft must fly to " +
-                "come back.",
+                "degrees true.",
             listOf(
                 "The RTH line shows the AIRCRAFT, not the value you typed in Pre-Flight " +
                     "Setup. If the two are different, the aircraft did not accept the value. " +
                     "Send it again with Apply Updated Settings to Aircraft.",
-                "The HOME line shows dashes until the aircraft has a GPS position and a home " +
-                    "point.",
             ),
         )
 
         entry(
             emptyList(),
             "FAA ceiling line",
-            "This line shows only if you downloaded the FAA data. It shows the published " +
-                "ceiling at the position of the aircraft. It becomes red if you fly above " +
-                "the ceiling.\n\n" +
-                "The line shows AGL, because FAA ceilings are always heights above the " +
-                "ground. Compare this value with the AGL line of the readout. Do not compare " +
-                "it with the MSL line.\n\n" +
-                "Grey \"Class G\" shows that the FAA has no facility map at this position. " +
-                "The usual limit of 400 ft is applicable. Yellow \"no data here\" shows that " +
-                "you flew out of the area of your data. The app does not know the limit. " +
-                "This is not an approval to fly.",
+            "This line shows the published ceiling at the position of the aircraft, and it " +
+                "becomes red if you fly above the ceiling. It shows AGL, thus compare it with " +
+                "the AGL line and not with MSL.\n\n" +
+                "Grey \"Class G\" - no facility map here. The usual 400 ft limit is " +
+                "applicable.\n" +
+                "Yellow \"no data here\" - you flew out of the area you downloaded. The app " +
+                "does not know the limit.",
         )
 
         entry(
             emptyList(),
             "The map",
-            "This is the small map in the bottom right corner. North is always at the top " +
-                "and the aircraft is always in the center. The red line goes from the home " +
-                "point to the aircraft, and shows your route back. The map also shows the TAK " +
-                "markers of other operators. Touch a marker to remove it from your map only.\n\n" +
-                "Touch the button at the bottom left of the map to change how much ground you " +
-                "see. WIDE shows the full distance you are permitted to fly. NEAR shows less " +
-                "ground with more detail. The app keeps your choice for the next flight.\n\n" +
-                "Touch the map two times quickly to make it twice as large. Touch it two times " +
-                "again to make it small. The larger map covers the readouts above it. The " +
-                "flight screen always starts with the small map.",
+            "The small map in the bottom right corner. North is always at the top and the " +
+                "aircraft is always in the center. The red line goes from the home point to " +
+                "the aircraft. The map also shows the markers of your team. Touch a marker to " +
+                "remove it from your map only.\n\n" +
+                "Touch the button at the bottom left of the map for the two zoom levels. WIDE " +
+                "shows the full distance you are permitted to fly. NEAR shows less ground with " +
+                "more detail.\n\n" +
+                "Touch the map two times to make it larger, and two times again to make it " +
+                "small.",
             listOf(
                 "Map data: OpenStreetMap contributors, for the street map. Satellite images: " +
                     "Esri World Imagery. A custom map shows the data of its own supplier.",
@@ -635,9 +561,7 @@ class FieldGuideActivity : AppCompatActivity() {
             emptyList(),
             "System resources",
             "Usually this bar is not on the screen. To show it, open Debug Log from the home " +
-                "screen and select \"Show system resources on flight screen\". The bar covers " +
-                "a part of the video, so use it only when you must examine the phone.\n\n" +
-                "The bar has four groups:\n" +
+                "screen and select \"Show system resources on flight screen\".\n\n" +
                 "- SYS: the free memory of the phone, then its total memory\n" +
                 "- APP: the memory that the app uses\n" +
                 "- CPU: the load on the phone, then the load from the app\n" +
@@ -648,8 +572,6 @@ class FieldGuideActivity : AppCompatActivity() {
             listOf(
                 "The first number of CPU can show a dash. Android does not give this value to " +
                     "an app. This is normal and it is not a fault.",
-                "The app writes these same values to the log every 30 seconds. The log keeps " +
-                    "them if you do not show the bar.",
             ),
         )
     }
@@ -658,31 +580,22 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun sectionFour() {
         section("4. Flight path records")
-        body("The app records the path of each flight. The recording is automatic. There is " +
-            "no switch, and there is nothing to start or stop.")
+        body("The app records the path of each flight automatically. There is no switch, and " +
+            "nothing to start or stop. A TAK server and a network are not necessary.")
 
-        sub("When the app records")
-        bullet("The recording starts when the aircraft leaves the ground.")
-        bullet("The recording stops when the aircraft is on the ground for 10 seconds. A " +
-            "short touch on the ground does not divide the flight into two records.")
-        bullet("A TAK server is not necessary. A network is not necessary. The app records " +
-            "each flight also when the phone is fully offline.")
-        bullet("No GPS, no points. When the aircraft flies without a GPS position, the app " +
-            "records nothing for that time. It does not write a false position.")
+        body("The recording starts when the aircraft leaves the ground. It stops when the " +
+            "aircraft is on the ground for 10 seconds, thus a short touch on the ground does " +
+            "not divide the flight into two records.")
 
-        sub("Where the records are")
-        body("Open Downloads/TAKPilotFlights on the phone. Each flight makes two files with " +
-            "the same name:")
-        bullet(".gpx - the track. Import it into ATAK or Google Earth to see the flight path " +
-            "on a map.")
-        bullet(".csv - a table with one row each second: time, position, altitude, speed, " +
-            "heading, battery and satellite count. Open it in a spreadsheet.")
+        body("Open Downloads/TAKPilotFlights on the phone. Each flight makes two files:")
+        bullet(".gpx - the track. Import it into ATAK or Google Earth.")
+        bullet(".csv - one row each second: time, position, altitude, speed, heading, " +
+            "battery and satellite count. Open it in a spreadsheet.")
 
-        note("The folder keeps approximately 50 MB - months of flights. When it is full, the " +
-            "app deletes the oldest files. Copy a record to a different location if you must " +
-            "keep it permanently.")
-        note("If the app stops during a flight, the record is safe. The track file appears " +
-            "the next time you start the app.")
+        note("When the aircraft flies without a GPS position, the app records nothing for " +
+            "that time. It does not write a false position.")
+        note("The folder keeps about 50 MB - months of flights. When it is full, the app " +
+            "deletes the oldest files. Copy a record to a different location to keep it.")
     }
 
     // ---------------------------------------------------------------- Section 5
@@ -692,14 +605,13 @@ class FieldGuideActivity : AppCompatActivity() {
         body("All the controls on the flight screen operate. These functions are not in this " +
             "build:")
 
-        bullet("A correction for the position of a marker. If the markers of the app are all " +
-            "in the same wrong direction, you cannot correct this in the app. Report the " +
-            "error. A new build is necessary.")
+        bullet("A correction for the aim of the camera. If the markers of the app are all in " +
+            "the same wrong direction, you cannot correct this here. Report the error.")
         bullet("A measurement of the camera angle of view. The app uses the published values " +
-            "for the aircraft. A marker near the edge of the picture can be less accurate " +
-            "than a marker in the center. You can change the values by hand with the AR " +
-            "button on the flight screen.")
+            "for the aircraft, thus a marker near the edge of the picture can be less " +
+            "accurate than a marker in the center.")
         bullet("A thermal camera. This build is for a camera with visible light only.")
+        bullet("The buttons on the controller. Use the buttons on the screen.")
 
         warn("This build was flight-tested on the DJI Mini 2 only. On a different aircraft, " +
             "examine each control on your first flight, and keep the aircraft in sight.")
