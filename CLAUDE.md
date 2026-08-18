@@ -89,15 +89,25 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**2026-08-18: the Autel v1.6.2 Pre-Flight parity port is in this tree and UNVERIFIED on
-hardware.** It brings: locks beside what they lock, quality-first video with two named
-server slots and a pilot-selectable codec (H.264/H.265, wired through EncoderConfig and
-both encode paths), and server-held My Channels (`activebits` over the Marti API). The old
-local channel picker is REMOVED — its `<dest group>` made the server silently drop markers,
-proved on the sibling 2026-08-15. `com.taklite` was re-synced from the Autel tree at the
-same time (outbound CoT logging, `TakClient.checkError`, `buildMarkerWithType`,
-`isLiveClient`). The `isLiveClient` team-dot rendering is NOT yet consumed by this tree's
-map code.
+**v1.2.0 IS RELEASED — tag `v1.2.0`, versionCode 6, 2026-08-18 — AND IT HAS NEVER FLOWN.**
+It builds, it starts on a controller and the unit tests pass. Nothing in it has been in the
+air, and the release notes say so in their first line. The bench pass is the open work: the
+whole Pre-Flight screen top to bottom, the locks refusing the keyboard, the channel list
+against a live server (toggle one, watch a second client), the video-server switch with
+passwords surviving it, and the in-flight channel dialog on a locked configuration.
+
+What v1.2.0 brings: locks beside what they lock, quality-first video with two named server
+slots and a pilot-selectable codec (H.264/H.265, wired through EncoderConfig and both
+encode paths), server-held My Channels (`activebits` over the Marti API) reachable from
+Pre-Flight AND from a touch-and-hold on the flight screen's TAK badge, and a Field Guide cut
+by a quarter with "Unknown marker" renamed to "Static marker".
+
+The old local channel picker is REMOVED — its `<dest group>` made the server silently drop
+markers, proved on the sibling 2026-08-15, which means **any fleet controller still on
+v1.1.0 with a channel selected is losing every marker it sends.** `com.taklite` was
+re-synced from the Autel tree at the same time (outbound CoT logging, `TakClient.checkError`,
+`buildMarkerWithType`, `isLiveClient`). The `isLiveClient` team-dot rendering is NOT yet
+consumed by this tree's map code.
 
 The original Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
 warnings banner, contact retention (flat at 16 across a session), the operator marker, the
