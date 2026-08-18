@@ -6,8 +6,11 @@ package com.dji.sdk.sample.takpilot2
  * slant-range math) is affected by what the pilot sees.
  *
  * Operator standard is imperial throughout: the Pre-Flight Setup limits are already entered in
- * feet, the altitude readout is feet and speed is MPH, so distances being metres was the odd one
+ * feet, the altitude readout is feet and speed is mph, so distances being metres was the odd one
  * out rather than a deliberate choice.
+ *
+ * Units print in lower case — `ft`, `mi`, `mph` — in all three applications, and the no-data
+ * placeholder takes the same casing as the live value. Specification §4.7.
  */
 object Units {
     const val FEET_PER_METER = 3.28084
@@ -29,5 +32,5 @@ object Units {
         return if (ft < FEET_PER_MILE) "%.0f ft".format(ft) else "%.1f mi".format(ft / FEET_PER_MILE)
     }
 
-    fun mph(metersPerSecond: Double): String = "%.0f MPH".format(metersPerSecond * MPH_PER_MS)
+    fun mph(metersPerSecond: Double): String = "%.0f mph".format(metersPerSecond * MPH_PER_MS)
 }

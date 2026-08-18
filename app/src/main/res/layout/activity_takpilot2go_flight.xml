@@ -51,9 +51,8 @@
         android:id="@+id/fpvNotice"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
+        android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="64dp"
-        android:layout_marginStart="16dp"
         android:shadowColor="@color/tp_shadow"
         android:shadowDx="0"
         android:shadowDy="1"
@@ -70,24 +69,33 @@
          investigation cost two flights guessing, when the aircraft had been reporting "Cannot
          takeoff in a no-fly zone" the whole time with nothing listening.
 
-         Sits below fpvNotice (64dp) rather than sharing its slot so the two can never overlap,
-         and on the LEFT half only: the right side of this screen is the HUD/map instrument
-         column, and the centre is the crosshair. maxWidth keeps a long multi-fault message
-         wrapping into the video area instead of running under the HUD. -->
+         TOP-LEFT, and the transient notice is TOP-CENTRE (specification §4.8). They are two
+         different things in two different places and must never share a slot, because both can
+         be on screen at once. Top-left and not top-centre because top-centre covers the part of
+         the picture the pilot works with; the banner's colour still interrupts from the corner.
+         maxWidth keeps a long multi-fault message wrapping into the video area instead of
+         running under the HUD.
+
+         Moved from 88dp to 64dp and restyled 2026-08-14 (conformance D5) to match the Autel
+         sibling: white 15sp bold on a background the activity tints by severity, instead of
+         tinted text on a fixed dark-red backing. -->
     <TextView
         android:id="@+id/flightDiagnostics"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_marginTop="88dp"
+        android:layout_marginTop="64dp"
         android:layout_marginStart="16dp"
-        android:background="@drawable/bg_diagnostics"
+        android:background="@drawable/bg_warning_banner"
+        android:letterSpacing="0.03"
         android:maxWidth="380dp"
-        android:paddingHorizontal="10dp"
-        android:paddingVertical="6dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
         android:text=""
         android:textColor="@color/tp_text_primary"
-        android:textSize="13sp"
+        android:textSize="15sp"
         android:textStyle="bold"
         android:visibility="gone" />
 
@@ -138,107 +146,143 @@
         android:paddingBottom="12dp"
         android:paddingEnd="14dp">
 
-        <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
-             ISO/shutter the camera actually chose beneath it.
+        <!-- TOP HUD PANEL: exposure controls, clock, telemetry and gimbal, on one
+             translucent backing. Ported from the Autel sibling 2026-08-14 (conformance D4,
+             specification §4.3).
 
-             Width is the MAP's width, not a number of its own: the map is the widest thing in
-             this column, so matching it is what makes the exposure block, the readouts and the
-             map read as one right-hand instrument stack instead of the slider hanging out over
-             the video. It also tracks the h440dp dimen override for free. -->
-        <com.dji.sdk.sample.takpilot2.EvSliderView
-            android:id="@+id/evSlider"
-            android:layout_width="@dimen/flight_map_size"
-            android:layout_height="24dp" />
+             WHY A PANEL: this text sits over live video whose brightness the pilot does not
+             control, and light ground — snow, wet asphalt, a white roof — washes bare text out.
+             The drop shadow in hudText helps and is not enough by itself.
 
+             PANEL WIDTH IS THE MAP'S WIDTH, not wrap_content: the map is the widest thing in
+             this column, and matching it keeps the exposure block, the readouts and the map
+             flush on one right edge as a single instrument stack. Letting it wrap would push
+             the panel past the map on its padding alone, which reads as a misalignment.
+             Children are match_parent so they inset with the panel's padding. -->
         <LinearLayout
             android:layout_width="@dimen/flight_map_size"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:background="@drawable/bg_hud_panel"
+            android:gravity="end"
+            android:orientation="vertical">
 
-            <TextView style="@style/hudText" android:layout_width="0dp"
-                android:layout_weight="1" android:gravity="start" android:text="-2" />
+            <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
+                 ISO/shutter the camera actually chose beneath it.
 
-            <TextView style="@style/hudText" android:layout_width="0dp"
-                android:layout_weight="1" android:gravity="center"
-                android:letterSpacing="0.08" android:text="EV" android:textColor="@color/tp_accent" />
+                 Width is the MAP's width, not a number of its own: the map is the widest thing in
+                 this column, so matching it is what makes the exposure block, the readouts and the
+                 map read as one right-hand instrument stack instead of the slider hanging out over
+                 the video. It also tracks the h440dp dimen override for free. -->
+            <com.dji.sdk.sample.takpilot2.EvSliderView
+                android:id="@+id/evSlider"
+                android:layout_width="@dimen/flight_map_size"
+                android:layout_height="24dp" />
 
-            <TextView style="@style/hudText" android:layout_width="0dp"
-                android:layout_weight="1" android:gravity="end" android:text="+2" />
+            <LinearLayout
+                android:layout_width="@dimen/flight_map_size"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                    android:layout_weight="1" android:gravity="start" android:text="-2" />
+
+                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                    android:layout_weight="1" android:gravity="center"
+                    android:letterSpacing="0.08" android:text="EV" android:textColor="@color/tp_accent" />
+
+                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                    android:layout_weight="1" android:gravity="end" android:text="+2" />
+            </LinearLayout>
+
+            <!-- Wall clock. Right-aligned and directly above the telemetry block so it reads as
+                 part of the readouts, not as a label on the EV slider. The flight screen is
+                 full-screen and covers the system status bar, so without this there is no time
+                 anywhere on it, and the time is what a pilot writes in a log, calls on the radio,
+                 and matches against the flight record afterwards. Seconds included: the HUD ticks
+                 at 500ms, so the digit is live for a pilot timing a leg. -->
+            <TextView
+                android:id="@+id/fpvClock"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="2dp"
+                android:gravity="end"
+                android:text="00:00:00" />
+
+            <TextView
+                android:id="@+id/fpvOverlayText"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="4dp"
+                android:gravity="end"
+                android:text="" />
+
+            <!-- Gimbal look angle, its own view so it can carry the same accuracy colour as the
+                 crosshair centre ring: placement error scales as 1/sin^2(pitch), so a shallow angle
+                 is a real accuracy warning rather than decoration. See updateGimbalPitch. -->
+            <TextView
+                android:id="@+id/fpvGimbalPitch"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="4dp"
+                android:gravity="end"
+                android:text="" />
         </LinearLayout>
 
-        <!-- Absorbs leftover height: exposure stays pinned to the top, the rest to the bottom,
-             and neither can run into the other. -->
+        <!-- Absorbs leftover height so the TOP group and the BOTTOM group sit at opposite ends
+             of the column instead of packing together in the middle. That middle band is where
+             the obstacle-radar distance labels render; with everything clustered there the
+             radar text was unreadable on the sibling. The spacer also makes overlap impossible
+             at any screen size. -->
         <View
             android:layout_width="1dp"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Wall clock. Right-aligned and directly above the telemetry block so it reads as
-             part of the readouts, not as a label on the EV slider. The flight screen is
-             full-screen and covers the system status bar, so without this there is no time
-             anywhere on it, and the time is what a pilot writes in a log, calls on the radio,
-             and matches against the flight record afterwards. Seconds included: the HUD ticks
-             at 500ms, so the digit is live for a pilot timing a leg. -->
-        <TextView
-            android:id="@+id/fpvClock"
-            style="@style/hudText"
-            android:layout_marginBottom="2dp"
-            android:gravity="end"
-            android:text="00:00:00" />
-
-        <TextView
-            android:id="@+id/fpvOverlayText"
-            style="@style/hudText"
-            android:layout_marginBottom="4dp"
-            android:gravity="end"
-            android:text="" />
-
-        <!-- Gimbal look angle, its own view so it can carry the same accuracy colour as the
-             crosshair centre ring: placement error scales as 1/sin^2(pitch), so a shallow angle
-             is a real accuracy warning rather than decoration. See updateGimbalPitch. -->
-        <TextView
-            android:id="@+id/fpvGimbalPitch"
-            style="@style/hudText"
-            android:layout_marginBottom="4dp"
-            android:gravity="end"
-            android:text="" />
-
-        <!-- RTH height AS THE AIRCRAFT REPORTS IT, not as Pre-Flight requested. A set can be
-             accepted and not applied, or rejected while the screen keeps showing the number the
-             pilot typed. This is the one a pilot is about to rely on. Shows a dashed placeholder
-             until the aircraft has answered, because unknown must not look like a value. -->
-        <TextView
-            android:id="@+id/fpvRthAltitude"
-            style="@style/hudText"
-            android:layout_marginBottom="2dp"
-            android:gravity="end"
-            android:text="RTH --" />
-
-        <!-- Home distance and bearing. Moved out of the telemetry block and down here, under
-             RTH: the two belong together — how far home is, and how high the aircraft will
-             climb to get there. -->
-        <TextView
-            android:id="@+id/fpvHomeDistance"
-            style="@style/hudText"
-            android:layout_marginBottom="2dp"
-            android:gravity="end"
-            android:text="HOME" />
-
-        <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
-        <TextView
-            android:id="@+id/fpvFaaCeiling"
-            style="@style/hudText"
+        <!-- BOTTOM HUD PANEL, pinned above the map: RTH, HOME, FAA. Same backing as the top
+             panel, for the same reason. Order is fixed by specification §4.3. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_hud_panel"
             android:gravity="end"
-            android:text=""
-            android:visibility="gone" />
+            android:orientation="vertical">
+
+
+            <!-- RTH height AS THE AIRCRAFT REPORTS IT, not as Pre-Flight requested. A set can be
+                 accepted and not applied, or rejected while the screen keeps showing the number the
+                 pilot typed. This is the one a pilot is about to rely on. Shows a dashed placeholder
+                 until the aircraft has answered, because unknown must not look like a value. -->
+            <TextView
+                android:id="@+id/fpvRthAltitude"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="2dp"
+                android:gravity="end"
+                android:text="RTH --" />
+
+            <!-- Home distance and bearing. Moved out of the telemetry block and down here, under
+                 RTH: the two belong together — how far home is, and how high the aircraft will
+                 climb to get there. -->
+            <TextView
+                android:id="@+id/fpvHomeDistance"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="2dp"
+                android:gravity="end"
+                android:text="HOME" />
+
+            <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
+            <TextView
+                android:id="@+id/fpvFaaCeiling"
+                style="@style/flightReadoutText"
+                android:layout_marginBottom="6dp"
+                android:gravity="end"
+                android:text=""
+                android:visibility="gone" />
+        </LinearLayout>
 
         <!-- The map lives in a container so the zoom toggle can sit ON it. The double-tap
              expansion resizes THIS, not the MapView, so the button scales with it. -->
         <FrameLayout
             android:id="@+id/flightMapContainer"
             android:layout_width="@dimen/flight_map_size"
-            android:layout_height="@dimen/flight_map_size">
+            android:layout_height="@dimen/flight_map_height">
 
             <com.mapbox.mapboxsdk.maps.MapView
                 android:id="@+id/flightMapView"

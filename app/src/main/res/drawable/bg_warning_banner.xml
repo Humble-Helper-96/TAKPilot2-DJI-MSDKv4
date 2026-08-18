@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flight-screen warning banner. The solid is a PLACEHOLDER — the flight activity tints it
+     red or amber per the warning's severity on every HUD tick (specification §4.8). Ported
+     from the Autel sibling 2026-08-14 (conformance D5), replacing bg_diagnostics, which was a
+     fixed dark red that could not carry severity. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/tp_btn_danger" />
+    <corners android:radius="6dp" />
+</shape>

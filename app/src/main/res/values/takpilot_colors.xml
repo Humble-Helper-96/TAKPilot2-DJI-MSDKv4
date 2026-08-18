@@ -40,6 +40,8 @@
     <color name="tp_surface_dialog">#202020</color> <!-- dialog background -->
     <color name="tp_surface_guide">#202024</color>  <!-- field-guide section block -->
     <color name="tp_surface_guide_code">#101014</color> <!-- field-guide inset/example block -->
+    <color name="tp_surface_guide_note">#14202C</color> <!-- field-guide note callout background -->
+    <color name="tp_surface_guide_warn">#2A1616</color> <!-- field-guide warning callout background -->
     <color name="tp_border">#333333</color>         <!-- hairline borders / dim separators -->
     <color name="tp_divider">#33FFFFFF</color>      <!-- translucent-white divider -->
 
@@ -52,6 +54,11 @@
     <color name="tp_text_cool">#9AA4B2</color>      <!-- data-sync captions (cool-tinted grey) -->
     <color name="tp_text_muted">#9A9A9A</color>     <!-- captions -->
     <color name="tp_text_hint">#777777</color>      <!-- input hint -->
+    <!-- Hint text inside a DIALOG, lighter than tp_text_hint on purpose: #777777
+         measured too dim against the dialog background on the controller screen.
+         Consumed by the Autel tree today; defined in all three so the name cannot
+         come to mean two colours. -->
+    <color name="tp_text_hint_dialog">#8A93A0</color>
     <color name="tp_text_caption">#7A7A7A</color>   <!-- sub-labels under a setting -->
     <color name="tp_text_disabled">#666666</color>  <!-- disabled / placeholder -->
     <color name="tp_text_dim">#D8D8D8</color>       <!-- dialog body on dark -->
@@ -83,20 +90,48 @@
     -->
 
     <!-- Crosshair accuracy ring — how far the look-point can be trusted. -->
-    <color name="tp_hud_accuracy_good">#4CAF50</color>
-    <color name="tp_hud_accuracy_fair">#FFEB3B</color>
-    <color name="tp_hud_accuracy_poor">#F44336</color>
 
     <!-- LIVE / REC toggles. The red is shared: both mean "this is going out right now". -->
-    <color name="tp_hud_toggle_off">#3A3A3A</color>
-    <color name="tp_hud_toggle_active">#E53935</color>
-    <color name="tp_hud_toggle_reconnect">#FFB74D</color>
 
     <!-- AR overlay contact colours. Magenta is ADS-B air traffic and is deliberately unlike
          anything else on the picture — see ArOverlayView.AIRCRAFT_COLOR. -->
-    <color name="tp_ar_aircraft">#E91E63</color>
 
     <!-- HUD text drop-shadow, so readouts stay legible over bright video. -->
     <color name="tp_shadow">#CC000000</color>
+    <!-- Wash behind the flight-screen HUD text panels. 40% black: enough to lift the
+         readouts off snow or wet asphalt, light enough to see movement through it.
+         Flight-tuned (operator, 2026-08-04) — do not re-tune without the aircraft. -->
+    <color name="tp_hud_panel_scrim">#66000000</color>
+    <!-- Warning-banner severity tints. The banner sits on live video, so these are
+         near-opaque: white text must stay legible over an arbitrary bright scene.
+         Specification §4.8 names both values. -->
+    <color name="tp_warn_banner_red">#E6B71C1C</color>
+    <color name="tp_warn_banner_amber">#E6C15D00</color>
+
+    <!-- FLIGHT-TUNED HUD COLOURS — specification §6.1. These were chosen against live video
+         with the aircraft flying. Tokenising them must not re-tune them, and changing one
+         needs the aircraft in front of you.
+
+         Roles that share a value today are still separate tokens on purpose: the battery
+         gauge's good band and the accuracy ring's good band are both #4CAF50 and are not the
+         same decision. -->
+    <color name="tp_hud_accuracy_good">#4CAF50</color>
+    <color name="tp_hud_accuracy_fair">#FFEB3B</color>
+    <color name="tp_hud_accuracy_poor">#F44336</color>
+    <color name="tp_hud_battery_good">#4CAF50</color>
+    <color name="tp_hud_battery_warn">#FFB74D</color>
+    <color name="tp_hud_battery_critical">#F44336</color>
+    <color name="tp_hud_signal_good">#4CAF50</color>
+    <color name="tp_hud_signal_fair">#FFEB3B</color>
+    <color name="tp_hud_signal_poor">#F44336</color>
+    <color name="tp_hud_obstacle_warn">#FFCC00</color>
+    <color name="tp_hud_obstacle_danger">#FF3B30</color>
+    <color name="tp_hud_toggle_off">#3A3A3A</color>
+    <color name="tp_hud_toggle_active">#E53935</color>
+    <color name="tp_hud_toggle_reconnect">#FFB74D</color>
+    <!-- NOT free to re-tune: it matches the magenta the ADS-B gateway tags its own tracks
+         with, so the marker and the gateway's tracks read as the same thing. This token said
+         #E91E63 until 2026-08-14 and no code used it; every tree drew #FF00FF. -->
+    <color name="tp_ar_aircraft">#FF00FF</color>
 
 </resources>
