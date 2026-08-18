@@ -1,8 +1,6 @@
 package com.dji.sdk.sample.tak
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import com.taklite.client.tak.TakManager
 import com.taklite.util.AppLog
 import java.io.File
@@ -75,7 +73,7 @@ object TakAutoConnect {
         return ts.isNotEmpty() && cc.isNotEmpty() && File(ts).exists() && File(cc).exists()
     }
 
-    /** Connect using saved certs + saved server settings, then auto-pull channels. */
+    /** Connect using saved certs + saved server settings. */
     fun reconnect(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val host = prefs.getString(KEY_HOST, "") ?: ""
@@ -99,17 +97,13 @@ object TakAutoConnect {
                 uid, callsign, "Cyan", "Team Member",
                 host, cotPort, ts, "atakatak", cc, "atakatak",
             )
-            TakChannelsStore.saveSelected(context, TakChannelsStore.selected(context))
             TakBridgeHolder.start(droneUid, callsign)
             TakBridgeHolder.setCameraPointEnabled(prefs.getBoolean(KEY_CAMERA_POINT, false))
             TakForegroundService.start(context, callsign)
             AppLog.i(TAG, "connected to $host:$cotPort as $callsign")
-            // Give the socket a moment to finish handshaking before asking for channels.
-            Handler(Looper.getMainLooper()).postDelayed({
-                TakChannelsStore.pull(context) { chans ->
-                    AppLog.i(TAG, "auto-pulled ${chans.size} channel(s)")
-                }
-            }, 1500)
+            // No channel work here. The channels live on the SERVER and belong to the
+            // certificate; the Pre-Flight screen reads them when it opens and when the server
+            // pushes t-x-g-c. Nothing local exists to restore — see TakConnectActivity.
         }.start()
     }
 }

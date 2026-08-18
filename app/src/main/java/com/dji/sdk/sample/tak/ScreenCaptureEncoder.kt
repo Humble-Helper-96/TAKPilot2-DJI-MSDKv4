@@ -38,8 +38,9 @@ class ScreenCaptureEncoder(
     context: Context,
     private val mediaProjection: MediaProjection,
     private val profile: StreamTranscoder.TranscodeProfile,
+    private val codec: VideoCodec,
     private val onEncoded: (ByteBuffer, MediaCodec.BufferInfo) -> Unit,
-    private val onParamsReady: (sps: ByteBuffer, pps: ByteBuffer) -> Unit,
+    private val onParamsReady: (sps: ByteBuffer, pps: ByteBuffer, vps: ByteBuffer?) -> Unit,
 ) {
     private var encoder: MediaCodec? = null
     private var inputSurface: Surface? = null
@@ -81,7 +82,7 @@ class ScreenCaptureEncoder(
         // used to ask for is what starves keyframes and produces the pulse stream viewers see.
         val configured = EncoderConfig.configure(
             targetW, targetH, profile.bitrateBps, profile.fps, I_FRAME_INTERVAL_S, TAG,
-            preferVbr = true)
+            preferVbr = true, codec = codec)
             ?: return false
 
         return runCatching {
@@ -105,7 +106,8 @@ class ScreenCaptureEncoder(
             // used to say "CBR" unconditionally, which would now be false — and a log that
             // states the rate-control mode from a hardcoded string is worse than one that omits
             // it, because it is the first thing read when the pulse is being investigated.
-            AppLog.i(TAG, "screen capture [${profile.name}]: ${screenW}x$screenH -> ${targetW}x$targetH " +
+            AppLog.i(TAG, "screen capture [${profile.name}] ${codec.label}: " +
+                    "${screenW}x$screenH -> ${targetW}x$targetH " +
                     "@ ${profile.fps}fps ${profile.bitrateBps / 1000}kbps, ${I_FRAME_INTERVAL_S}s IDR, " +
                     "encoder variant: ${configured.second}")
             true
@@ -169,30 +171,18 @@ class ScreenCaptureEncoder(
         }
     }
 
-    /** Splits the encoder's SPS+PPS codec-config buffer at the second Annex-B start code. */
+    /** Pulls VPS/SPS/PPS out of the codec-config buffer — three NALs on H.265, two on H.264.
+     *  The classification lives in [EncoderConfig.splitParams] so both encode paths share it. */
     private fun handleCodecConfig(buf: ByteBuffer, info: MediaCodec.BufferInfo) {
         val bytes = ByteArray(info.size)
         buf.get(bytes)
-        var splitAt = -1
-        var i = 4
-        while (i < bytes.size - 3) {
-            if (bytes[i] == Z && bytes[i + 1] == Z &&
-                (bytes[i + 2] == O || (bytes[i + 2] == Z && bytes[i + 3] == O))) {
-                splitAt = i; break
-            }
-            i++
-        }
-        if (splitAt <= 0) return
-        val sps = bytes.copyOfRange(0, splitAt)
-        val pps = bytes.copyOfRange(splitAt, bytes.size)
-        AppLog.i(TAG, "encoder params ready: sps=${sps.size}B pps=${pps.size}B")
-        onParamsReady(ByteBuffer.wrap(sps), ByteBuffer.wrap(pps))
+        val params = EncoderConfig.splitParams(bytes, codec.isHevc, TAG) ?: return
+        onParamsReady(ByteBuffer.wrap(params.sps), ByteBuffer.wrap(params.pps),
+            params.vps?.let { ByteBuffer.wrap(it) })
     }
 
     companion object {
         private const val TAG = "ScreenCaptureEncoder"
-        private const val Z: Byte = 0
-        private const val O: Byte = 1
         private const val I_FRAME_INTERVAL_S = 2
     }
 }

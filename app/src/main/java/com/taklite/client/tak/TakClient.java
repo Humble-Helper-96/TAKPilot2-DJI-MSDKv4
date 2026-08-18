@@ -63,13 +63,38 @@ public class TakClient extends Thread {
         setDaemon(true);
     }
 
+    /**
+     * Writes one CoT to the server. Fire and forget, on its own thread.
+     *
+     * ⚠ THE FAILURES HERE USED TO BE COMPLETELY SILENT, which is why a marker that never left
+     * the socket and a marker the server rejected looked identical from the log (2026-08-15).
+     * Two things hid them:
+     *
+     *  1. A null stream returned with no trace at all.
+     *  2. mBufferOut is a PrintWriter, and PrintWriter NEVER THROWS ON WRITE. It swallows the
+     *     IOException and sets an internal flag, so the catch below cannot see a broken pipe,
+     *     a half-open socket or a failed flush — it only ever caught something like an NPE.
+     *     checkError() is the ONLY way to see that failure, and it also clears nothing, so it
+     *     is safe to call on every message.
+     *
+     * The signature stays void on purpose. The write happens on a new thread after this method
+     * has already returned, thus any status handed back to the caller would be a lie.
+     */
     public void sendMessage(final String message) {
-        if (mBufferOut == null) return;
+        if (mBufferOut == null) {
+            AppLog.w(TAG, "CoT DROPPED — the output stream is not open (message discarded)");
+            return;
+        }
         new Thread(() -> {
             try {
                 if (mBufferOut != null) {
                     mBufferOut.println(message);
                     mBufferOut.flush();
+                    // The real failure detector for this stream — see the note above.
+                    if (mBufferOut.checkError()) {
+                        AppLog.e(TAG, "CoT WRITE FAILED — the socket reported an error and the "
+                                + "message did not go out (" + message.length() + " chars)");
+                    }
                 }
             } catch (Exception e) {
                 AppLog.e(TAG, "Error sending message", e);

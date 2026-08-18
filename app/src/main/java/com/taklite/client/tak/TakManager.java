@@ -28,10 +28,6 @@ public class TakManager implements TakClient.TakClientListener {
     private String clientCertPassword;
     private String team;
     private String role;
-    /** Channels/groups the user selected on the TAK Setup screen. Empty = server default routing
-     *  (whatever the cert's group membership dictates). When set, outbound CoT is directed to
-     *  ONLY these channels via <marti><dest group="…"/></marti>. */
-    private volatile List<String> channels = new ArrayList<>();
     private boolean connected = false;
     private double lastLat = 0;
     private double lastLon = 0;
@@ -210,44 +206,73 @@ public class TakManager implements TakClient.TakClientListener {
         initialPliSent = false;
     }
 
-    /** Set the channels/groups outbound CoT should be directed to (from TAK Setup). */
-    public void setChannels(List<String> ch) {
-        this.channels = (ch != null) ? new ArrayList<>(ch) : new ArrayList<>();
-        AppLog.i(TAG, "outbound channels set: " + this.channels);
-    }
-    public List<String> getChannels() { return new ArrayList<>(channels); }
+    /**
+     * CHANNEL SELECTION IS REMOVED (operator, 2026-08-15), and this note is why.
+     *
+     * This class used to hold the channels a pilot picked on TAK Setup and inject
+     * {@code <marti><dest group="…" send="true"/></marti>} into every CoT that went through
+     * {@link #sendCot}. IT SILENTLY DESTROYED MARKERS. With channels selected, the server would
+     * not route them and simply dropped them; with none selected they arrived at once. Proved on
+     * the fleet controller 2026-08-15 by watching one marker with the block and one without.
+     *
+     * It would have done the same to an alert — {@link #sendAlert} takes the same path — but
+     * NOTHING IN THIS APPLICATION CALLS sendAlert, so no alert was ever lost. That method and
+     * its listener are unreachable code carried by this shared core. The first write-up of this
+     * bug claimed alerts were being dropped; that was wrong, and it reached the v1.6.1 release
+     * notes before it was caught. If an alert control is ever added, this path is what it uses.
+     *
+     * It was also never applied evenly. The drone PLI and the camera point call
+     * {@link TakClient#sendMessage} directly, so they ignored the selection entirely — a pilot
+     * who picked channels to LIMIT who saw this aircraft still broadcast its position to
+     * everyone. The feature failed in both directions at once, and had done so since the v1.2
+     * baseline.
+     *
+     * Routing is now left to the certificate's group membership, which is what the server does
+     * with no marti block, and what every working message in this application already relied on.
+     *
+     * DO NOT RE-ADD {@code <dest group>} WITHOUT TESTING A MARKER AND AN ALERT END TO END on a
+     * real server. The mechanism a TAK Server actually accepts for client-chosen channel routing
+     * is an open question — that is the work this removal defers, not a detail to guess at.
+     */
 
     /**
-     * Send CoT, directing it to the selected channels if any. Injects a
-     * {@code <marti><dest group="X" send="true"/>…</marti>} for each selected channel into the
-     * event's {@code <detail>}. If the CoT already has a {@code <marti>} (e.g. a mission-scoped
-     * marker), the group dests are merged into it instead of adding a second block. With no
-     * channels selected, the CoT is sent unchanged (server default routing).
+     * Sends one CoT to the server.
+     *
+     * The event goes out exactly as the builder made it. Routing is the server's job, decided by
+     * the group membership on this client's certificate — see the note on channel selection above
+     * for why this method no longer rewrites the destination.
      */
     private void sendCot(String xml) {
-        if (client == null || !connected) return;
-        client.sendMessage(withChannelDest(xml));
+        if (client == null || !connected) {
+            AppLog.w(TAG, "CoT NOT SENT — client=" + (client == null ? "null" : "present")
+                    + " connected=" + connected);
+            return;
+        }
+        String wire = xml;
+        // THE EXACT BYTES handed to the socket. Added 2026-08-15: markers were reported as not
+        // arriving while the PLI did, and there was no way to tell a message that never left the
+        // socket from one the server rejected — the application logged nothing it sent. This log
+        // is what found the <dest group> block that was destroying them.
+        //
+        // VERBOSE, not debug. This runs several times a second; the operator turns Detailed on
+        // in Debug Log to diagnose, which is the convention the flight-test checklist already
+        // uses. AppLog.v only reaches the file when that is set.
+        AppLog.v(TAG, "CoT OUT: " + redactCredentials(wire));
+        client.sendMessage(wire);
     }
 
-    private String withChannelDest(String xml) {
-        List<String> ch = channels;
-        if (ch == null || ch.isEmpty() || xml == null) return xml;
-        StringBuilder dests = new StringBuilder();
-        for (String g : ch) {
-            if (g == null || g.isEmpty()) continue;
-            dests.append("<dest group=\"").append(escapeXmlAttr(g)).append("\" send=\"true\" />");
-        }
-        if (dests.length() == 0) return xml;
-        int marti = xml.indexOf("<marti>");
-        if (marti >= 0) {
-            // Merge into the existing <marti> block.
-            int insertAt = marti + "<marti>".length();
-            return xml.substring(0, insertAt) + dests + xml.substring(insertAt);
-        }
-        // No <marti> yet — add one just before </detail>.
-        int detailEnd = xml.indexOf("</detail>");
-        if (detailEnd < 0) return xml;   // malformed; leave as-is
-        return xml.substring(0, detailEnd) + "<marti>" + dests + "</marti>" + xml.substring(detailEnd);
+    /**
+     * Masks {@code user:pass@} in any url inside a string bound for the log.
+     *
+     * ⚠ EVERY OUTBOUND LOG LINE GOES THROUGH THIS. The pilot PLI carries the video url, and that
+     * url carries the media-server password — which is why {@link #sendPilotPLI} deliberately
+     * logs no XML at all. The security review of 2026-08-03 recorded this application as not
+     * writing a credential to the log or to logcat, and a blanket outbound log would have undone
+     * that silently. Do not log a CoT without it.
+     */
+    static String redactCredentials(String s) {
+        if (s == null) return null;
+        return s.replaceAll("://[^:/@\\s\"]+:[^@\\s\"]+@", "://<user>:<pass>@");
     }
 
     /**
@@ -261,11 +286,6 @@ public class TakManager implements TakClient.TakClientListener {
     private String deviceWithCallsign(String cs) {
         if (cs == null || cs.isEmpty()) return takvDevice;
         return takvDevice + " (" + cs + ")";
-    }
-
-    private static String escapeXmlAttr(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     /**
@@ -353,8 +373,7 @@ public class TakManager implements TakClient.TakClientListener {
                     this.uid);
             client.sendMessage(xml);
             AppLog.d(TAG, "Drone PLI sent: " + droneCallsign + " @ " + lat + "," + lon
-                    + " alt=" + hae + " hdg=" + heading
-                    + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
+                    + " alt=" + hae + " hdg=" + heading);
         }
     }
 
@@ -435,12 +454,40 @@ public class TakManager implements TakClient.TakClientListener {
     public String sendMarkerWithUid(String markerUid, double lat, double lon, double alt,
                                     String affiliation, String name, String remarks,
                                     String missionName) {
+        return sendMarkerWithCotType(markerUid, lat, lon, alt,
+                CotBuilder.cotTypeForAffiliation(affiliation), name, remarks, missionName,
+                affiliation);
+    }
+
+    /**
+     * Send a marker CoT under a caller-supplied uid AND a caller-supplied CoT type.
+     *
+     * Same uid contract as {@link #sendMarkerWithUid} — the uid is the marker's identity, so
+     * re-sending one updates the marker rather than spawning a second.
+     *
+     * USE THIS TO RE-BROADCAST A MARKER THIS APP DID NOT CREATE. A marker received from the
+     * team carries its own CoT type, and that type must go back out unchanged: deriving one
+     * from an affiliation can only ever produce {@code a-{f,h,n,u}-G}, which would rewrite an
+     * ATAK marker point ({@code b-m-p-*}) as a friendly ground marker on every screen in the
+     * team.
+     *
+     * @param affiliationForLog only for the log line; it does not reach the XML.
+     * @return the uid that was sent, or null if not connected.
+     */
+    public String sendMarkerWithCotType(String markerUid, double lat, double lon, double alt,
+                                        String cotType, String name, String remarks,
+                                        String missionName, String affiliationForLog) {
         if (client == null || !connected) return null;
-        String xml = CotBuilder.buildMarker(uid, callsign, markerUid, affiliation, lat, lon, alt,
-                name, remarks, missionName);
+        String xml = CotBuilder.buildMarkerWithType(uid, callsign, markerUid, cotType,
+                lat, lon, alt, name, remarks, missionName, affiliationForLog);
         sendCot(xml);
-        AppLog.d(TAG, "Marker sent" + (missionName != null ? " to mission " + missionName : "")
-                + ": " + affiliation + " @ " + lat + "," + lon + " id=" + markerUid);
+        // "QUEUED", not "sent". sendCot hands the message to a fire-and-forget writer thread and
+        // this line runs whatever that thread then does with it. Saying "sent" here cost an hour
+        // on 2026-08-15: the log said every marker was sent while none arrived. The truth about
+        // the wire is in the CoT OUT line above and in TakClient's failure lines.
+        AppLog.d(TAG, "Marker queued for send"
+                + (missionName != null ? " to mission " + missionName : "")
+                + ": " + cotType + " @ " + lat + "," + lon + " id=" + markerUid);
         return markerUid;
     }
 
@@ -459,7 +506,49 @@ public class TakManager implements TakClient.TakClientListener {
     @Override
     public void onCotReceived(String xml) {
         AppLog.d(TAG, "CoT received: " + xml.substring(0, Math.min(xml.length(), 200)));
+        // t-x-g-c is the server saying "your channels changed, read them again". It arrives
+        // whether the change came from this controller or from an administrator in TAK Portal,
+        // and it arrives about a tenth of a second after the change — see the group-change
+        // listener below for why this is better than a timer.
+        // BOTH QUOTE STYLES. This server double-quotes everything it relays, thus one style
+        // works today — but TAKAware single-quotes its own CoT, so the style is the sender's
+        // habit and not a rule. A quoting change would have stopped channel updates with no
+        // error at all. The worst case is mild: without this the screen falls back to reading
+        // on open, which is what it did before the listener existed.
+        if (xml.contains("type=\"t-x-g-c\"") || xml.contains("type='t-x-g-c'")) {
+            AppLog.i(TAG, "group change (t-x-g-c) — the active channels changed on the server");
+            notifyGroupsChanged();
+        }
         processCoT(xml);
+    }
+
+    /**
+     * Told when the server's active channels for this certificate change.
+     *
+     * ⚠ THIS IS A NOTICE, NOT THE STATE. The event carries no channel list — it says only that
+     * something changed. A listener must read the channels again to find out what they are.
+     */
+    public interface GroupChangeListener { void onGroupsChanged(); }
+
+    private final List<GroupChangeListener> groupListeners = new ArrayList<>();
+
+    public void addGroupChangeListener(GroupChangeListener l) {
+        synchronized (groupListeners) { if (!groupListeners.contains(l)) groupListeners.add(l); }
+    }
+
+    public void removeGroupChangeListener(GroupChangeListener l) {
+        synchronized (groupListeners) { groupListeners.remove(l); }
+    }
+
+    private void notifyGroupsChanged() {
+        mainHandler.post(() -> {
+            synchronized (groupListeners) {
+                for (GroupChangeListener l : groupListeners) {
+                    try { l.onGroupsChanged(); }
+                    catch (Exception e) { AppLog.w(TAG, "group listener failed: " + e.getMessage()); }
+                }
+            }
+        });
     }
 
     @Override
