@@ -7,9 +7,25 @@ itself. The current state is `docs/TAKPILOT2_V4_PORT_SUMMARY.md`.
 ## What this application is
 
 The TAK flight interface for the DJI Mini 2 with the RC-N1 controller and a Samsung Galaxy
-S20 Ultra (approximately 360x800dp). The Autel EVO II 640T sibling application shares the
-UI: a pilot must be able to change aircraft and find the same screens. The shared protocol
-core is `com.taklite`, which both applications hold as the same code.
+S20 Ultra (about 914x411dp landscape — every screen is landscape). It is one of three
+TAKPilot2 applications, with the Autel EVO II 640T and the DJI MSDKv5 siblings:
+
+> A pilot changes airframe and finds the same screens, the same controls in the same places,
+> and the same words.
+
+The shared protocol core is `com.taklite`, which all of them hold as the same code.
+
+**This is the only one of the three that runs on a phone.** The Autel and MSDKv5 siblings run
+on smart controllers, so their dimensions are larger — specification §7.
+
+## The UI specification
+
+`../../../../TAKPILOT2-UI-SPEC.md` is the single source of truth for the user interface of
+all three applications. It outranks any UI note in this file or in `docs/`. Read it before
+you change a screen, a layout, a colour or a readout format. This tree's gap list is in
+`../../../../TAKPILOT2-UI-CONFORMANCE.md`.
+
+A UI change lands in all three applications, or it lands in none.
 
 ## Safety rules — these come from real incidents on the sibling
 
@@ -65,14 +81,25 @@ core is `com.taklite`, which both applications hold as the same code.
 - Colours come from the tokens in `res/values/takpilot_colors.xml`. Do not add a new
   `Color.parseColor` call site. `res/values/colors.xml` belongs to the stock DJI sample —
   leave it alone.
-- Layouts stay in the default dp bucket. No dp value from the Autel tree transfers; that
-  controller is 1024x720dp and this phone is 360x800dp.
+- One layout file per screen. All size variation goes through `values-*/dimens.xml`, never a
+  `layout-land` or a `layout-sw*` file. This tree uses the base bucket and `values-h440dp`.
+  No dp value transfers between trees: specification §7.
 - Release notes are short and simple, one line per function, next to the APK.
 - Do not commit without asking first.
 
 ## Current work
 
-The Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
+**2026-08-18: the Autel v1.6.2 Pre-Flight parity port is in this tree and UNVERIFIED on
+hardware.** It brings: locks beside what they lock, quality-first video with two named
+server slots and a pilot-selectable codec (H.264/H.265, wired through EncoderConfig and
+both encode paths), and server-held My Channels (`activebits` over the Marti API). The old
+local channel picker is REMOVED — its `<dest group>` made the server silently drop markers,
+proved on the sibling 2026-08-15. `com.taklite` was re-synced from the Autel tree at the
+same time (outbound CoT logging, `TakClient.checkError`, `buildMarkerWithType`,
+`isLiveClient`). The `isLiveClient` team-dot rendering is NOT yet consumed by this tree's
+map code.
+
+The original Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
 warnings banner, contact retention (flat at 16 across a session), the operator marker, the
 flight records, video on both CoT markers with a play control, AGL/DTED correction, the
 Pre-Flight read-back and the fixed control response. `versionName` is `1.1.0`

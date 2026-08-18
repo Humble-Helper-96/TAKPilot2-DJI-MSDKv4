@@ -14,11 +14,18 @@ public class CotBuilder {
     private static final long STALE_DURATION_MS = 300000; // 5 minutes — matches ATAK default
 
     // Drone (air) track: friendly-Air-Military-rotorcraftH-unmanned(Q). ATAK/taklite CotParser
-    // detects the air domain ("-A-") as a drone. 2 minutes so a momentary GPS-lock loss still
-    // shows the aircraft at its last known position on TAK instead of vanishing near-instantly
-    // (was 15s — too short: it staled out almost as fast as the telemetry hiccup itself).
+    // detects the air domain ("-A-") as a drone. 60 seconds (operator, 2026-08-13): long
+    // enough that a momentary GPS-lock loss does not blink the aircraft off TAK (15s did —
+    // it staled out almost as fast as the telemetry hiccup itself), short enough that a
+    // landed or powered-down aircraft leaves the picture inside a minute. 2 minutes kept a
+    // ghost aircraft on other screens too long after shutdown.
+    //
+    // ⚠ The stale time alone does NOT make a marker expire. The bridge must also STOP
+    // publishing when the aircraft goes quiet, or every push renews this clock and the
+    // marker lives for ever — measured on the Autel tree, same shape of bug. See the
+    // telemetry-freshness gate in DroneTakBridge.pushOnce.
     private static final String DRONE_TYPE = "a-f-A-M-H-Q";
-    private static final long DRONE_STALE_DURATION_MS = 120000; // 2 minutes
+    private static final long DRONE_STALE_DURATION_MS = 60000; // 60 seconds
 
     // Pilot-dropped 2525 markers — see the note in buildMarker().
     //
@@ -399,23 +406,55 @@ public class CotBuilder {
     public static String buildMarker(String senderUid, String senderCallsign, String markerUid,
                                       String affiliation, double lat, double lon, double alt,
                                       String name, String remarks, String missionName) {
+        return buildMarkerWithType(senderUid, senderCallsign, markerUid,
+                cotTypeForAffiliation(affiliation), lat, lon, alt, name, remarks, missionName,
+                affiliation);
+    }
+
+    /**
+     * The CoT type this application emits for one of its four affiliations.
+     *
+     * Every marker THIS app places is a bare affiliation-plus-domain type. The trailing
+     * qualifiers other clients use (…-G-E-V and the like) say equipment or platform, which a
+     * dropped point is not.
+     */
+    public static String cotTypeForAffiliation(String affiliation) {
+        switch (affiliation == null ? "" : affiliation.toLowerCase()) {
+            case "hostile":  return "a-h-G";
+            case "unknown":  return "a-u-G";
+            case "neutral":  return "a-n-G";
+            case "friendly":
+            default:         return "a-f-G";
+        }
+    }
+
+    /**
+     * Build a marker CoT under an EXPLICIT CoT type, rather than deriving one from an
+     * affiliation.
+     *
+     * WHY THIS EXISTS: a marker this app RE-BROADCASTS was not necessarily made by this app.
+     * A marker received from the team can be a bare {@code a-{f,h,n,u}-G} — which the
+     * affiliation switch reproduces exactly — or a {@code b-m-p-*} marker point, which it does
+     * NOT: every affiliation maps to an {@code a-*} type, so re-sending an ATAK waypoint
+     * through the affiliation path would quietly turn it into a friendly ground marker on every
+     * screen in the team. The type has to be carried, not re-derived.
+     *
+     * {@code affiliationForLog} is only for the log line; it has no effect on the XML.
+     */
+    public static String buildMarkerWithType(String senderUid, String senderCallsign,
+                                      String markerUid, String cotType,
+                                      double lat, double lon, double alt,
+                                      String name, String remarks, String missionName,
+                                      String affiliationForLog) {
         long now = System.currentTimeMillis();
         String time = formatTime(now);
-        // 14 hours (operator's call, 2026-07-25): long enough that a dropped marker persists
-        // through an entire incident, short enough that it clears itself before the next
-        // shift so nobody inherits a map full of yesterday's pins. Deliberately unrelated to
-        // DRONE_STALE_DURATION_MS (2 min, live track) and the SPI stale (15s) — a static
-        // marker and a moving aircraft want completely different lifetimes.
+        // The lifetime is MARKER_STALE_DURATION_MS. Its declaration above holds the figure and
+        // the reason it was chosen; do not repeat the number here, because this comment already
+        // outlived one change of it. The value is deliberately unrelated to
+        // DRONE_STALE_DURATION_MS (a live track) and to SENSOR_POINT_STALE_MS — a static marker
+        // and a moving aircraft want completely different lifetimes.
         String stale = formatTime(now + MARKER_STALE_DURATION_MS);
-
-        String cotType;
-        switch (affiliation.toLowerCase()) {
-            case "hostile":  cotType = "a-h-G"; break;
-            case "unknown":  cotType = "a-u-G"; break;
-            case "neutral":  cotType = "a-n-G"; break;
-            case "friendly":
-            default:         cotType = "a-f-G"; break;
-        }
+        String affiliation = affiliationForLog;
 
         String callsign = (name != null && !name.isEmpty()) ? name : affiliation;
         String remarksText = (remarks != null && !remarks.isEmpty()) ? remarks
