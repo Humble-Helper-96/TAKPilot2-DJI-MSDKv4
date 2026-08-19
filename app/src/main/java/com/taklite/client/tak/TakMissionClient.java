@@ -223,7 +223,6 @@ public class TakMissionClient {
     }
 
     /** GET /Marti/api/groups/all — the channels/groups this cert can use (to scope a feed). */
-    /** GET /Marti/api/groups/all — the channels/groups this cert can use (to scope a feed). */
     public List<String> listGroups() {
         List<String> out = new ArrayList<>();
         try {

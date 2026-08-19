@@ -12,7 +12,34 @@
          LinearLayout has no built-in overflow handling of its own (bit us when a 4th Quick
          Controls button was added: it measured down to ~1dp tall instead of just running off
          the bottom, since its wrap_content child got an AT_MOST spec capped to whatever sliver
-         of space was left). -->
+         of space was left).
+
+         ⚠ HEIGHT BUDGET — specification §3.4. THE SCROLLVIEW IS LOAD-BEARING ON THE PHONE.
+         DO NOT REMOVE IT to make this column look like the ENTER FLIGHT card beside it.
+
+         S20 Ultra landscape is 411dp tall, less 40dp of root padding = 371dp available.
+         This column needs about 431dp:
+
+             logo row 64 + 6
+           + card marginTop 12 + padding 14 x 2
+           + title 16
+           + 4 navigation buttons at 48dp + margins (10 + 8 + 8 + 8)
+           + divider 18 + 1
+           + STOP/QUIT 12 + 48
+
+         So it overflows by roughly 60dp and DOES scroll today, on the device this application
+         ships to. The 48dp is the platform default button height, so the total is an estimate —
+         but the overflow is not theoretical: the 4th-button incident above is the same column
+         running out of the same screen.
+
+         The specification's "fixed-height columns with weighted spacers" is about the ENTER
+         FLIGHT card, which is `match_parent` with a weighted spacer further down this file.
+         The Autel sibling, which is the base, wraps ITS left column in a ScrollView too.
+
+         Adding a row here: add the dp to the sum above. If the total passes 371dp by more than
+         it does now, the phone scrolls further, which is acceptable. What is NOT acceptable is
+         removing the ScrollView — that is when overflow goes back to being silent.
+         **This budget is arithmetic, not a measurement.** No device was attached. -->
     <ScrollView
         android:layout_width="0dp"
         android:layout_height="match_parent"
@@ -222,6 +249,21 @@
                 android:text="—" android:layout_gravity="center_horizontal" />
             <TextView android:id="@+id/homeSdk" style="@style/homeCardSub"
                 android:text="MSDK —" android:layout_gravity="center_horizontal" />
+            <!-- The two battery levels READ BACK FROM THE AIRCRAFT, not the saved
+                 preference. They decide how long this flight can last, which is a pre-flight
+                 decision, and reading the aircraft's own values is the only way to catch an
+                 Apply that silently did not take. On the Mini 2 they cannot be changed at all
+                 — it warns at 20% and lands at 10% whatever Pre-Flight says — so this line is
+                 the pilot's only statement of what will actually happen.
+
+                 THIS IS THE ONE STATUS FIELD THE PHONE KEEPS beyond the first five
+                 (specification §3.1). The other five — avoidance, signal loss, stick mode,
+                 control response, storage — do not fit this card on a 411dp screen and are
+                 static configuration a pilot sets once. Do not add them here without
+                 re-checking the card's height budget; there is about 16dp of slack left. -->
+            <TextView android:id="@+id/homeBatteryLevels" style="@style/homeCardSub"
+                android:text="" android:layout_gravity="center_horizontal"
+                android:layout_marginTop="2dp" android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Spacer pushes the tap hint to the bottom -->

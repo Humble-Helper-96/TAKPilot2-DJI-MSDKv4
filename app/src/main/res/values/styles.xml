@@ -261,7 +261,7 @@
     <style name="homeCardTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#7A7A7A</item>
+        <item name="android:textColor">@color/tp_text_caption</item>
         <item name="android:textSize">12sp</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:letterSpacing">0.08</item>
@@ -343,6 +343,12 @@
         <item name="android:shadowRadius">3</item>
     </style>
 
+    <!-- Every HUD readout uses THIS, not hudText directly, so the readouts scale with
+         the target device while the rest of the HUD text does not. Specification §6.4. -->
+    <style name="flightReadoutText" parent="hudText">
+        <item name="android:textSize">@dimen/flight_readout_text_size</item>
+    </style>
+
     <!-- One cell of the flight-screen resource row. Equal weight so the four cells never move
          as their contents change width — this row is watched for a number that CHANGES, and a
          cell that reflows drags the eye to the wrong thing. Monospace for the same reason. -->
@@ -376,5 +382,35 @@
          which is why it also sits apart from the navigation buttons in the layout. -->
     <style name="TakButton.Danger">
         <item name="android:backgroundTint">@color/tp_btn_danger</item>
+    </style>
+    <!-- Moved here from values-v21/ on 2026-08-14 (conformance A7). Both items are
+         API 21+, and this application's minSdk is already above that, so the qualifier
+         only ever produced a second file that always applied. All three trees now keep
+         these in values/. -->
+    <!-- Flight screen. No ActionBar — this screen draws its own instrument toolbar.
+
+         The status bar is a SOLID colour matching the flight background, not transparent.
+         The screen IS immersive (SYSTEM_UI_FLAG_FULLSCREEN | IMMERSIVE_STICKY, re-applied in
+         onWindowFocusChanged), so the bar is hidden nearly all the time and this colour is only
+         seen when IMMERSIVE_STICKY shows the bar transiently after a swipe. That moment is
+         exactly why it is solid: SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN makes the window draw under
+         the bar, so a transparent bar puts the system clock and icons straight onto live video,
+         where a bright frame can make them unreadable. Same reasoning as the HUD panels — text
+         over video that the pilot does not control needs a backing. -->
+    <style name="AppTheme.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@color/tp_bg_flight</item>
+    </style>
+
+    <!-- Home screen: no ActionBar, and a SOLID status bar. This one is NOT immersive — the home
+         activity sets no system-UI flags — so the bar is always on screen. Content is inset
+         below it by padding, but nothing draws INTO that strip, so a transparent status bar
+         here leaves the platform's default light scrim showing through instead of the app's
+         dark background. Colour matches the home layout. -->
+    <style name="AppTheme.NoActionBar.SolidStatusBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@color/tp_bg_home</item>
     </style>
 </resources>

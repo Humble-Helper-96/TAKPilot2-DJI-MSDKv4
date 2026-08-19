@@ -48,6 +48,9 @@ class DroneVideoStreamer(
         val streamId: String,
         val tcp: Boolean,
         val profile: String = "standard",   // "original" | "low" | "standard" | "high"
+        // The outbound codec ("h264" | "h265") — a Pre-Flight choice, see [VideoCodec].
+        // Transcode paths only; passthrough sends the aircraft's own H.264 untouched.
+        val codec: String = VideoCodec.H264.prefValue,
     ) {
         val isTranscode: Boolean get() = profile != "original"
         // Transcoded output is published to a "-Low" path (e.g. Feed-A -> Feed-A-Low): it
@@ -156,15 +159,16 @@ class DroneVideoStreamer(
             val enc = ScreenCaptureEncoder(
                 context, mediaProjection!!,
                 StreamTranscoder.TranscodeProfile.fromPref(config.profile),
+                VideoCodec.fromPref(config.codec),
                 onEncoded = { buf, info -> onEncodedFrame(buf, info) },
-                onParamsReady = { s, p -> onEncoderParamsReady(s, p) },
+                onParamsReady = { s, p, v -> onEncoderParamsReady(s, p, v) },
             )
             if (!enc.start()) {
                 onStatus(false, "Screen capture failed to start")
                 return
             }
             screenEncoder = enc
-            AppLog.i(TAG, "start [${config.profile}, screen] push=${config.pushUrl()}")
+            AppLog.i(TAG, "start [${config.profile}, ${config.codec}, screen] push=${config.pushUrl()}")
             onStatus(true, "Capturing screen → ${config.urlSafe()}")
             return
         }
@@ -180,9 +184,10 @@ class DroneVideoStreamer(
         if (config.isTranscode) {
             transcoder = StreamTranscoder(
                 profile = StreamTranscoder.TranscodeProfile.fromPref(config.profile),
-                isHevc = false,   // Mini 2 is H.264
+                isHevc = false,   // Mini 2 is H.264 (the SOURCE side; outCodec is the push side)
+                outCodec = VideoCodec.fromPref(config.codec),
                 onEncoded = { buf, info -> onEncodedFrame(buf, info) },
-                onParamsReady = { s, p -> onEncoderParamsReady(s, p) },
+                onParamsReady = { s, p, v -> onEncoderParamsReady(s, p, v) },
             )
         }
 
@@ -273,12 +278,14 @@ class DroneVideoStreamer(
 
     // ---- Transcode path: re-encoded output from StreamTranscoder (its own thread) ----
 
-    private fun onEncoderParamsReady(s: ByteBuffer, p: ByteBuffer) {
+    private fun onEncoderParamsReady(s: ByteBuffer, p: ByteBuffer, v: ByteBuffer?) {
         if (stopped || paramsSet) return
         paramsSet = true
         bootstrapHandler.removeCallbacks(bootstrapRunnable)
         try {
-            client.setVideoInfo(s, p, null)
+            // A non-null VPS is what tells the RTSP library this stream is H.265; it switches
+            // the packetiser and the SDP with it. H.264 passes null, same as before.
+            client.setVideoInfo(s, p, v)
             AppLog.i(TAG, "encoder params ready — connecting")
             client.connect(config.pushUrl())
         } catch (t: Throwable) {
@@ -418,6 +425,8 @@ object VideoStreamerHolder {
             streamId = streamId,
             tcp = p.getBoolean("video_tcp", true),
             profile = p.getString("video_profile", "standard") ?: "standard",
+            codec = p.getString("video_codec", VideoCodec.H264.prefValue)
+                ?: VideoCodec.H264.prefValue,
         )
     }
 

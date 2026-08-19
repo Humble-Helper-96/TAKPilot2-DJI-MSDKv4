@@ -63,6 +63,9 @@ class DroneTakBridge(
     // Latest pushed state from each component's callback (V4 has no synchronous "get fresh
     // value now" — every field arrives via its own push callback at its own rate).
     @Volatile private var lastState: FlightControllerState? = null
+    /** elapsedRealtime of the last FlightControllerState, 0 = none. The drone CoT is only
+     *  published while this is recent — see the freshness gate in [pushOnce]. */
+    @Volatile private var lastStateMs = 0L
     @Volatile private var lastGimbal: GimbalState? = null
     @Volatile private var lastBattery: BatteryState? = null
     // RC-to-aircraft link quality, 0-100, from AirLink's uplink callback — the "controller
@@ -103,6 +106,8 @@ class DroneTakBridge(
 
     private val flightStateCallback = FlightControllerState.Callback {
         lastState = it
+        // Proof of life for the drone CoT — see the freshness gate in pushOnce().
+        lastStateMs = android.os.SystemClock.elapsedRealtime()
         if (!limitsApplied) {
             limitsApplied = true
             DJISampleApplication.getAircraftInstance()?.flightController?.let { fc ->
@@ -325,6 +330,17 @@ class DroneTakBridge(
     private fun pushOnce() {
         val state = lastState ?: run {
             AppLog.d(TAG, "tick: no FlightControllerState pushed yet")
+            return
+        }
+        // FRESHNESS, not just presence. lastState holds the LAST report the aircraft sent and
+        // it survives the aircraft going away — it is only cleared in stop(), which a TAK
+        // session running on a powered controller never reaches. So this tick kept re-sending
+        // the last known position every 2 s, and each send renewed the CoT stale time: the
+        // marker could never expire on any other client, whatever duration CotBuilder set.
+        // Measured and fixed on the Autel tree first (2026-08-13); this tree has the same
+        // shape. An aircraft that stopped talking must stop being reported.
+        if (android.os.SystemClock.elapsedRealtime() - lastStateMs > TELEMETRY_FRESH_MS) {
+            AppLog.d(TAG, "tick: telemetry stale — not publishing the aircraft")
             return
         }
         logReadinessIfChanged(state)
@@ -715,6 +731,12 @@ class DroneTakBridge(
 
     companion object {
         private const val TAG = "DroneTakBridge"
+
+        /** How old the last FlightControllerState may be and still be worth publishing as the
+         *  aircraft's position. The state callback runs at about 2 Hz, so five seconds is many
+         *  missed frames — long enough to ride out a hiccup, short enough that a powered-down
+         *  aircraft stops being reported at once and its marker can then stale out. */
+        private const val TELEMETRY_FRESH_MS = 5_000L
 
         /** How long a controller-battery reading is reused before another binder IPC. */
         private const val BATTERY_CACHE_MS = 30_000L

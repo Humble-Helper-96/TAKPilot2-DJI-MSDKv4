@@ -62,10 +62,11 @@ parameter — the uid was simply being generated one layer too high.
 
 **Dropped-marker stale time split out.** `buildMarker` used to share the 5-minute
 `STALE_DURATION_MS` with everything else — far too short for a pilot-dropped marker to survive
-long enough to matter. Split into `MARKER_STALE_DURATION_MS = 14h` (dropped markers only,
-operator's call: long enough to survive an incident, short enough to self-clear before the next
-shift), leaving `DRONE_STALE_DURATION_MS` (raised separately to 2 min, from 15s which made the
-drone track flicker on brief telemetry gaps) and the SPoI stale untouched.
+long enough to matter. Split into `MARKER_STALE_DURATION_MS` (dropped markers only), leaving
+`DRONE_STALE_DURATION_MS` (raised separately from 15s, which made the drone track flicker on
+brief telemetry gaps) and the SPoI stale untouched. **The three figures live in
+`CotBuilder.java` and are not repeated here** — the marker time was written into this document
+as 14h and stayed wrong for 12 days after the operator raised it.
 
 **`CameraSlantPoint.GroundPoint` used to discard the elevation it computed.** The terrain-
 iteration loop computed `targetElev` internally and threw it away. Added an `elevationMeters`
@@ -121,40 +122,22 @@ path needs no MSL-vs-WGS84 conversion at all.
 **`DroneTakBridge.kt`** is the telemetry→CoT bridge and the single place every V4 SDK callback is
 registered; a `Hud` snapshot is read by the flight screen every 500ms.
 
-**Design/visual reference** (source of truth for styling, pulled from the V5 app and extended
-with tokens from the shipped V4 toolbar/HUD):
+**Design and visual reference.** This document held a colour table and a shape-and-typography
+paragraph. Both are removed. `../../../../TAKPILOT2-UI-SPEC.md` is the single source of truth
+for colour, type, components and layout in all three applications, and this document has no
+authority over any of it.
 
-| Role | Color |
-|---|---|
-| Screen background (home) | `#0E0E10` |
-| Screen background (setup screens) | `#1A1A1A` |
-| Card / panel background | `#1A1B1E` (translucent `#CC1A1B1E` over video) |
-| Input field background | `#2A2A2A` |
-| Primary text | `#FFFFFF` |
-| Secondary text | `#AAAAAA` / `#DDDDDD`, subtitle tint `#9AC4FF` |
-| Muted / label text | `#7A7A7A`, `#B0B0B0` |
-| Hint text | `#666666` |
-| Accent blue (buttons, toolbar, links) | `#1565C0`, toolbar/CTA blue `#0D47A1` |
-| "Enter Flight" card gradient | `#0D47A1` → `#1B2740`, 135°, 1dp stroke `#2A4A7A` |
-| Status green (connected, home-set, good signal) | `#4CAF50` |
-| Status amber (caution) | `#FFB74D` |
-| Status red (disconnected/low; home→drone map line) | `#F44336` |
-| Live/recording red | `#E53935` |
-| Aircraft self-marker / resync icon camera | cyan `#00E5FF` |
-| TAK Setup / green action button | `#2E7D32` |
-| Secondary buttons (Data Sync, Debug Log) | `#37474F` (slate) |
-| Delete/danger buttons | `#B71C1C` |
+The removal was not tidying. By 2026-08-14 the table had drifted from the shipped tokens and
+gave `#FFB74D` for "status amber (caution)". That value is `tp_state_unknown`; the caution
+token is `#FF9800`. Caution and unknown are two states that this application deliberately
+keeps apart, so the copy taught exactly the error the specification exists to prevent.
 
-Shape language: cards 14dp radius w/ subtle 1px border; primary CTAs 12dp; status dot 10dp filled
-circle. Typography: bold 24sp titles, 30sp letter-spaced CTA, 13–15sp body, 12sp uppercase
-letter-spaced eyebrows, 18sp bold values. Layout: home = logo/status + Quick Controls card
-(Pre-Flight Setup, Data Sync, Debug Log, Field Guide) + gradient Enter Flight card; setup screens
-= dark full-bleed, numbered sections, label-above-field; flight = solid `#0D47A1` toolbar,
-drop-shadowed no-box FPV text overlay, translucent panels only over open video. Logo:
-`takpilot2_logo.png` (400×400, shield/eagle), 100dp home / 84dp flight-card. Popup dialogs use
-`R.style.TakDialogTheme` (dark, white text, blue accent) / `TakDialogTheme_Destructive` (red
-accent for delete/clear/quit confirms) — every `AlertDialog.Builder` in the app should carry one
-of these two.
+- Colour tokens: specification §6.1. In this tree, `res/values/takpilot_colors.xml`.
+- Buttons and dialogs: §6.2 and §6.3.
+- Type: §6.4. Dimensions and screen size: §7.
+
+Logo: `takpilot2_logo.png` (400x400, shield and eagle), 100dp on home and 84dp on the flight
+card.
 
 ---
 
@@ -352,8 +335,9 @@ reverse: tap-to-hide locally (map-only, stays live on the server for everyone el
 `queryRenderedFeatures` hit-testing, confirmed to coexist with the locked map's gesture-disabling.
 
 **Field-confirmed** (2026-07-26/27): all four affiliations dropped and rendered correctly on a
-second TAK client; move/rename/retype/re-send/delete exercised via the list panel; 14h stale
-verified against raw CoT pulled from CloudTAK (`start`/`stale` exactly 14h apart); restart
+second TAK client; move/rename/retype/re-send/delete exercised via the list panel; the marker
+stale time verified against raw CoT pulled from CloudTAK (`start` and `stale` exactly one
+`MARKER_STALE_DURATION_MS` apart — 14h at the date of that test, 72h since 2026-08-02); restart
 persistence; DTED-sourced elevation on drops (`altsrc: "DTED0"`, not the old hardcoded 0.0).
 **Not yet exercised**: feed-scoped Data Sync publish end-to-end, and a live 2525 marker-frame
 render from another client (only plain-dot PLI seen live so far — the icon path itself is
@@ -450,13 +434,19 @@ file sink without affecting logcat — deliberately an explicit tag allowlist ra
 match, since a naive `Tak`-prefix rule would wrongly eat app-side screens like
 `TAKPilot2GoHomeActivity`/`TakConnectActivity`.
 
-**Pilot Field Guide** (`FieldGuideActivity.kt`): three sections (what the app is for, the
-Pre-Flight Setup screen section-by-section, the flight screen control-by-control), written for
+**Pilot Field Guide** (`FieldGuideActivity.kt`): five sections (what the app is for, the
+Pre-Flight Setup screen section-by-section, the flight screen control-by-control, flight path
+records, and what this build cannot do), written for
 pilots rather than developers — no class names, no SDK talk, and limitations that affect a flight
 decision stated plainly (local marker delete ≠ deleted for everyone, the FAA layer is advisory
 only, AGL vs. ALT, the geofence stops rather than returns). Icon examples in the guide are **live
 views, not screenshots** — the actual widgets constructed and driven into the described state —
 so they can't go stale independently of the real UI.
+
+⚠ **The icons cannot go stale. The words can, and did.** On 2026-08-13 the crosshair gestures
+changed and the guide kept describing the old ones for a day. The Field Guide is documentation
+that ships: it changes in the same change as the behaviour it describes. Specification §8.2
+rule 7.
 
 ---
 

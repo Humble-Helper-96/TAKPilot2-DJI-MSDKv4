@@ -206,42 +206,73 @@ public class TakManager implements TakClient.TakClientListener {
         initialPliSent = false;
     }
 
-
     /**
      * CHANNEL SELECTION IS REMOVED (operator, 2026-08-15), and this note is why.
      *
      * This class used to hold the channels a pilot picked on TAK Setup and inject
      * {@code <marti><dest group="…" send="true"/></marti>} into every CoT that went through
-     * {@link #sendCot}. IT SILENTLY DESTROYED MARKERS. The server would not route them and
-     * simply dropped them; with no channel selected they arrived at once. Proved on the Autel
-     * sibling's controller 2026-08-15 by sending one marker each way and reading the bytes.
+     * {@link #sendCot}. IT SILENTLY DESTROYED MARKERS. With channels selected, the server would
+     * not route them and simply dropped them; with none selected they arrived at once. Proved on
+     * the fleet controller 2026-08-15 by watching one marker with the block and one without.
      *
      * It would have done the same to an alert — {@link #sendAlert} takes the same path — but
-     * nothing in this application calls sendAlert, so no alert was lost. That method and its
-     * listener are unreachable code carried by this shared core.
+     * NOTHING IN THIS APPLICATION CALLS sendAlert, so no alert was ever lost. That method and
+     * its listener are unreachable code carried by this shared core. The first write-up of this
+     * bug claimed alerts were being dropped; that was wrong, and it reached the v1.6.1 release
+     * notes before it was caught. If an alert control is ever added, this path is what it uses.
      *
-     * It was also never applied evenly: the drone PLI and the camera point call
-     * {@link TakClient#sendMessage} directly and ignored the selection entirely, so a pilot who
-     * picked channels to LIMIT who saw this aircraft still broadcast its position to everyone.
-     * The feature failed in both directions, and had done since it was written.
+     * It was also never applied evenly. The drone PLI and the camera point call
+     * {@link TakClient#sendMessage} directly, so they ignored the selection entirely — a pilot
+     * who picked channels to LIMIT who saw this aircraft still broadcast its position to
+     * everyone. The feature failed in both directions at once, and had done so since the v1.2
+     * baseline.
      *
-     * Routing is now the certificate's group membership, which is what the server does with no
-     * marti block and what every working message here already relied on.
+     * Routing is now left to the certificate's group membership, which is what the server does
+     * with no marti block, and what every working message in this application already relied on.
      *
-     * DO NOT RE-ADD {@code <dest group>} WITHOUT TESTING A MARKER END TO END on a real server.
-     * What a TAK Server accepts for client-chosen channel routing is an open question — that is
-     * the work this removal defers, not a detail to guess at.
+     * DO NOT RE-ADD {@code <dest group>} WITHOUT TESTING A MARKER AND AN ALERT END TO END on a
+     * real server. The mechanism a TAK Server actually accepts for client-chosen channel routing
+     * is an open question — that is the work this removal defers, not a detail to guess at.
      */
+
     /**
-     * Send CoT, directing it to the selected channels if any. Injects a
-     * {@code <marti><dest group="X" send="true"/>…</marti>} for each selected channel into the
-     * event's {@code <detail>}. If the CoT already has a {@code <marti>} (e.g. a mission-scoped
-     * marker), the group dests are merged into it instead of adding a second block. With no
-     * channels selected, the CoT is sent unchanged (server default routing).
+     * Sends one CoT to the server.
+     *
+     * The event goes out exactly as the builder made it. Routing is the server's job, decided by
+     * the group membership on this client's certificate — see the note on channel selection above
+     * for why this method no longer rewrites the destination.
      */
     private void sendCot(String xml) {
-        if (client == null || !connected) return;
-        client.sendMessage(xml);
+        if (client == null || !connected) {
+            AppLog.w(TAG, "CoT NOT SENT — client=" + (client == null ? "null" : "present")
+                    + " connected=" + connected);
+            return;
+        }
+        String wire = xml;
+        // THE EXACT BYTES handed to the socket. Added 2026-08-15: markers were reported as not
+        // arriving while the PLI did, and there was no way to tell a message that never left the
+        // socket from one the server rejected — the application logged nothing it sent. This log
+        // is what found the <dest group> block that was destroying them.
+        //
+        // VERBOSE, not debug. This runs several times a second; the operator turns Detailed on
+        // in Debug Log to diagnose, which is the convention the flight-test checklist already
+        // uses. AppLog.v only reaches the file when that is set.
+        AppLog.v(TAG, "CoT OUT: " + redactCredentials(wire));
+        client.sendMessage(wire);
+    }
+
+    /**
+     * Masks {@code user:pass@} in any url inside a string bound for the log.
+     *
+     * ⚠ EVERY OUTBOUND LOG LINE GOES THROUGH THIS. The pilot PLI carries the video url, and that
+     * url carries the media-server password — which is why {@link #sendPilotPLI} deliberately
+     * logs no XML at all. The security review of 2026-08-03 recorded this application as not
+     * writing a credential to the log or to logcat, and a blanket outbound log would have undone
+     * that silently. Do not log a CoT without it.
+     */
+    static String redactCredentials(String s) {
+        if (s == null) return null;
+        return s.replaceAll("://[^:/@\\s\"]+:[^@\\s\"]+@", "://<user>:<pass>@");
     }
 
     /**
@@ -342,8 +373,7 @@ public class TakManager implements TakClient.TakClientListener {
                     this.uid);
             client.sendMessage(xml);
             AppLog.d(TAG, "Drone PLI sent: " + droneCallsign + " @ " + lat + "," + lon
-                    + " alt=" + hae + " hdg=" + heading
-                    + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
+                    + " alt=" + hae + " hdg=" + heading);
         }
     }
 
@@ -424,12 +454,40 @@ public class TakManager implements TakClient.TakClientListener {
     public String sendMarkerWithUid(String markerUid, double lat, double lon, double alt,
                                     String affiliation, String name, String remarks,
                                     String missionName) {
+        return sendMarkerWithCotType(markerUid, lat, lon, alt,
+                CotBuilder.cotTypeForAffiliation(affiliation), name, remarks, missionName,
+                affiliation);
+    }
+
+    /**
+     * Send a marker CoT under a caller-supplied uid AND a caller-supplied CoT type.
+     *
+     * Same uid contract as {@link #sendMarkerWithUid} — the uid is the marker's identity, so
+     * re-sending one updates the marker rather than spawning a second.
+     *
+     * USE THIS TO RE-BROADCAST A MARKER THIS APP DID NOT CREATE. A marker received from the
+     * team carries its own CoT type, and that type must go back out unchanged: deriving one
+     * from an affiliation can only ever produce {@code a-{f,h,n,u}-G}, which would rewrite an
+     * ATAK marker point ({@code b-m-p-*}) as a friendly ground marker on every screen in the
+     * team.
+     *
+     * @param affiliationForLog only for the log line; it does not reach the XML.
+     * @return the uid that was sent, or null if not connected.
+     */
+    public String sendMarkerWithCotType(String markerUid, double lat, double lon, double alt,
+                                        String cotType, String name, String remarks,
+                                        String missionName, String affiliationForLog) {
         if (client == null || !connected) return null;
-        String xml = CotBuilder.buildMarker(uid, callsign, markerUid, affiliation, lat, lon, alt,
-                name, remarks, missionName);
+        String xml = CotBuilder.buildMarkerWithType(uid, callsign, markerUid, cotType,
+                lat, lon, alt, name, remarks, missionName, affiliationForLog);
         sendCot(xml);
-        AppLog.d(TAG, "Marker sent" + (missionName != null ? " to mission " + missionName : "")
-                + ": " + affiliation + " @ " + lat + "," + lon + " id=" + markerUid);
+        // "QUEUED", not "sent". sendCot hands the message to a fire-and-forget writer thread and
+        // this line runs whatever that thread then does with it. Saying "sent" here cost an hour
+        // on 2026-08-15: the log said every marker was sent while none arrived. The truth about
+        // the wire is in the CoT OUT line above and in TakClient's failure lines.
+        AppLog.d(TAG, "Marker queued for send"
+                + (missionName != null ? " to mission " + missionName : "")
+                + ": " + cotType + " @ " + lat + "," + lon + " id=" + markerUid);
         return markerUid;
     }
 

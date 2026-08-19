@@ -1,5 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Taller landscape screens (Pixel 8 Pro is ~448dp) can afford the larger mini-map. -->
-    <dimen name="flight_map_size">160dp</dimen>
+    <!-- Taller landscape screens (Pixel 8 Pro is ~448dp) can afford the larger mini-map. See
+         the base values/dimens.xml entry for the height budget this number has to fit inside. -->
+    <!-- ⚠ REDUCED 2026-08-14 to pay for the HUD panels (conformance D4). The two panels add
+         4dp of padding at the top and bottom of each, 16dp in total, and this bucket had only
+         5dp of slack in the worst case (FAA ceiling visible). Worst case is now:
+
+             paddingTop 60 + EV slider 24 + map 148 + paddingBottom 12 + margins 20
+               + 16 x 10 text lines + 2 panels x 8dp padding = 440dp
+
+         against 448dp of screen, so 8dp of slack. The conformance note on the D1 fix
+         names exactly this remedy: take the height from flight_map_size, never by re-joining
+         the readout lines. **This is arithmetic, not a measurement.** -->
+    <dimen name="flight_map_size">148dp</dimen>
+
+    <!-- ⚠ DERIVED FROM flight_map_size, NOT A FREE NUMBER: it is the map width plus the HUD
+         column's paddingEnd of 14dp, which is what keeps the debug resource row's right edge
+         level with the map's left edge.
+
+         This override was missing until 2026-08-13. The base bucket's 144dp stayed in force in
+         this bucket while the map above grew to 160dp, so on every tall screen the row ran
+         about 30dp under the map. Change the two together, in EVERY bucket that overrides
+         either one. -->
+    <dimen name="flight_resource_row_margin_end">162dp</dimen>
+    <!-- Separate from flight_map_size so a taller screen can carry a taller map
+         without a wider HUD column. Equal to the width today, so the map is square
+         and nothing moved when this was introduced (conformance D8). -->
+    <dimen name="flight_map_height">148dp</dimen>
+    <!-- HUD readout size, per bucket. 12sp is what hudText already used, so this
+         changed no pixel; it exists so a controller can raise it (conformance D7).
+         On a sunlight-readable screen at arm's length 12sp is too small. -->
+    <dimen name="flight_readout_text_size">12sp</dimen>
 </resources>

@@ -43,8 +43,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class StreamTranscoder(
     private val profile: TranscodeProfile,
     private val isHevc: Boolean,
+    private val outCodec: VideoCodec = VideoCodec.H264,
     private val onEncoded: (ByteBuffer, MediaCodec.BufferInfo) -> Unit,
-    private val onParamsReady: (sps: ByteBuffer, pps: ByteBuffer) -> Unit,
+    private val onParamsReady: (sps: ByteBuffer, pps: ByteBuffer, vps: ByteBuffer?) -> Unit,
 ) {
     /** Pilot-selectable outbound quality (Pre-Flight Setup §4). Aspect ratio is always
      *  preserved — [maxHeight] caps the vertical resolution, width follows the source. */
@@ -59,7 +60,7 @@ class StreamTranscoder(
      *
      *  1. H.264 needs roughly twice H.265's bitrate for equal quality. The sibling's tiers are
      *     HEVC, and its own note says the extra resolution step "is bought with H.265". This app
-     *     encodes AVC only.
+     *     defaults to AVC (the codec is a Pre-Flight choice now — see [VideoCodec]).
      *  2. This screen is 20:9, not 4:3. At the same tier HEIGHT the S20 Ultra's 2400x1080
      *     carries 1.67x the pixels of that 4:3 controller — 1600x720 against 960x720 — and the
      *     capture is the whole screen, so those are real pixels the encoder must spend bits on.
@@ -233,6 +234,7 @@ class StreamTranscoder(
         val configured = EncoderConfig.configure(
             targetW, targetH, profile.bitrateBps, profile.fps, I_FRAME_INTERVAL_S, TAG,
             preferVbr = false,
+            codec = outCodec,
             colorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
         ) ?: return null
         return runCatching {
@@ -319,30 +321,18 @@ class StreamTranscoder(
         }
     }
 
-    /** Splits the encoder's SPS+PPS codec-config buffer at the second Annex-B start code. */
+    /** Pulls VPS/SPS/PPS out of the codec-config buffer — three NALs on H.265, two on H.264.
+     *  The classification lives in [EncoderConfig.splitParams] so both encode paths share it. */
     private fun handleCodecConfig(buf: ByteBuffer, info: MediaCodec.BufferInfo) {
         val bytes = ByteArray(info.size)
         buf.get(bytes)
-        var splitAt = -1
-        var i = 4
-        while (i < bytes.size - 3) {
-            if (bytes[i] == Z && bytes[i + 1] == Z &&
-                (bytes[i + 2] == O || (bytes[i + 2] == Z && bytes[i + 3] == O))) {
-                splitAt = i; break
-            }
-            i++
-        }
-        if (splitAt <= 0) return
-        val sps = bytes.copyOfRange(0, splitAt)
-        val pps = bytes.copyOfRange(splitAt, bytes.size)
-        AppLog.i(TAG, "encoder params ready: sps=${sps.size}B pps=${pps.size}B")
-        onParamsReady(ByteBuffer.wrap(sps), ByteBuffer.wrap(pps))
+        val params = EncoderConfig.splitParams(bytes, outCodec.isHevc, TAG) ?: return
+        onParamsReady(ByteBuffer.wrap(params.sps), ByteBuffer.wrap(params.pps),
+            params.vps?.let { ByteBuffer.wrap(it) })
     }
 
     companion object {
         private const val TAG = "StreamTranscoder"
-        private const val Z: Byte = 0
-        private const val O: Byte = 1
         // Per-NAL queue sized like the FPV pipeline's — a transient stall shouldn't shear
         // frames apart. Drop-oldest at capacity only if the pipeline persistently can't keep up.
         private const val QUEUE_CAPACITY = 128
