@@ -112,8 +112,9 @@ The old local channel picker is REMOVED — its `<dest group>` made the server s
 markers, proved on the sibling 2026-08-15, which means **any fleet controller still on
 v1.1.0 with a channel selected is losing every marker it sends.** `com.taklite` was
 re-synced from the Autel tree at the same time (outbound CoT logging, `TakClient.checkError`,
-`buildMarkerWithType`, `isLiveClient`). The `isLiveClient` team-dot rendering is NOT yet
-consumed by this tree's map code.
+`buildMarkerWithType`, `isLiveClient`). The team-dot rendering that consumes `isLiveClient`
+arrived on 2026-08-18 in the main merge — a CloudTAK operator now draws as a dot
+rather than a 2525 marker frame.
 
 The original Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
 warnings banner, contact retention (flat at 16 across a session), the operator marker, the
