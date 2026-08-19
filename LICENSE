@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project is built on DJI's Mobile SDK for Android (Sample Code) and depends
-on the proprietary DJI Mobile SDK (com.dji:dji-sdk), which is NOT covered by
-this license and is subject to DJI's own SDK license terms
-(https://developer.dji.com). This repository does not bundle DJI's SDK binary;
-it is resolved as a build-time Maven dependency.
-
-DJI releases the Sample Code itself under MIT License (Copyright (c) 2019 DJI);
-that original notice is preserved, per its terms, in LICENSE-DJI-SAMPLE.
