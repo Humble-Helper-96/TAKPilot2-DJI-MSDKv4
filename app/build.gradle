@@ -66,10 +66,13 @@ android {
         //                 codec choice, the Pre-Flight rearrangement and the Field Guide cut
         //           1.2.1 a second Field Guide cut, 3813 words to 3033. Documentation only —
         //                 no code and nothing on the wire changed, thus the patch number.
+        //           1.2.2 the team-dot rendering, from the main merge: a live TAK client draws
+        //                 as a dot, not a 2525 marker frame. First release cut from main after
+        //                 device-compat was merged and deleted.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 7
-        versionName "1.2.1"
+        versionCode 8
+        versionName "1.2.2"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""
