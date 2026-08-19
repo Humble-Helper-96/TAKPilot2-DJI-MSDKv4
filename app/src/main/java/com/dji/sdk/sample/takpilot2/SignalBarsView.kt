@@ -7,6 +7,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Wifi-style RC signal-strength indicator: a filled dot at the bottom plus up to three arcs
@@ -23,6 +25,12 @@ class SignalBarsView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
+
+    // Flight-tuned HUD colours, resolved once per view. Were literals here until
+    // 2026-08-14 (conformance A1); the values are unchanged — see takpilot_colors.xml.
+    private val COLOR_RED = ContextCompat.getColor(context, R.color.tp_hud_signal_poor)
+    private val COLOR_YELLOW = ContextCompat.getColor(context, R.color.tp_hud_signal_fair)
+    private val COLOR_GREEN = ContextCompat.getColor(context, R.color.tp_hud_signal_good)
 
     private var percent: Int? = null
 
@@ -73,9 +81,6 @@ class SignalBarsView @JvmOverloads constructor(
     }
 
     companion object {
-        private val COLOR_RED = 0xFFF44336.toInt()
-        private val COLOR_YELLOW = 0xFFFFEB3B.toInt()
-        private val COLOR_GREEN = 0xFF4CAF50.toInt()
         private val INACTIVE = Color.argb(70, 255, 255, 255)
     }
 }

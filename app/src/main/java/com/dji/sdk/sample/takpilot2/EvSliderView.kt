@@ -8,6 +8,8 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.roundToInt
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * EV-compensation slider for the flight screen: a static full-width line (always visible from
@@ -41,12 +43,12 @@ class EvSliderView @JvmOverloads constructor(
     private val tickHalf = 4f * density
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9AC4FF.toInt()
+        color = ContextCompat.getColor(context, R.color.tp_accent)
         strokeWidth = 2f * density
         strokeCap = Paint.Cap.ROUND
     }
     private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9AC4FF.toInt()
+        color = ContextCompat.getColor(context, R.color.tp_accent)
         strokeWidth = 2f * density
         strokeCap = Paint.Cap.ROUND
     }

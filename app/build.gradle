@@ -62,15 +62,14 @@ android {
         // what goes on the wire changes, not only when the UI does.
         //
         // History:  1.0 first release  ·  1.1.0 Autel-parity pass (taklite core, UI, features)
-        //           1.2.0 channels, by the method a TAK server accepts (server-side scoping,
-        //                 no <dest group>), plus the live-client map symbol
+        //           1.2.0 the Autel v1.6.2 pass — server-held channels, two video servers, a
+        //                 codec choice, the Pre-Flight rearrangement and the Field Guide cut
+        //           1.2.1 a second Field Guide cut, 3813 words to 3033. Documentation only —
+        //                 no code and nothing on the wire changed, thus the patch number.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 6
-        // -dev because the channels have NOT flown on this airframe. They were built and proved
-        // on the Autel tree, which says nothing about a DJI aircraft. It becomes 1.2.0 when a
-        // sortie has confirmed it, the same way 1.1.0-dev became 1.1.0.
-        versionName "1.2.0-dev"
+        versionCode 7
+        versionName "1.2.1"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

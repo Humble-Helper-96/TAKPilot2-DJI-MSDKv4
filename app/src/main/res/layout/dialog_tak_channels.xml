@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TAK channels, from the flight screen (FlightActivity.onTakChannelsTapped).
+<!-- TAK channels, from the flight screen (TAKPilot2GoFlightActivity.onTakChannelsTapped).
 
      Reached by a touch-and-hold on the TAK badge, so a pilot can change the scope of this
      aircraft WITHOUT leaving the flight screen. Leaving it stops the video to the team, which is

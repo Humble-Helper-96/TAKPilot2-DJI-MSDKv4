@@ -7,9 +7,25 @@ itself. The current state is `docs/TAKPILOT2_V4_PORT_SUMMARY.md`.
 ## What this application is
 
 The TAK flight interface for the DJI Mini 2 with the RC-N1 controller and a Samsung Galaxy
-S20 Ultra (approximately 360x800dp). The Autel EVO II 640T sibling application shares the
-UI: a pilot must be able to change aircraft and find the same screens. The shared protocol
-core is `com.taklite`, which both applications hold as the same code.
+S20 Ultra (about 914x411dp landscape — every screen is landscape). It is one of three
+TAKPilot2 applications, with the Autel EVO II 640T and the DJI MSDKv5 siblings:
+
+> A pilot changes airframe and finds the same screens, the same controls in the same places,
+> and the same words.
+
+The shared protocol core is `com.taklite`, which all of them hold as the same code.
+
+**This is the only one of the three that runs on a phone.** The Autel and MSDKv5 siblings run
+on smart controllers, so their dimensions are larger — specification §7.
+
+## The UI specification
+
+`../../../../TAKPILOT2-UI-SPEC.md` is the single source of truth for the user interface of
+all three applications. It outranks any UI note in this file or in `docs/`. Read it before
+you change a screen, a layout, a colour or a readout format. This tree's gap list is in
+`../../../../TAKPILOT2-UI-CONFORMANCE.md`.
+
+A UI change lands in all three applications, or it lands in none.
 
 ## Safety rules — these come from real incidents on the sibling
 
@@ -65,14 +81,41 @@ core is `com.taklite`, which both applications hold as the same code.
 - Colours come from the tokens in `res/values/takpilot_colors.xml`. Do not add a new
   `Color.parseColor` call site. `res/values/colors.xml` belongs to the stock DJI sample —
   leave it alone.
-- Layouts stay in the default dp bucket. No dp value from the Autel tree transfers; that
-  controller is 1024x720dp and this phone is 360x800dp.
+- One layout file per screen. All size variation goes through `values-*/dimens.xml`, never a
+  `layout-land` or a `layout-sw*` file. This tree uses the base bucket and `values-h440dp`.
+  No dp value transfers between trees: specification §7.
 - Release notes are short and simple, one line per function, next to the APK.
 - Do not commit without asking first.
 
 ## Current work
 
-The Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
+**v1.2.1 IS RELEASED — tag `v1.2.1`, versionCode 7, 2026-08-18 — AND IT HAS NEVER FLOWN.**
+It builds, it starts on a controller and the unit tests pass. Nothing in it has been in the
+air, and the release notes say so in their first line. The bench pass is the open work: the
+whole Pre-Flight screen top to bottom, the locks refusing the keyboard, the channel list
+against a live server (toggle one, watch a second client), the video-server switch with
+passwords surviving it, and the in-flight channel dialog on a locked configuration.
+
+What v1.2.0 brought: locks beside what they lock, quality-first video with two named server
+slots and a pilot-selectable codec (H.264/H.265, wired through EncoderConfig and both
+encode paths), server-held My Channels (`activebits` over the Marti API) reachable from
+Pre-Flight AND from a touch-and-hold on the flight screen's TAK badge, and a Field Guide cut
+with "Unknown marker" renamed to "Static marker".
+
+v1.2.1 is documentation only: a second Field Guide cut, 3813 words to 3033, with no code
+change and nothing different on the wire. **Do not chase the Autel guide's 2196 words** — it
+documents eight controls fewer, including the warnings banner its own app has (conformance
+A17), so its count is not this tree's target. The reasoning is in `FieldGuideActivity`'s
+class doc with the measured figures.
+
+The old local channel picker is REMOVED — its `<dest group>` made the server silently drop
+markers, proved on the sibling 2026-08-15, which means **any fleet controller still on
+v1.1.0 with a channel selected is losing every marker it sends.** `com.taklite` was
+re-synced from the Autel tree at the same time (outbound CoT logging, `TakClient.checkError`,
+`buildMarkerWithType`, `isLiveClient`). The `isLiveClient` team-dot rendering is NOT yet
+consumed by this tree's map code.
+
+The original Autel-parity pass is **flight-verified**: multiple sorties on 2026-08-12 confirmed the
 warnings banner, contact retention (flat at 16 across a session), the operator marker, the
 flight records, video on both CoT markers with a play control, AGL/DTED correction, the
 Pre-Flight read-back and the fixed control response. `versionName` is `1.1.0`
@@ -81,17 +124,25 @@ the Autel tree is the reference and lives at `../../Autel/AutelTAKPilot2/takpilo
 
 Open items, in order of consequence:
 
-1. **The Autel tree still sends the unplayable `__video` shape** and has the read-back
-   placement bug. `com.taklite` is shared by contract; the operator ports this separately.
+1. **The Autel tree has the read-back placement bug.** `com.taklite` is shared by contract;
+   the operator ports this separately. (The `__video` shape is no longer part of this item:
+   the ConnectionEntry fix went to the Autel tree on 2026-08-12 and is flight-verified there.
+   `CotParser.java` is now identical in both trees and `CotBuilder.java` differs only in the
+   three airframe-identity constants. Keep it that way.)
 2. **Yaw is measured, not wired.** The aircraft reports heading-turning smoothness 20/4/84
    across the three switch positions (logged each connect). Cine is identifiable as the
    smoothest value — wire Precision's yaw from the aircraft's own numbers, never from a
    guessed POSITION-to-name mapping.
-3. **The advertised video url carries credentials** (`user:pass@`) to every TAK client on the
-   channel. The video wall plays without them, so read access looks open. Decision pending.
-4. **Control-response values are a starting point** — Normal 35 / Precision 15 felt right on
+3. **Control-response values are a starting point** — Normal 35 / Precision 15 felt right on
    the bench; nobody has tuned them in flight.
-5. **Per-aircraft AR/FOV** for the planned Air 2S support.
+4. **Per-aircraft AR/FOV** for the planned Air 2S support.
+
+Settled, and NOT open items:
+
+- **The advertised video url carries credentials** (`user:pass@`). There is no other transport
+  for them — the `ConnectionEntry` shape has no credential field, so a url without them does not
+  authenticate and the feed does not play (operator, 2026-08-12). Do not raise it again and do
+  not propose stripping them.
 
 The printable Field Guide regenerates with `python3 tools/generate_field_guide_md.py` after
 any FieldGuideActivity change. Output lands OUTSIDE the repo, beside the SDK folder.

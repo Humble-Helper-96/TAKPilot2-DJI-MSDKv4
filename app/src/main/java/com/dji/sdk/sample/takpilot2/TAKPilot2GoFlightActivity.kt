@@ -178,9 +178,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvView.onFirstFrame = { runOnUiThread { noVideoCover.visibility = View.GONE } }
         val crosshair = findViewById<CrosshairView>(R.id.flightCrosshair)
         crosshairView = crosshair
-        // Quick drop: the reticle itself is the control. Tap places, long-press re-aims.
+        // The reticle itself is the control. Tap re-aims (or places) the ONE quick marker;
+        // long-press drops a NEW stationary Unknown marker. See TAKPILOT2-UI-SPEC.md §4.10.
         crosshair.onReticleTap = { onQuickDropTapped() }
-        crosshair.onReticleLongPress = { onQuickDropLongPressed() }
+        crosshair.onReticleLongPress = { onUnknownMarkerAction() }
         arOverlay = findViewById(R.id.flightArOverlay)
         // Both consume the same video rectangle: the AR projection has to agree with the
         // crosshair about where the centre of the image is, or a marker dropped at the
@@ -408,9 +409,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
             }
         }
-
-        // Same long-press idiom as the AR button and drop-pin: the short press does the common
-        // thing, the long press opens what belongs to it.
+        // Same long-press idiom as the RTH button, the AR button and the drop-pin: the short
+        // press does the common thing, the long press opens what belongs to it.
         findViewById<View>(R.id.toolbarTakButton).setOnLongClickListener {
             AppLog.v(TAG, "long-press: TAK channels")
             onTakChannelsTapped()
@@ -1104,29 +1104,90 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     /**
+     * Why a marker may NOT be placed right now, or null if it may.
+     *
+     * Returns a REASON rather than a boolean so the pilot is told which rule stopped them.
+     * "The app did nothing" is the failure mode that makes people press harder and then stop
+     * trusting the control.
+     *
+     * Two independent rules, both about whether a computed ground point means anything:
+     *
+     *  1. **Look angle.** Asks [CrosshairView.accuracyColorFor] — the SAME call that tints the
+     *     reticle and the HUD gimbal readout — so "red reticle" and "drop refused" can never
+     *     disagree. A separate threshold here would eventually drift and the pilot would see a
+     *     red reticle accept a drop.
+     *  2. **Height above ground.** Below [MIN_DROP_AGL_FT] the geometry is worthless: ground
+     *     range is height / tan(pitch), so as height goes to zero the solved point collapses
+     *     onto the aircraft's own position no matter where the camera looks. A marker placed on
+     *     take-off or during landing would land on the pilot, and it would look deliberate to
+     *     everyone receiving it.
+     *
+     * Uses the same AGL the HUD shows — terrain-corrected where DTED covers the aircraft,
+     * otherwise height above the take-off point — so the number the pilot reads is the number
+     * being judged.
+     *
+     * Ported from the Autel sibling 2026-08-14 (conformance X4). Until then these trees checked
+     * only that a look point existed, so a drop on the ground was accepted.
+     */
+    private fun dropRefusalReason(): String? {
+        val hud = TakBridgeHolder.hud() ?: return "waiting on GPS + gimbal"
+        val pitch = hud.gimbalPitch ?: return "waiting on GPS + gimbal"
+
+        val aglFt = Units.metersToFeet(
+            com.dji.sdk.sample.tak.TerrainAgl.reading(this, hud).meters)
+        if (aglFt < MIN_DROP_AGL_FT) {
+            return "too low — climb above ${MIN_DROP_AGL_FT.toInt()} ft AGL to place a marker"
+        }
+
+        // The same question CameraSlantPoint asks: DTED coverage at the aircraft's OWN position,
+        // not whether any DTED is loaded somewhere.
+        val dtedAvailable = hud.hasFix &&
+            com.dji.sdk.sample.tak.DtedIndex.elevationAt(this, hud.lat, hud.lon) != null
+        if (CrosshairView.accuracyColorFor(this, pitch, dtedAvailable) ==
+            ContextCompat.getColor(applicationContext, R.color.tp_hud_accuracy_poor)) {
+            return "look angle too shallow — tilt the gimbal down"
+        }
+        return null
+    }
+
+    /** True when a marker must not be placed. Kept as a predicate for the call sites that only
+     *  need the yes/no; the reason itself comes from [dropRefusalReason]. */
+    private fun aimTooPoorToDrop(): Boolean = dropRefusalReason() != null
+
+    /** Shared refusal, so every drop route gives the pilot the same — and specific — reason. */
+    private fun refuseDropForAim() {
+        val why = dropRefusalReason() ?: return
+        AppLog.w(TAG, "marker drop refused — $why")
+        showNotice("Cannot place the marker. $why", refused = true)
+    }
+
+    /**
      * Transient notice over the top-left of the video, auto-hidden.
      *
      * One implementation shared by every caller so they can't drift on placement or timeout.
      * Distinct from a Toast on purpose: this says "the app did the thing", where the toasts
      * [TakDropMarkers] raises say "the TAK server has it" — during a comms outage the difference
      * between those two is exactly what the pilot needs to see.
+     *
+     * [refused] tells the pilot the app did NOT do the thing, and makes the text amber instead
+     * of green. The colour is set here and never at a call site, so a refusal cannot reach the
+     * screen wearing the acknowledgement colour — a pilot reads the colour before the words.
+     *
+     * A refusal goes here and never to a Toast, because the flight screen IS the TAK video
+     * feed: a Toast is not in the screen capture, so a refused marker would leave the team
+     * waiting for a mark that is never coming. Specification §4.8.
      */
-    /**
-     * The TAK channels, from the flight screen.
-     *
-     * A pilot must be able to change the scope of this aircraft IN FLIGHT. Pre-Flight can do it,
-     * but going there stops the video to the team, which is the wrong thing to do in the middle
-     * of a sortie.
-     *
-     * THE SERVER HOLDS THE STATE. This screen reads it, writes to it and follows it. It is not
-     * the control — an administrator can change the same thing from TAK Portal, and the rows
-     * follow that within about a second because of the t-x-g-c listener below.
-     *
-     * LOCKED BY THE TAK CONFIGURATION LOCK. When the lock is on, the rows show the channels and
-     * refuse a change. Reading is never locked: a pilot must always be able to SEE the scope of
-     * the aircraft, and the lock exists to stop an accidental change and not to hide the truth
-     * (operator, 2026-08-16).
-     */
+    private fun showNotice(text: String, refused: Boolean = false) {
+        fpvNotice.text = text
+        fpvNotice.setTextColor(ContextCompat.getColor(applicationContext,
+            if (refused) R.color.tp_state_caution else R.color.tp_state_go))
+        fpvNotice.visibility = View.VISIBLE
+        handler.removeCallbacks(hideNotice)
+        handler.postDelayed(hideNotice, HOME_NOTICE_MS)
+    }
+
+    // ---- TAK channels, from the flight screen ------------------------------------------------
+
     /**
      * True when the pilot has entered the unlock password on THIS visit to the flight screen.
      *
@@ -1139,28 +1200,27 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     /**
      * Asks for the unlock password, in the flight dialog.
      *
-     * Going to Pre-Flight to unlock defeats the point of a control on the flight screen
-     * (operator, 2026-08-16). The password is Pre-Flight's own constant, not a copy of it —
-     * one password and one idea of "locked", with no second string to drift.
+     * Going to Pre-Flight to unlock defeats the point of a control on the flight screen. The
+     * password is Pre-Flight's own constant, not a copy of it — one password and one idea of
+     * "locked", with no second string to drift.
      *
      * A wrong password and Cancel do the same thing, the same as Pre-Flight: the only way out
      * with the rows editable is the right password.
      */
     private fun promptChannelUnlock(onUnlocked: () -> Unit) {
-        // STYLED EXACTLY AS PRE-FLIGHT'S UNLOCK FIELD. A programmatic EditText takes the
-        // PLATFORM's colours and no background at all, thus the first version was a bare line
-        // of text across the full width of the dialog — hard to see and hard to hit. The
-        // background and the padding are what make it look like a field, and the wrapper is
-        // what keeps it off the edges. Do not simplify either away.
+        // STYLED AS PRE-FLIGHT'S UNLOCK FIELD. A programmatic EditText takes the PLATFORM's
+        // colours and no background at all, so without this it renders as a bare line of text
+        // across the dialog — and on this dark theme, very nearly invisible.
         val field = android.widget.EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            // Built in code, so takFieldStyle's flagNoExtractUi does not reach it — without this
+            // the keyboard takes the whole landscape screen and covers the live video.
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             hint = "Password"
             textSize = 15f
-            setTextColor(androidx.core.content.ContextCompat.getColor(
-                applicationContext, R.color.tp_text_primary))
-            setHintTextColor(androidx.core.content.ContextCompat.getColor(
-                applicationContext, R.color.tp_text_hint))
+            setTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_primary))
+            setHintTextColor(ContextCompat.getColor(applicationContext, R.color.tp_text_hint))
             setBackgroundResource(R.drawable.bg_dialog_field)
             val pad = (12 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
@@ -1175,8 +1235,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // the aircraft.
         AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
             // No body text. It is a password prompt, and the pilot already knows what they
-            // touched. The first version explained the session rule here, which is a thing to
-            // read in the air and not a thing to decide.
+            // touched.
             .setTitle("Unlock channels")
             .setView(wrap)
             .setNegativeButton("Cancel", null)
@@ -1186,6 +1245,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                     AppLog.i(TAG, "channels unlocked for this flight-screen session")
                     onUnlocked()
                 } else {
+                    // Never log the attempt, right or wrong — the same rule every other
+                    // credential in this app follows.
                     AppLog.w(TAG, "channel unlock refused — wrong password")
                     showNotice("The password is wrong.", refused = true)
                 }
@@ -1193,6 +1254,21 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * The TAK channels, from the flight screen.
+     *
+     * A pilot must be able to change the scope of this aircraft IN FLIGHT. Pre-Flight can do it,
+     * but going there stops the video to the team, which is the wrong thing to do in the middle
+     * of a sortie.
+     *
+     * THE SERVER HOLDS THE STATE. This dialog reads it, writes to it and follows it. It is not
+     * the control — an administrator can change the same thing from TAK Portal, and the rows
+     * follow that within about a second because of the t-x-g-c listener below.
+     *
+     * LOCKED BY THE TAK CONFIGURATION LOCK. When the lock is on, the rows show the channels and
+     * refuse a change. Reading is never locked: a pilot must always be able to SEE the scope of
+     * the aircraft, and the lock exists to stop an accidental change and not to hide the truth.
+     */
     private fun onTakChannelsTapped() {
         if (!TakManager.getInstance().isConnected) {
             showNotice("TAK is not connected. The channels are on the server.", refused = true)
@@ -1201,9 +1277,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val themed = android.view.ContextThemeWrapper(this, R.style.TakDialogTheme)
         val view = android.view.LayoutInflater.from(themed)
             .inflate(R.layout.dialog_tak_channels, null)
-        val list = view.findViewById<android.widget.LinearLayout>(R.id.takChanList)
+        val list = view.findViewById<LinearLayout>(R.id.takChanList)
         val status = view.findViewById<TextView>(R.id.takChanStatus)
-        val configLocked = getSharedPreferences(com.dji.sdk.sample.tak.TakConnectActivity.PREFS, MODE_PRIVATE)
+        val configLocked = getSharedPreferences(
+            com.dji.sdk.sample.tak.TakConnectActivity.PREFS, MODE_PRIVATE)
             .getBoolean(com.dji.sdk.sample.tak.TakConnectActivity.KEY_TAK_LOCKED, false)
         // The session unlock is what the pilot just typed; the pref is what Pre-Flight holds.
         var locked = configLocked && !takChannelsUnlockedThisSession
@@ -1226,8 +1303,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             for (ch in chans) {
                 val row = android.widget.CheckBox(themed).apply {
                     // Two-way is the normal case and gets no label — a note on every row is
-                    // noise, and the exception is what a pilot needs to see (operator,
-                    // 2026-08-16).
+                    // noise, and the exception is what a pilot needs to see.
                     text = when {
                         ch.canSend && ch.canReceive -> ch.name
                         ch.canReceive -> "${ch.name} - Rx Only"
@@ -1236,15 +1312,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                     }
                     // ⚠ LOCKED IS NOT DISABLED — see the same note in TakConnectActivity.
                     // Disabling greys the tick, and the tick is what the pilot came to read.
-                    setTextColor(androidx.core.content.ContextCompat.getColor(
-                        applicationContext,
+                    setTextColor(ContextCompat.getColor(applicationContext,
                         if (locked) R.color.tp_text_secondary else R.color.tp_text_primary))
                     isChecked = ch.active
                     isClickable = !locked
                     isFocusable = !locked
                     buttonTintList = android.content.res.ColorStateList.valueOf(
-                        androidx.core.content.ContextCompat.getColor(
-                            applicationContext, R.color.tp_accent))
+                        ContextCompat.getColor(applicationContext, R.color.tp_accent))
                     setOnCheckedChangeListener { _, checked ->
                         if (painting) return@setOnCheckedChangeListener
                         ch.active = checked
@@ -1297,69 +1371,41 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
     }
 
-    private fun showNotice(text: String, refused: Boolean = false) {
-        fpvNotice.text = text
-        // ⚠ The colour belongs HERE, not at a call site — specification §4.8. v4 was the only
-        // tree still without this; Autel and MSDKv5 took it on 2026-08-14.
-        fpvNotice.setTextColor(ContextCompat.getColor(applicationContext,
-            if (refused) R.color.tp_state_caution else R.color.tp_state_go))
-        fpvNotice.visibility = View.VISIBLE
-        handler.removeCallbacks(hideNotice)
-        handler.postDelayed(hideNotice, HOME_NOTICE_MS)
-    }
-
     /**
-     * Quick drop — tap the reticle, marker goes down at the look point. No dialog, no menu.
+     * Quick marker — tap the reticle, THE one quick marker goes to the look point. No dialog,
+     * no menu.
      *
      * The toolbar drop button asks for a name and an affiliation because those drops are a
      * record. This one is a live pointer: the pilot has seen something, wants the rest of the
      * picture looking at it now, and any interaction between seeing it and marking it is
      * interaction spent not watching. So it is always [TakDropMarkers.Affiliation.UNKNOWN] (a
      * marker placed in under a second is unverified by definition) with a fixed callsign, and
-     * only one can exist — a second tap is refused rather than silently laying down a duplicate.
-     * Re-aiming it is the long-press, so the two gestures can't be confused under pressure.
+     * only one of it can exist.
+     *
+     * ⚠ THE TAP NEVER REFUSES. It re-aims the quick marker when one is already down, and places
+     * it when one is not. It used to refuse the second tap and scold the pilot to long-press
+     * instead — one marker with two verbs, which meant the pilot had to remember which gesture
+     * the app currently wanted before they could mark anything.
+     *
+     * The split that replaced it is NOT the same split, and this note is here so nobody removes
+     * the new one for the old reason. Two different KINDS of marker, one verb each:
+     *   SHORT — this function. The one quick marker, re-aimed at whatever the camera looks at.
+     *   LONG  — [onUnknownMarkerAction]. A NEW stationary Unknown marker, numbered, that stays.
+     * Neither gesture refuses, they give different results, and both are useful. Ported from the
+     * Autel sibling 2026-08-13; see TAKPILOT2-UI-SPEC.md §4.10.
      */
     private fun onQuickDropTapped() {
-        AppLog.v(TAG, "tap: reticle (quick drop)")
-        if (TakDropMarkers.quickPin() != null) {
-            // Deliberately not "moved it for you": a tap that sometimes places and sometimes
-            // moves is a gesture the pilot can't predict the result of.
-            Toast.makeText(this,
-                "${TakDropMarkers.QUICK_NAME} already placed — long-press the reticle to re-aim it",
-                Toast.LENGTH_SHORT).show()
-            return
-        }
+        AppLog.v(TAG, "tap: reticle (quick marker)")
+        if (aimTooPoorToDrop()) { refuseDropForAim(); return }
         val look = TakBridgeHolder.lookPoint()
         if (look == null) {
-            AppLog.w(TAG, "quick drop refused — no look point (GPS/gimbal not ready)")
-            Toast.makeText(this, "Can't drop a marker yet — waiting on GPS + gimbal",
-                Toast.LENGTH_LONG).show()
+            AppLog.w(TAG, "quick marker refused — no look point (GPS/gimbal not ready)")
+            showNotice("Cannot place the marker. Wait for GPS and the gimbal.", refused = true)
             return
         }
         val (lat, lon, elev) = look
-        if (TakDropMarkers.placeQuick(lat, lon, elev)) {
-            showNotice("${TakDropMarkers.QUICK_NAME} dropped")
-        }
-    }
-
-    /**
-     * Long-press the reticle — re-aim the quick-drop marker at whatever the camera is on now,
-     * keeping its uid so it moves in place on every other TAK client.
-     *
-     * Places it if there isn't one yet, rather than scolding the pilot for using the wrong
-     * gesture: both gestures then mean "the marker belongs where I'm looking", which is the only
-     * thing this feature does.
-     */
-    private fun onQuickDropLongPressed() {
-        AppLog.v(TAG, "long-press: reticle (quick drop re-aim)")
-        val look = TakBridgeHolder.lookPoint()
-        if (look == null) {
-            AppLog.w(TAG, "quick drop re-aim refused — no look point (GPS/gimbal not ready)")
-            Toast.makeText(this, "Can't move the marker yet — waiting on GPS + gimbal",
-                Toast.LENGTH_LONG).show()
-            return
-        }
-        val (lat, lon, elev) = look
+        // Move first: moveQuick keeps the uid, so the marker slides in place on every other TAK
+        // client rather than the team seeing a delete and a new contact.
         if (TakDropMarkers.moveQuick(lat, lon, elev)) {
             showNotice("${TakDropMarkers.QUICK_NAME} re-aimed")
         } else if (TakDropMarkers.placeQuick(lat, lon, elev)) {
@@ -1367,13 +1413,43 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Long-press the reticle — drop a NEW stationary marker of the type Unknown at the look
+     * point, and send it immediately.
+     *
+     * This is a SHORTCUT for the toolbar marker button plus "Unknown" in the type list, and
+     * nothing more. The same name from the same shared counter, the same entry in the markers
+     * list, the same re-broadcast. It is NOT the quick marker: it stays where it is put, and a
+     * second long press makes a second marker.
+     *
+     * It sends with no Send / Do not Send question. This gesture is for the moment when the
+     * pilot cannot give a dialog any attention; the toolbar button keeps the full flow.
+     */
+    private fun onUnknownMarkerAction() {
+        AppLog.v(TAG, "long-press: reticle (Unknown marker)")
+        if (aimTooPoorToDrop()) { refuseDropForAim(); return }
+        val look = TakBridgeHolder.lookPoint()
+        if (look == null) {
+            AppLog.w(TAG, "Unknown marker refused — no look point (GPS/gimbal not ready)")
+            showNotice("Cannot place the marker. Wait for GPS and the gimbal.", refused = true)
+            return
+        }
+        val (lat, lon, elev) = look
+        // Take the auto name first and hand it straight back, the same way the drop-pin dialog
+        // does: placeAt consumes the counter only when the name it gets is the one it offered,
+        // so a custom name never leaves a gap in the numbering.
+        val name = TakDropMarkers.nextAutoName()
+        TakDropMarkers.placeAt(TakDropMarkers.Affiliation.UNKNOWN, lat, lon, elev, name)
+        showNotice("$name dropped")
+    }
+
     private fun onDropPinTapped() {
         AppLog.v(TAG, "tap: drop pin")
+        if (aimTooPoorToDrop()) { refuseDropForAim(); return }
         val look = TakBridgeHolder.lookPoint()
         if (look == null) {
             AppLog.w(TAG, "drop pin refused — no look point (GPS/gimbal not ready)")
-            Toast.makeText(this, "Can't drop a marker yet — waiting on GPS + gimbal",
-                Toast.LENGTH_LONG).show()
+            showNotice("Cannot place the marker. Wait for GPS and the gimbal.", refused = true)
             return
         }
         val (lat, lon, elev) = look
@@ -1627,9 +1703,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     private fun onMoveMarkerTapped(pin: TakDropMarkers.PinInfo) {
+        if (aimTooPoorToDrop()) { refuseDropForAim(); return }
         val look = TakBridgeHolder.lookPoint()
         if (look == null) {
-            Toast.makeText(this, "Can't move — waiting on GPS + gimbal", Toast.LENGTH_LONG).show()
+            AppLog.w(TAG, "marker move refused — no look point (GPS/gimbal not ready)")
+            showNotice("Cannot move the marker. Wait for GPS and the gimbal.", refused = true)
             return
         }
         val (lat, lon, elev) = look
@@ -1818,10 +1896,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             return
         }
         flightDiagnostics.text = d.text
-        flightDiagnostics.setTextColor(
+        // Severity goes on the BACKGROUND and the text stays white — specification §4.8, and
+        // the same shape as the Autel sibling. Tinting the text instead left a red-on-dark-red
+        // message that was the hardest thing on the screen to read at the moment it mattered.
+        flightDiagnostics.background?.setTint(
             ContextCompat.getColor(
                 applicationContext,
-                if (d.red) R.color.tp_state_danger else R.color.tp_state_unknown,
+                if (d.red) R.color.tp_warn_banner_red else R.color.tp_warn_banner_amber,
             )
         )
         flightDiagnostics.visibility = View.VISIBLE
@@ -1914,6 +1995,18 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // an unknown return height must not be shown as a number the pilot can rely on.
         fpvRthAltitude.text = hud?.rthHeightM
             ?.let { "RTH ${Units.feet(it.toDouble())}" } ?: "RTH --"
+        // AMBER WHILE UNKNOWN — specification §4.6, and the same treatment as the Autel
+        // sibling. Until 2026-08-14 this line printed "RTH --" in the ordinary white of every
+        // other readout, so "the aircraft confirmed this height" and "the aircraft never
+        // answered" looked identical. That is the readout behind the 2026-08-02 incident, in
+        // which a pilot flew two sorties believing an RTH altitude the aircraft did not hold.
+        fpvRthAltitude.setTextColor(
+            ContextCompat.getColor(
+                applicationContext,
+                if (hud?.rthHeightM != null) R.color.tp_text_secondary
+                else R.color.tp_state_unknown,
+            )
+        )
 
         // Directly under RTH: how far home is, and how high the aircraft will climb to get
         // there. Its own view rather than a line in the telemetry block, matching the sibling.
@@ -1972,11 +2065,21 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         updateFaaCeiling(hud, aglReading)
 
-        // Five lines, not seven. The right-hand column has to hold the exposure block, this
-        // readout AND the mini-map inside one landscape screen height, and it overflowed on the
-        // Pixel once MSL and gimbal lines were added — it would be worse on a shorter phone.
-        // Callsign+speed and the two altitudes each pair naturally, so merging them costs no
-        // information and buys two lines of headroom.
+        // FOUR lines. The right-hand column has to hold the exposure block, this readout AND the
+        // mini-map inside one landscape screen height, and it overflowed on the Pixel once MSL
+        // and gimbal lines were added. The two heights were merged onto one line to buy that
+        // height back; they were split again 2026-08-13 because the merge was the wrong saving —
+        // see the AGL/MSL note below and TAKPILOT2-UI-SPEC.md §4.4.
+        //
+        // ⚠ COLUMN HEIGHT BUDGET — check this before adding anything to flightHudColumn.
+        // Fixed height, worst case (FAA ceiling visible), at 12sp bold ≈ 16dp a line:
+        //   paddingTop 60 + EV slider 24 + map @dimen/flight_map_size + paddingBottom 12
+        //   + margins 20 + 16 x (4 readout lines + 6 single-line views)
+        // Base bucket (map 130dp): 406dp against the S20 Ultra's 411dp landscape height.
+        // h440dp bucket (map 160dp): 436dp against the Pixel 8 Pro's ~448dp.
+        // That is 5dp and 12dp of slack. The weighted spacer absorbs nothing at this point, and
+        // overflow CLIPS THE MAP SILENTLY — no warning, no log. If a line has to be added here,
+        // take the height from @dimen/flight_map_size first.
         fpvOverlayText.text = buildString {
             // LINE ORDER IS DELIBERATE, and matches the Autel sibling so a pilot reads the same
             // block in the same order on either aircraft (operator, 2026-08-02):
@@ -1985,14 +2088,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // home are reference figures, looked up only when somebody asks for them.
             // The clock sits below the EV slider in its own view — see fpvClock.
             append(currentCallsign)
-            append(if (hud != null) "   ${Units.mph(hud.speedMs)}" else "   — MPH")
+            append(if (hud != null) "   ${Units.mph(hud.speedMs)}" else "   — mph")
             append('\n')
-            // Both heights on one line. "AGL" only when DTED actually corrected it to
-            // height-above-terrain-below; otherwise "ALT", which is what the raw number really
-            // is (height above the takeoff point) — labelling an uncorrected figure AGL is
-            // exactly the inaccuracy the terrain correction exists to remove, so the label moves
-            // with it. MSL is computed separately and can be present while the first still reads
-            // ALT. See TerrainAgl.
+            // "AGL" only when DTED actually corrected it to height-above-terrain-below;
+            // otherwise "ALT", which is what the raw number really is (height above the takeoff
+            // point) — labelling an uncorrected figure AGL is exactly the inaccuracy the terrain
+            // correction exists to remove, so the label moves with it. MSL is computed
+            // separately and can be present while the first still reads ALT. See TerrainAgl.
             if (hud != null && hud.hasFix) {
                 append("%s %s".format(
                     Units.feet(aglReading.meters),
@@ -2001,7 +2103,16 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             } else {
                 append("— ft AGL")
             }
-            append("  ·  ")
+            // AGL AND MSL GET THEIR OWN LINES, never "AGL · MSL" on one.
+            //
+            // They shared a line here until 2026-08-13, to save column height. The saving was
+            // real and the cost was worse: at this column width the pair does not fit, and the
+            // wrap falls between a number and its unit — "988 ft" on one line and "MSL" on the
+            // next, which reads as a different quantity at a glance. Two lines cannot wrap that
+            // way, and stay correct at five-digit altitudes where a wider column would break.
+            // The Autel sibling has always been split; this is the join being removed, not a new
+            // line being added. Height comes from the budget noted above.
+            append('\n')
             val msl = aglReading.mslMeters
             append(if (msl != null) "%s MSL".format(Units.feet(msl)) else "— ft MSL")
             append('\n')
@@ -2187,6 +2298,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val HOME_LINE_LAYER_ID = "home-line-layer"
         private const val HOME_ICON_DP = 18
         private const val HOME_NOTICE_MS = 5000L
+
+        /** Minimum height above ground for a marker drop, feet. Below this the slant
+         *  solve degenerates onto the aircraft's own position — see dropRefusalReason. */
+        private const val MIN_DROP_AGL_FT = 25.0
 
         // Mini-map zoom, street level — every hud tick rebuilds the CameraPosition, and an
         // unspecified zoom() reset it to the map's default (continent-scale) on each update,

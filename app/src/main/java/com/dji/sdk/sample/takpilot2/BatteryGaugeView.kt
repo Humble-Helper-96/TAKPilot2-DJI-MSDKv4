@@ -7,6 +7,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.dji.sdk.sample.R
 
 /**
  * Small circular battery gauge for the flight-screen toolbar — a colored ring sweeps out the
@@ -17,6 +19,12 @@ class BatteryGaugeView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
+
+    // Flight-tuned HUD colours, resolved once per view. Were literals here until
+    // 2026-08-14 (conformance A1); the values are unchanged — see takpilot_colors.xml.
+    private val COLOR_CRITICAL = ContextCompat.getColor(context, R.color.tp_hud_battery_critical)
+    private val COLOR_WARNING = ContextCompat.getColor(context, R.color.tp_hud_battery_warn)
+    private val COLOR_GOOD = ContextCompat.getColor(context, R.color.tp_hud_battery_good)
 
     private var percent: Int? = null
 
@@ -92,8 +100,5 @@ class BatteryGaugeView @JvmOverloads constructor(
         private const val TEXT_FRACTION = 0.34f
         private const val CRITICAL_PCT = 15f
         private const val WARNING_PCT = 30f
-        private val COLOR_CRITICAL = 0xFFF44336.toInt()
-        private val COLOR_WARNING = 0xFFFFB74D.toInt()
-        private val COLOR_GOOD = 0xFF4CAF50.toInt()
     }
 }

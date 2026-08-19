@@ -41,8 +41,8 @@ class TakConnectActivity : AppCompatActivity() {
     private var suppressBatterySave = false
 
     override fun onDestroy() {
-        // The listeners hold this Activity and TakManager outlives it, so leaving them attached
-        // leaks the whole screen and repaints views that are gone.
+        // The listeners hold this Activity. TakManager outlives the screen, thus leaving them
+        // attached leaks the whole Activity and repaints views that are gone.
         runCatching { TakManager.getInstance().removeGroupChangeListener(groupChangeListener) }
         runCatching { TakManager.getInstance().removeListener(connectionListener) }
         super.onDestroy()
@@ -93,19 +93,18 @@ class TakConnectActivity : AppCompatActivity() {
 
         // My Channels. The channels come from the server and go back to the server, and no
         // <dest group> goes on any message — that attribute is what made the server drop every
-        // marker before v1.6.1. The evidence is in the Autel tree's CHANNELS-FINDINGS.md.
+        // marker on the Autel sibling's v1.6.0. The evidence is in the Autel tree's
+        // CHANNELS-FINDINGS.md.
         refreshChannels()
         // The server pushes t-x-g-c when the channels change, from this controller or from an
         // administrator in TAK Portal. Listening beats a timer: the screen follows in about a
         // second, and it asks the server nothing while nothing changes.
         TakManager.getInstance().addGroupChangeListener(groupChangeListener)
         // AND read them again when TAK connects. The refresh above needs a connection, so a
-        // screen opened before TAK is up would otherwise show an empty list for ever.
+        // screen opened before TAK is up would otherwise show an empty list for ever — the
+        // "Pull Channels" button used to be the only way out of that, and it is gone
+        // (operator, 2026-08-16, on the sibling).
         TakManager.getInstance().addListener(connectionListener)
-
-        // ⚠ THE LISTENERS ABOVE HOLD THIS ACTIVITY. TakManager outlives the screen, so they are
-        // removed in onDestroy below. Without that this Activity leaks and its dead views are
-        // repainted.
 
         // Reflect live state on open. Auto-connect already happened at app launch
         // (TakAutoConnect.attemptOnAppLaunch, from the home screen) — if we're still not
@@ -171,6 +170,11 @@ class TakConnectActivity : AppCompatActivity() {
             // Reset the UI fields so it's clearly a fresh login.
             username.setText("")
             password.setText("")
+            // Nothing local to clear: the channels live on the server now. Logging out does
+            // not change them, which is correct — they belong to the certificate.
+            latestChannels = emptyList()
+            runCatching { findViewById<android.widget.LinearLayout>(R.id.takChannelsList).removeAllViews() }
+            runCatching { findViewById<TextView>(R.id.takChannelsStatus).text = "" }
             setStatus("Logged out. Enter host, username and password to sign in as another user.",
                 ContextCompat.getColor(applicationContext, R.color.tp_text_secondary))
         }
@@ -389,7 +393,9 @@ class TakConnectActivity : AppCompatActivity() {
                     bar.visibility = View.GONE
                     status.text = summary
                     status.setTextColor(ContextCompat.getColor(applicationContext,
-                        if (ok) R.color.tp_state_go else R.color.tp_state_unknown))
+                        // The apply finished and something did not take. That is an answer,
+                        // so it is caution — unknown is for "the aircraft never replied". §6.1.
+                        if (ok) R.color.tp_state_go else R.color.tp_state_caution))
                     renderLimitsReadBack()
                 },
             )
@@ -402,12 +408,23 @@ class TakConnectActivity : AppCompatActivity() {
         R.id.takDisconnectButton,
     )
 
-    /** The server fields only. The quality profile stays live on purpose — it is an in-flight
-     *  choice about bandwidth, not part of what the stream IS. */
+    /** Codec and TCP transport are part of WHAT the stream is — the wrong codec breaks playback
+     *  outright for some viewers, so they lock with the server fields (operator, 2026-08-06, on
+     *  the sibling). The quality profile stays live; it is an in-flight choice about bandwidth,
+     *  not part of what the stream IS. The two codec RadioButtons are listed individually
+     *  because disabling a RadioGroup does not disable its children. */
     private val videoLockedFields = listOf(
+        R.id.videoName,
         R.id.videoHost, R.id.videoPort, R.id.videoStreamId,
-        R.id.videoUser, R.id.videoPassword, R.id.videoTcp,
+        R.id.videoUser, R.id.videoPassword,
+        R.id.videoCodecH264, R.id.videoCodecH265, R.id.videoTcp,
     )
+    // ⚠ videoServer1/videoServer2 are NOT in that list, and this is deliberate. applyLock dims
+    // to 45%, which on a radio button greys the DOT as well as the label — and the dot is the
+    // one thing a pilot must be able to read while locked: which server the video is going to.
+    // The channel rows hit exactly this and it made the ticks unreadable (operator,
+    // 2026-08-16). The toggle is locked by lockVideoServerToggle instead: full contrast, no
+    // touch response.
 
     /**
      * Per-section locks over settings that are painful to get wrong and rarely need changing.
@@ -415,8 +432,9 @@ class TakConnectActivity : AppCompatActivity() {
      * Unlocking asks for a password; locking does not. The asymmetry is deliberate — locking is
      * the safe direction, and gating it would only train people to dismiss dialogs.
      */
-    /** The aircraft-settings lock covers the numbers that decide when it flies itself home, and
-     *  the stick mode.
+    /** The battery levels, the stick mode and the signal-loss behaviour — what a stray tap must
+     *  not change. The numeric limit fields stay editable, matching the sibling: editing one
+     *  only saves it locally, and nothing reaches the aircraft without Apply or a connect.
      *
      *  ⚠ NOT the Apply button — same philosophy as the sibling, in its words: the lock guards
      *  what the configuration IS, not what you do with it. A locked, known-good configuration
@@ -424,7 +442,6 @@ class TakConnectActivity : AppCompatActivity() {
      *  when a pilot must not be fighting a lock. (Apply was in this list until 2026-08-12, which
      *  made the two apps behave differently for the same pilot.) */
     private val aircraftLockedFields = listOf(
-        R.id.limitMaxAltitude, R.id.limitMaxRadius, R.id.limitRthAltitude,
         R.id.limitLowBattery, R.id.limitCriticalBattery,
         R.id.stickMode1, R.id.stickMode2, R.id.stickMode3,
         R.id.failsafeGoHome, R.id.failsafeHover, R.id.failsafeLand,
@@ -433,7 +450,7 @@ class TakConnectActivity : AppCompatActivity() {
     private fun setupConfigLocks() {
         setupOneLock(
             R.id.limitBatteryLock, KEY_AIRCRAFT_LOCKED, aircraftLockedFields,
-            "Unlock aircraft settings?",
+            "Unlock battery levels?",
             "These decide when the aircraft returns and lands on its own, and what the control " +
                 "sticks do. A wrong value can force a landing away from the pilot.",
         )
@@ -442,7 +459,7 @@ class TakConnectActivity : AppCompatActivity() {
             "Unlock TAK server settings?",
             "The lock prevents an accidental change to a server that works. " +
                 "A wrong value stops the aircraft sending data to your team.",
-            // The channel rows are built in code, so applyLock cannot reach them by id. They
+            // The channel rows are built in code, thus applyLock cannot reach them by id. They
             // are painted again instead, and each row reads the lock as it is built.
             afterChange = { renderChannels(latestChannels) },
         )
@@ -451,6 +468,9 @@ class TakConnectActivity : AppCompatActivity() {
             "Unlock video server settings?",
             "These fields are locked so a working stream configuration is not changed by " +
                 "accident. Editing them can stop your team seeing the video.",
+            // The toggle is a radio button pair built in the layout, but it must not be dimmed
+            // — see the note on videoLockedFields.
+            afterChange = { lockVideoServerToggle(it) },
         )
     }
 
@@ -460,7 +480,7 @@ class TakConnectActivity : AppCompatActivity() {
         fieldIds: List<Int>,
         confirmTitle: String,
         confirmBody: String,
-        /** Run after the lock state settles, for controls applyLock cannot reach by id. */
+        /** Run after the lock state settles, for controls that applyLock cannot reach by id. */
         afterChange: (Boolean) -> Unit = {},
     ) {
         val box = findViewById<android.widget.CheckBox>(checkBoxId)
@@ -897,7 +917,19 @@ class TakConnectActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
+    /**
+     * Video server config. NO Start/Stop here — the flight screen's LIVE pill owns starting and
+     * stopping the stream; this screen only edits and SAVES the config.
+     *
+     * Persisting on every change matters more than it looks: the LIVE pill reads prefs, not this
+     * screen's live state.
+     */
     private fun setupVideoControls(prefs: android.content.SharedPreferences) {
+        migrateVideoSlots(prefs)
+        val vName = findViewById<EditText>(R.id.videoName)
+        val vServerGroup = findViewById<RadioGroup>(R.id.videoServerGroup)
+        val vServer1 = findViewById<android.widget.RadioButton>(R.id.videoServer1)
+        val vServer2 = findViewById<android.widget.RadioButton>(R.id.videoServer2)
         val vHost = findViewById<EditText>(R.id.videoHost)
         val vPort = findViewById<EditText>(R.id.videoPort)
         val vUser = findViewById<EditText>(R.id.videoUser)
@@ -905,32 +937,66 @@ class TakConnectActivity : AppCompatActivity() {
         val vStreamId = findViewById<EditText>(R.id.videoStreamId)
         val vTcp = findViewById<android.widget.CheckBox>(R.id.videoTcp)
         val vProfileGroup = findViewById<RadioGroup>(R.id.videoProfileGroup)
+        val vCodecGroup = findViewById<RadioGroup>(R.id.videoCodecGroup)
+        val vCodecHint = findViewById<TextView>(R.id.videoCodecHint)
         val vFullUrl = findViewById<TextView>(R.id.videoFullUrl)
 
-        vHost.setText(prefs.getString(KEY_V_HOST, ""))
-        vPort.setText(prefs.getInt(KEY_V_PORT, 8554).toString())
-        vUser.setText(prefs.getString(KEY_V_USER, ""))
-        // ⚠ THIS LINE WAS MISSING, AND ITS ABSENCE ERASED THE SAVED PASSWORD.
-        //
-        // Every other field was restored; this one was not, so the box came up blank. The
-        // TextWatcher below then calls refreshAndSave() — and refreshAndSave() also runs
-        // unconditionally at the end of this method — which writes vPass.text back to the store.
-        // Blank. So merely OPENING Pre-Flight Setup wiped the RTSP password, and the next stream
-        // failed to authenticate with nothing on screen to explain why: the field looked the same
-        // as it always did, because it had always come up empty.
-        vPass.setText(prefs.getString(KEY_V_PASS, ""))
-        vStreamId.setText(prefs.getString(KEY_V_STREAMID, ""))
-        vTcp.isChecked = prefs.getBoolean(KEY_V_TCP, true)
-        when (prefs.getString(KEY_V_PROFILE, "standard")) {
-            "low" -> vProfileGroup.check(R.id.videoProfileLow)
-            "high" -> vProfileGroup.check(R.id.videoProfileHigh)
-            else -> vProfileGroup.check(R.id.videoProfileStandard)
+        /** True while the fields are being filled from a slot, so the watchers below do not
+         *  treat the repopulation as a pilot's edit and write it straight back. */
+        var loadingSlot = false
+
+        /** Fills every field from the given server slot. */
+        fun loadSlot(slot: Int) {
+            loadingSlot = true
+            vName.setText(prefs.getString(vKey(slot, "name"), "") ?: "")
+            vHost.setText(prefs.getString(vKey(slot, "host"), "") ?: "")
+            vPort.setText(prefs.getInt(vKey(slot, "port"), 8554).toString())
+            vUser.setText(prefs.getString(vKey(slot, "user"), "") ?: "")
+            // ⚠ THIS LINE WAS MISSING ONCE, AND ITS ABSENCE ERASED THE SAVED PASSWORD.
+            //
+            // Every other field was restored; this one was not, so the box came up blank. The
+            // TextWatcher below then saved the WHOLE config on any edit, writing that blank over
+            // the stored value. So the password survived until the pilot next opened this screen
+            // and touched anything, and then it was gone — which is why it looked like it never
+            // saved.
+            //
+            // ⚠ THE SAME TRAP IS NOW PER SLOT. Every field this function fills must also be
+            // written by the save below. A field read here and not written there loses the
+            // OTHER server's value the moment the pilot switches.
+            vPass.setText(prefs.getString(vKey(slot, "pass"), "") ?: "")
+            vStreamId.setText(prefs.getString(vKey(slot, "streamid"), "") ?: "")
+            vTcp.isChecked = prefs.getBoolean(vKey(slot, "tcp"), true)
+            when (prefs.getString(vKey(slot, "profile"), "standard")) {
+                "low" -> vProfileGroup.check(R.id.videoProfileLow)
+                "high" -> vProfileGroup.check(R.id.videoProfileHigh)
+                else -> vProfileGroup.check(R.id.videoProfileStandard)
+            }
+            when (VideoCodec.fromPref(prefs.getString(vKey(slot, "codec"), null))) {
+                VideoCodec.H265 -> vCodecGroup.check(R.id.videoCodecH265)
+                VideoCodec.H264 -> vCodecGroup.check(R.id.videoCodecH264)
+            }
+            loadingSlot = false
         }
 
         fun selectedProfile(): String = when (vProfileGroup.checkedRadioButtonId) {
             R.id.videoProfileLow -> "low"
             R.id.videoProfileHigh -> "high"
             else -> "standard"
+        }
+
+        fun selectedCodec(): VideoCodec = when (vCodecGroup.checkedRadioButtonId) {
+            R.id.videoCodecH265 -> VideoCodec.H265
+            else -> VideoCodec.H264
+        }
+
+        // The trade is not obvious and its cost lands on someone the pilot cannot see, so the
+        // screen states it. Deliberately NO named clients: which player supports which codec
+        // changes with every release, and a hint that names one is wrong the day that changes.
+        fun refreshCodecHint() {
+            vCodecHint.text = if (selectedCodec() == VideoCodec.H265)
+                "More efficient. Better picture for the bandwidth, but fewer clients play it."
+            else
+                "Most compatible. Plays on the widest range of clients."
         }
 
         fun buildConfig(): DroneVideoStreamer.VideoConfig = DroneVideoStreamer.VideoConfig(
@@ -941,16 +1007,40 @@ class TakConnectActivity : AppCompatActivity() {
             streamId = vStreamId.text.toString().trim(),
             tcp = vTcp.isChecked,
             profile = selectedProfile(),
+            codec = selectedCodec().prefValue,
         )
 
-        // Live-updates the full-URL preview and persists as fields change (no Start/Stop here
-        // — the flight-screen LIVE pill owns starting/stopping the stream; this screen only
-        // edits/saves the server config).
+        /** Puts the button labels back to the pilot's names, so the choice reads as the servers
+         *  they know. An unnamed slot keeps its position as its label — never a blank button. */
+        fun refreshServerLabels() {
+            vServer1.text = prefs.getString(vKey(1, "name"), "")?.takeIf { it.isNotBlank() }
+                ?: "Server 1"
+            vServer2.text = prefs.getString(vKey(2, "name"), "")?.takeIf { it.isNotBlank() }
+                ?: "Server 2"
+        }
+
         val refreshAndSave = {
             val cfg = buildConfig()
             vFullUrl.text = if (cfg.host.isEmpty() || cfg.streamId.isEmpty())
                 "rtsp://…  (enter host + identifier)" else cfg.urlSafe()
+            val slot = activeVideoSlot(prefs)
             prefs.edit()
+                // The slot is where the value LIVES. Both servers keep a complete set,
+                // including the encoding, so swapping networks can also swap the profile.
+                .putString(vKey(slot, "name"), vName.text.toString().trim())
+                .putString(vKey(slot, "host"), cfg.host)
+                .putInt(vKey(slot, "port"), cfg.port)
+                .putString(vKey(slot, "user"), cfg.username)
+                .putString(vKey(slot, "pass"), cfg.password)
+                .putString(vKey(slot, "streamid"), cfg.streamId)
+                .putBoolean(vKey(slot, "tcp"), cfg.tcp)
+                .putString(vKey(slot, "profile"), cfg.profile)
+                .putString(vKey(slot, "codec"), cfg.codec)
+                // ⚠ AND MIRROR THE ACTIVE SLOT ONTO THE PLAIN KEYS. These are what
+                // VideoStreamerHolder.buildConfig and the flight screen's LIVE pill read, and
+                // those sites read them as STRING LITERALS. Mirroring keeps the whole idea of
+                // "two servers" inside this screen: no consumer has to know a slot exists, and
+                // the stream still starts if this mirror is ever the only thing left.
                 .putString(KEY_V_HOST, cfg.host)
                 .putInt(KEY_V_PORT, cfg.port)
                 .putString(KEY_V_USER, cfg.username)
@@ -958,21 +1048,135 @@ class TakConnectActivity : AppCompatActivity() {
                 .putString(KEY_V_STREAMID, cfg.streamId)
                 .putBoolean(KEY_V_TCP, cfg.tcp)
                 .putString(KEY_V_PROFILE, cfg.profile)
+                .putString(KEY_V_CODEC, cfg.codec)
                 .apply()
+            refreshServerLabels()
         }
         val watcher = object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) = refreshAndSave()
+            // ⚠ The guard is not optional. loadSlot fills the fields one at a time, and without
+            // it each setText saves a HALF-SWAPPED config: after the name is the new server's
+            // and the host is still the old one, that mixture goes to the slot. The final save
+            // corrects it, but the intermediate writes are real and one crash inside the
+            // sequence would leave them.
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!loadingSlot) refreshAndSave()
+            }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         }
-        listOf(vHost, vPort, vUser, vPass, vStreamId).forEach { it.addTextChangedListener(watcher) }
-        vTcp.setOnCheckedChangeListener { _, _ -> refreshAndSave() }
+        listOf(vName, vHost, vPort, vUser, vPass, vStreamId)
+            .forEach { it.addTextChangedListener(watcher) }
+        vTcp.setOnCheckedChangeListener { _, _ -> if (!loadingSlot) refreshAndSave() }
         // Persist the profile the moment it changes, so the flight-screen LIVE button (which
         // reads prefs, not this screen's live state) always uses the pilot's current choice.
+        // It goes through refreshAndSave because the profile belongs to the SLOT now, and only
+        // that function knows which slot is active and how to mirror it.
         vProfileGroup.setOnCheckedChangeListener { _, _ ->
-            prefs.edit().putString(KEY_V_PROFILE, selectedProfile()).apply()
+            if (loadingSlot) return@setOnCheckedChangeListener
+            AppLog.v(TAG, "video profile -> ${selectedProfile()}")
+            refreshAndSave()
         }
+        // Same reasoning as the profile group: the LIVE pill reads prefs, so persist immediately.
+        vCodecGroup.setOnCheckedChangeListener { _, _ ->
+            refreshCodecHint()
+            if (loadingSlot) return@setOnCheckedChangeListener
+            AppLog.v(TAG, "video codec -> ${selectedCodec().prefValue}")
+            refreshAndSave()
+        }
+
+        /**
+         * The active-server choice.
+         *
+         * The fields below show the SELECTED server, thus selecting one also makes it live. That
+         * is acceptable here and nowhere else: the flight screen stops the stream in onStop, so
+         * nothing can be streaming while this screen is showing. The swap therefore cannot cut a
+         * feed the team is watching — it decides where the NEXT start goes.
+         *
+         * The order matters. The active slot is written FIRST, so the fields that follow load
+         * from the new slot and every later save lands on it.
+         */
+        vServerGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (loadingSlot) return@setOnCheckedChangeListener
+            val slot = if (checkedId == R.id.videoServer2) 2 else 1
+            if (slot == activeVideoSlot(prefs)) return@setOnCheckedChangeListener
+            prefs.edit().putInt(KEY_V_ACTIVE_SLOT, slot).apply()
+            loadSlot(slot)
+            // Mirror the newly selected server onto the plain keys the streamer reads, and
+            // repaint the URL line. Without this the toggle would move and the stream would
+            // still go to the old server.
+            refreshAndSave()
+            refreshCodecHint()
+            AppLog.i(TAG, "active video server -> slot $slot (${vName.text.toString().trim()})")
+        }
+
+        // Fill the screen from whichever server is active, then paint the derived text.
+        loadingSlot = true
+        vServerGroup.check(if (activeVideoSlot(prefs) == 2) R.id.videoServer2 else R.id.videoServer1)
+        loadingSlot = false
+        loadSlot(activeVideoSlot(prefs))
+        refreshServerLabels()
+        refreshCodecHint()
         refreshAndSave()
+    }
+
+    /** Preference key for one field of one video server slot. */
+    private fun vKey(slot: Int, base: String) = "video_s${slot}_$base"
+
+    /** The server the video goes to now: 1 or 2. */
+    private fun activeVideoSlot(prefs: android.content.SharedPreferences): Int =
+        if (prefs.getInt(KEY_V_ACTIVE_SLOT, 1) == 2) 2 else 1
+
+    /**
+     * Moves a single-server configuration into slot 1, once.
+     *
+     * An install upgrading from a build that had ONE video server keeps its settings on the
+     * plain `video_*` keys. Copying them into slot 1 is what stops the upgrade looking like the
+     * video configuration was wiped.
+     *
+     * It runs one time and marks itself done. It must not run again: after the first edit the
+     * slot is the truth and the plain keys are only a mirror of it, so copying back would undo
+     * whatever the pilot last did on the other server.
+     */
+    private fun migrateVideoSlots(prefs: android.content.SharedPreferences) {
+        if (prefs.getBoolean(KEY_V_SLOTS_MIGRATED, false)) return
+        prefs.edit()
+            .putString(vKey(1, "name"), "Server 1")
+            .putString(vKey(1, "host"), prefs.getString(KEY_V_HOST, "") ?: "")
+            .putInt(vKey(1, "port"), prefs.getInt(KEY_V_PORT, 8554))
+            .putString(vKey(1, "user"), prefs.getString(KEY_V_USER, "") ?: "")
+            .putString(vKey(1, "pass"), prefs.getString(KEY_V_PASS, "") ?: "")
+            .putString(vKey(1, "streamid"), prefs.getString(KEY_V_STREAMID, "") ?: "")
+            .putBoolean(vKey(1, "tcp"), prefs.getBoolean(KEY_V_TCP, true))
+            .putString(vKey(1, "profile"), prefs.getString(KEY_V_PROFILE, "standard") ?: "standard")
+            .putString(vKey(1, "codec"), prefs.getString(KEY_V_CODEC, null) ?: VideoCodec.H264.prefValue)
+            // Slot 2 starts empty and inherits only the defaults. A half-filled second server
+            // would be worse than an obviously blank one.
+            .putString(vKey(2, "name"), "Server 2")
+            .putInt(vKey(2, "port"), 8554)
+            .putBoolean(vKey(2, "tcp"), true)
+            .putString(vKey(2, "profile"), "standard")
+            .putString(vKey(2, "codec"), VideoCodec.H264.prefValue)
+            .putInt(KEY_V_ACTIVE_SLOT, 1)
+            .putBoolean(KEY_V_SLOTS_MIGRATED, true)
+            .apply()
+        AppLog.i(TAG, "video config migrated to slot 1")
+    }
+
+    /**
+     * Locks the active-server toggle without hiding which server is active.
+     *
+     * LOCKED IS NOT DISABLED — the same rule the channel rows follow. The buttons keep full
+     * contrast and their tint, and stop taking touches. A pilot must always be able to SEE
+     * where the video is going; the lock exists to stop an accidental swap, not to hide the
+     * destination.
+     */
+    private fun lockVideoServerToggle(locked: Boolean) {
+        for (id in listOf(R.id.videoServer1, R.id.videoServer2)) {
+            findViewById<android.widget.RadioButton>(id)?.apply {
+                isClickable = !locked
+                isFocusable = !locked
+            }
+        }
     }
 
     private fun enrollAndConnect(
@@ -1096,13 +1300,14 @@ class TakConnectActivity : AppCompatActivity() {
 
     // ---- My Channels ----
 
-
     /**
      * The channels, as the SERVER holds them.
      *
      * This is not a local preference any more. The check box shows the server's `active` state,
      * and a change PUTs the new set to the server — the method a real TAK client uses. Nothing
-     * is stored on the controller, thus nothing here can disagree with the server.
+     * is stored on the phone, thus nothing here can disagree with the server. The old local
+     * picker injected `<dest group>` into outbound CoT, and the server silently dropped every
+     * marker that carried it — proved on the Autel sibling 2026-08-15.
      *
      * EVERY CHANNEL CAN BE SWITCHED ON AND OFF, including a receive-only one. The check box is
      * the `active` flag, and `active` governs RECEIVE as well as send. A first version disabled
@@ -1138,7 +1343,7 @@ class TakConnectActivity : AppCompatActivity() {
                 }
                 // Secondary text is the only hint that the row is locked. The tick stays
                 // full contrast, because the tick is the information.
-                setTextColor(androidx.core.content.ContextCompat.getColor(
+                setTextColor(ContextCompat.getColor(
                     applicationContext,
                     if (takConfigLocked()) R.color.tp_text_secondary else R.color.tp_text_primary))
                 // Enabled for every channel. See the note above: the box is `active`, and a
@@ -1156,8 +1361,7 @@ class TakConnectActivity : AppCompatActivity() {
                 isClickable = !takConfigLocked()
                 isFocusable = !takConfigLocked()
                 buttonTintList = android.content.res.ColorStateList.valueOf(
-                    androidx.core.content.ContextCompat.getColor(
-                        applicationContext, R.color.tp_accent))
+                    ContextCompat.getColor(applicationContext, R.color.tp_accent))
                 setOnCheckedChangeListener { _, checked ->
                     if (updatingChannels) return@setOnCheckedChangeListener
                     ch.active = checked
@@ -1191,7 +1395,7 @@ class TakConnectActivity : AppCompatActivity() {
         TakMissionManager.setActiveChannels(bits) { ok ->
             status.text = if (ok) "Server accepted ${bits.size} active channel(s)."
                           else "The server refused the change. See the log."
-            status.setTextColor(androidx.core.content.ContextCompat.getColor(applicationContext,
+            status.setTextColor(ContextCompat.getColor(applicationContext,
                 if (ok) R.color.tp_state_go else R.color.tp_state_danger))
             // Read it back. The server is the truth, not what was just tapped.
             refreshChannels()
@@ -1240,11 +1444,9 @@ class TakConnectActivity : AppCompatActivity() {
      *  treat a repaint as a pilot's tap and PUT it straight back. */
     private var updatingChannels = false
 
-
     companion object {
         private const val TAG = "TakConnectActivity"
         private const val REQUEST_CODE_DTED_PICK = 2001
-        /** Shared with the flight screen, which reads the TAK lock to gate its channel dialog. */
         internal const val PREFS = "takpilot2_tak"
         private const val KEY_HOST = "host"
         private const val KEY_ENROLL_PORT = "enroll_port"
@@ -1252,7 +1454,10 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_USERNAME = "username"
         private const val KEY_CALLSIGN = "callsign"
         private const val KEY_CAMERA_POINT = "camera_point"
-        private const val KEY_CHANNELS = "channels"          // CSV of selected channel names
+        // LEGACY — the old local channel picker's CSV. Nothing writes it any more (the
+        // channels live on the server since the <dest group> removal); clearEnrollment still
+        // removes it so an upgraded install does not carry it around for ever.
+        private const val KEY_CHANNELS = "channels"
         private const val KEY_LOGGED_OUT = "logged_out"      // true = user logged out; block auto-reconnect
         private const val KEY_UID = "uid"
         private const val KEY_TRUSTSTORE = "truststore_path"
@@ -1283,6 +1488,13 @@ class TakConnectActivity : AppCompatActivity() {
         private const val KEY_V_STREAMID = "video_streamid"
         private const val KEY_V_TCP = "video_tcp"
         private const val KEY_V_PROFILE = "video_profile"
+        /** The outbound codec ("h264"/"h265") — read by VideoStreamerHolder.buildConfig. */
+        private const val KEY_V_CODEC = "video_codec"
+        /** Which of the two video-server slots is live: 1 or 2. The slot keys themselves are
+         *  built by [vKey]; these plain keys stay as the mirror every consumer reads. */
+        private const val KEY_V_ACTIVE_SLOT = "video_active_slot"
+        /** One-shot marker for [migrateVideoSlots]. */
+        private const val KEY_V_SLOTS_MIGRATED = "video_slots_migrated"
     }
 
     /** Action-bar menu button behaves the same as the system back gesture. */

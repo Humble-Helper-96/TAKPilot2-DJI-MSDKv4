@@ -98,7 +98,6 @@ object TakMissionManager {
         }
     }
 
-    /** Pull the channels/groups the logged-in user belongs to (deduped) for the TAK Setup picker. */
     /** The channels this certificate has, with direction and active state. Background, result
      *  on the main thread. */
     fun listChannels(cb: (List<TakMissionClient.Channel>) -> Unit) {
