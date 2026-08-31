@@ -127,6 +127,7 @@ class DebugActivity : AppCompatActivity() {
             AppLog.v(TAG, "export tapped")
             exportLog()
         }
+        setupSrtLatencyControl()
         findViewById<android.widget.Button>(R.id.debugClearButton).setOnClickListener {
             AppLog.clearActive()
             lastRenderedLength = -1
@@ -207,6 +208,52 @@ class DebugActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(intent, "Export debug log"))
+    }
+
+    /**
+     * The SRT latency override, in MILLISECONDS.
+     *
+     * Here rather than on Pre-Flight because it is a property of the network, not a flight
+     * decision — and on a screen at all rather than a constant because 500 ms comes from one
+     * ground test, and the fleet must be able to act on field evidence without a new build
+     * reaching an aircraft that is flying. See [VideoTransport.SRT_LATENCY_DEFAULT_MS] for the
+     * measurements and for how to tell whether the value is right.
+     *
+     * ⚠ **The status line under the box states what was SAVED, never what was typed.** A value
+     * outside the sane range is refused and the default is stored, thus a pilot who types the
+     * microsecond form (500000) is told that the value is 500 and not left believing the box.
+     *
+     * The value is read at every stream start, so a change here takes effect at the next LIVE.
+     */
+    private fun setupSrtLatencyControl() {
+        val field = findViewById<android.widget.EditText>(R.id.debugSrtLatency)
+        val status = findViewById<TextView>(R.id.debugSrtLatencyStatus)
+        val prefs = getSharedPreferences("takpilot2_tak", MODE_PRIVATE)
+
+        fun renderStatus() {
+            val saved = VideoTransport.srtLatencyMs(prefs)
+            status.text = "In use: ${saved} ms" +
+                    if (saved == VideoTransport.SRT_LATENCY_DEFAULT_MS) " (default)" else ""
+        }
+
+        field.setText(VideoTransport.srtLatencyMs(prefs).toString())
+        renderStatus()
+
+        // Saved when the box loses the focus, not on each keystroke: a partly typed "5" out of
+        // "500" is inside the sane range and would be stored as a real value.
+        field.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) return@setOnFocusChangeListener
+            val typed = field.text.toString().trim().toIntOrNull()
+            val use = VideoTransport.clampLatencyMs(typed ?: VideoTransport.SRT_LATENCY_DEFAULT_MS)
+            prefs.edit().putInt(VideoTransport.KEY_SRT_LATENCY_MS, use).apply()
+            if (typed != null && typed != use) {
+                toast("$typed ms is outside ${VideoTransport.SRT_LATENCY_MIN_MS}–" +
+                        "${VideoTransport.SRT_LATENCY_MAX_MS} ms — using $use ms")
+            }
+            field.setText(use.toString())
+            renderStatus()
+            AppLog.i(TAG, "SRT latency -> $use ms")
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()

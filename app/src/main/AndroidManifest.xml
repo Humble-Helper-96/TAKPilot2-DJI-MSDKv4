@@ -125,6 +125,11 @@
 
         <!-- Debug screen: view/export/clear the AppLog file sink. -->
         <activity
+            android:name="com.dji.sdk.sample.tak.VideoServersActivity"
+            android:label="Video Servers"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+        <activity
             android:name="com.dji.sdk.sample.tak.DebugActivity"
             android:label="Debug Log"
             android:screenOrientation="landscape"

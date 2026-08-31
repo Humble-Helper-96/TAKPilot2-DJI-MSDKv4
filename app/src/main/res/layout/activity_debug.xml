@@ -126,6 +126,48 @@
                 android:text="Puts the same numbers in a bar at the bottom of the flight screen. The bar covers part of the video. Use it to watch the system during a flight."
                 android:textColor="@color/tp_text_caption" android:textSize="12sp" />
 
+            <!-- SRT LATENCY. Deliberately here and not on Pre-Flight (operator, 2026-08-29):
+                 the right value is a property of the NETWORK a pilot is on, not a flight
+                 decision, and it is set once by whoever knows the RTT to the server.
+
+                 It is on a screen at all, rather than a constant, because 500 ms is a starting
+                 point from ONE ground test. Field experience must be actionable without
+                 pushing a build to aircraft that are flying. -->
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingTop="16dp"
+                android:text="SRT video latency" android:textColor="@color/tp_text_primary"
+                android:textSize="16sp" android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingTop="4dp">
+                <EditText
+                    android:id="@+id/debugSrtLatency"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:textColor="@color/tp_text_bright"
+                    android:textSize="15sp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:text="milliseconds" android:textColor="@color/tp_text_bright"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/debugSrtLatencyStatus"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="2dp"
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingStart="8dp" android:paddingTop="4dp"
+                android:text="How long SRT has to recover a lost packet, and the delay it adds. Use three to four times the round-trip time to your video server. RTSP does not use this value."
+                android:textColor="@color/tp_text_caption" android:textSize="12sp" />
+
             <Button
                 android:id="@+id/debugExportButton"
                 style="@style/TakButton.Primary"

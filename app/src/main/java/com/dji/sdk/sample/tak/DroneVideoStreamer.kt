@@ -6,6 +6,8 @@ import com.taklite.util.AppLog
 import com.pedro.rtsp.rtsp.Protocol
 import com.pedro.rtsp.rtsp.RtspClient
 import com.pedro.rtsp.utils.ConnectCheckerRtsp
+import com.pedro.srt.srt.SrtClient
+import com.pedro.srt.srt.packets.control.handshake.EncryptionType
 import dji.sdk.camera.VideoFeeder
 import java.nio.ByteBuffer
 
@@ -38,15 +40,55 @@ class DroneVideoStreamer(
     // anything it owns (the foreground service).
     private val onGiveUp: () -> Unit = {},
     private val onStatus: (Boolean, String) -> Unit,
-) : ConnectCheckerRtsp {
+) : ConnectCheckerRtsp, com.pedro.common.ConnectChecker {
 
     data class VideoConfig(
         val host: String,
-        val port: Int,
+        val streamId: String,
+
+        // ONE LOGIN FOR THE SERVER, both protocols. SRT has no login of its own — the SRT
+        // handshake carries a stream id, which is an opaque string, and the media server reads
+        // a user and a password out of it by its own convention.
         val username: String,
         val password: String,
-        val streamId: String,
-        val tcp: Boolean,
+
+        // ONLY THE PORT DIFFERS BETWEEN THE PROTOCOLS, and SRT adds a passphrase. Each keeps
+        // its own value, so a pilot who toggles back and forth finds what they last entered.
+        //
+        // ⚠ [rtspPort] IS USED WHICHEVER TRANSPORT IS SELECTED, and the screen hides its field
+        // under SRT. [advertiseUrl] is an RTSP address because no TAK client plays SRT, so this
+        // is the port the team connects to even while the video leaves over SRT.
+        val rtspPort: Int = VideoTransport.RTSP.defaultPort,
+        val srtPort: Int = VideoTransport.SRT.defaultPort,
+
+        /** How the video leaves the controller. See [VideoTransport]. */
+        val transport: VideoTransport = VideoTransport.RTSP,
+        /** SRT only, MILLISECONDS. See [VideoTransport.SRT_LATENCY_DEFAULT_MS] for the
+         *  evidence, the units trap and the field override. */
+        val srtLatencyMs: Int = VideoTransport.SRT_LATENCY_DEFAULT_MS,
+        /**
+         * SRT only. The media server's `srtPublishPassphrase`, or empty when it has none. It
+         * ENCRYPTS THE STREAM and is not a credential.
+         *
+         * ⚠ A server that sets a passphrase refuses an unencrypted publisher outright, before
+         * it reads the stream id, and answers `SRT_REJ_PEER` — the same refusal it sends for a
+         * wrong login. A missing passphrase looks exactly like bad credentials.
+         *
+         * ⚠ NEVER LOG IT and never put it in a url.
+         */
+        val srtPassphrase: String = "",
+
+        // ---- What the CoT advertises, which is NOT always where the video is pushed ----
+        //
+        // A media server can be unreachable from where the team is and still be the right
+        // place to push: an internal server that forwards to an external one. The screen
+        // resolves this — this server, the other configured server, or nothing — so this class
+        // never has to know a server slot exists.
+        val advertiseEnabled: Boolean = true,
+        val advertiseHost: String = "",
+        val advertisePort: Int = VideoTransport.RTSP.defaultPort,
+        val advertiseUser: String = "",
+        val advertisePass: String = "",
         val profile: String = "standard",   // "original" | "low" | "standard" | "high"
         // The outbound codec ("h264" | "h265") — a Pre-Flight choice, see [VideoCodec].
         // Transcode paths only; passthrough sends the aircraft's own H.264 untouched.
@@ -58,11 +100,43 @@ class DroneVideoStreamer(
         // through to clients instead of running its own transcode on it. Flows through
         // push/advertise/preview URLs alike since they all build on path().
         private fun path(): String = streamId.trim('/') + if (isTranscode) "-Low" else ""
-        fun pushUrl(): String = "rtsp://$host:$port/${path()}"
+        /**
+         * Where the video goes OUT.
+         *
+         *  - RTSP: the credentials are NOT here — they go to the client with setAuthorization.
+         *  - SRT: `srt://host:port/publish:<path>:<user>:<password>`. Everything after the port
+         *    is the STREAM ID, one opaque string, and the media server reads the publisher, the
+         *    path and the credentials out of it.
+         *
+         * ⚠ A colon in the video password breaks the SRT form — the colon separates the parts
+         * of the stream id and there is no escape. [start] logs a warning. RTSP is unaffected.
+         */
+        fun pushUrl(): String = when (transport) {
+            VideoTransport.RTSP -> "rtsp://$host:$rtspPort/${path()}"
+            VideoTransport.SRT ->
+                if (username.isEmpty()) "srt://$host:$srtPort/publish:${path()}"
+                else "srt://$host:$srtPort/publish:${path()}:$username:$password"
+        }
+
+        /** The port the PUSH uses. The login is [username] either way. */
+        val pushPort: Int get() =
+            if (transport == VideoTransport.SRT) srtPort else rtspPort
+
+        /**
+         * The address that goes in the CoT, for the team to play.
+         *
+         * ⚠ ALWAYS RTSP. An SRT push is not playable by any TAK client, so advertising
+         * `srt://…` would put an address on the wire that every viewer fails to open, and the
+         * failure would look like a dead feed rather than a wrong address. It is built from the
+         * ADVERTISE fields, which are not necessarily this server's own. An empty string means
+         * the pilot turned the advertisement off and no video block goes in the CoT.
+         */
         fun advertiseUrl(): String {
-            val cred = if (username.isNotEmpty()) "${enc(username)}:${enc(password)}@" else ""
-            val q = if (tcp) "?tcp" else ""
-            return "rtsp://$cred$host:$port/${path()}$q"
+            if (!advertiseEnabled) return ""
+            val h = advertiseHost.ifEmpty { host }
+            val cred = if (advertiseUser.isNotEmpty())
+                "${enc(advertiseUser)}:${enc(advertisePass)}@" else ""
+            return "rtsp://$cred$h:$advertisePort/${path()}?tcp"
         }
         /**
          * The URL preview shown in Pre-Flight, with the password masked.
@@ -74,19 +148,70 @@ class DroneVideoStreamer(
          * to this screen; see the restore line in TakConnectActivity.setupVideoControls.
          */
         fun urlSafe(): String {
-            val who = when {
+            val secret = when {
                 username.isEmpty() -> ""
-                password.isEmpty() -> "$username:(NO PASSWORD)@"
-                else -> "$username:***@"
+                password.isEmpty() -> "(NO PASSWORD)"
+                else -> "***"
             }
-            val q = if (tcp) "?tcp" else ""
-            return "rtsp://$who$host:$port/${path()}$q"
+            val who = if (username.isEmpty()) "" else "$username:$secret@"
+            return when (transport) {
+                VideoTransport.RTSP -> "rtsp://$who$host:$rtspPort/${path()}?tcp"
+                VideoTransport.SRT ->
+                    if (username.isEmpty()) "srt://$host:$srtPort/publish:${path()}"
+                    else "srt://$host:$srtPort/publish:${path()}:$username:$secret"
+            }
         }
         private fun enc(s: String): String =
             java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     }
 
-    private val client = RtspClient(this)
+    /**
+     * The two push clients behind one set of calls. Only [start] knows which is in use;
+     * everything after it is transport-blind, because the transport is a property of the link
+     * and not of the video.
+     *
+     * [droppedVideoFrames] is the SEND QUEUE overflow count — the one number that separates
+     * "this link is lossy", which SRT repairs, from "this link is too slow", which only a lower
+     * video quality fixes. See [countFrame].
+     */
+    private interface PushClient {
+        fun connect(url: String)
+        fun disconnect()
+        fun reConnect(delayMs: Long)
+        fun setVideoInfo(sps: java.nio.ByteBuffer, pps: java.nio.ByteBuffer, vps: java.nio.ByteBuffer?)
+        fun sendVideo(buffer: java.nio.ByteBuffer, info: MediaCodec.BufferInfo)
+        val droppedVideoFrames: Long
+    }
+
+    private class RtspPushClient(private val c: RtspClient) : PushClient {
+        override fun connect(url: String) = c.connect(url)
+        override fun disconnect() = c.disconnect()
+        override fun reConnect(delayMs: Long) = c.reConnect(delayMs)
+        override fun setVideoInfo(sps: java.nio.ByteBuffer, pps: java.nio.ByteBuffer, vps: java.nio.ByteBuffer?) =
+            c.setVideoInfo(sps, pps, vps)
+        override fun sendVideo(buffer: java.nio.ByteBuffer, info: MediaCodec.BufferInfo) =
+            c.sendVideo(buffer, info)
+        override val droppedVideoFrames: Long get() = c.droppedVideoFrames
+    }
+
+    private class SrtPushClient(private val c: SrtClient) : PushClient {
+        override fun connect(url: String) = c.connect(url)
+        override fun disconnect() = c.disconnect()
+        override fun reConnect(delayMs: Long) = c.reConnect(delayMs)
+        override fun setVideoInfo(sps: java.nio.ByteBuffer, pps: java.nio.ByteBuffer, vps: java.nio.ByteBuffer?) =
+            c.setVideoInfo(sps, pps, vps)
+        override fun sendVideo(buffer: java.nio.ByteBuffer, info: MediaCodec.BufferInfo) =
+            c.sendVideo(buffer, info)
+        override val droppedVideoFrames: Long get() = c.droppedVideoFrames
+    }
+
+    private var client: PushClient? = null
+    // ---- What the link is actually doing (see countFrame) ----
+    //
+    // ⚠ The wire figure is ACCUMULATED, not snapshot: the library reports about once a second
+    // and the line covers ten. Written on the main thread, drained on the encoder thread.
+    private val wireBitsSum = java.util.concurrent.atomic.AtomicLong(0)
+    private val wireSamples = java.util.concurrent.atomic.AtomicInteger(0)
     private val assembler = AnnexBNalAssembler { nal, type -> onNal(nal, type) }
     private var videoListener: VideoFeeder.VideoDataListener? = null
     private var transcoder: StreamTranscoder? = null
@@ -104,6 +229,8 @@ class DroneVideoStreamer(
     private var startNs = 0L
     private var frameCount = 0
     private var frameBytesSinceLog = 0L
+    private var lastRateLogMs = 0L
+    private var framesAtLastLog = 0
 
     // ---- Auto-reconnect with backoff (network drops, server restarts, etc.) ----
     // A dropped connection does NOT tear down the encoder/projection immediately — the capture
@@ -142,15 +269,57 @@ class DroneVideoStreamer(
         paramsSet = false
         startNs = System.nanoTime()
 
-        client.setLogs(false)
-        client.setProtocol(if (config.tcp) Protocol.TCP else Protocol.UDP)
-        if (config.username.isNotEmpty()) client.setAuthorization(config.username, config.password)
-        client.setOnlyVideo(true)
+        // ⚠ SRT carries the credentials inside the stream id, and the colon separates its
+        // parts. A password with a colon produces a stream id the server reads wrongly.
+        if (config.transport == VideoTransport.SRT && config.password.contains(':')) {
+            AppLog.w(TAG, "the video password contains a colon — SRT cannot carry it, " +
+                    "the server will refuse this stream. Change the password or use RTSP.")
+        }
+        // ⚠ SRT refuses a passphrase outside 10–79 characters BY THROWING. Caught here so the
+        // pilot gets a reason instead of a dead LIVE tap.
+        if (config.transport == VideoTransport.SRT && config.srtPassphrase.isNotEmpty() &&
+            config.srtPassphrase.length !in SRT_PASSPHRASE_MIN..SRT_PASSPHRASE_MAX) {
+            onStatus(false, "SRT passphrase must be $SRT_PASSPHRASE_MIN–$SRT_PASSPHRASE_MAX characters")
+            return
+        }
+
+        val push: PushClient = when (config.transport) {
+            VideoTransport.RTSP -> RtspPushClient(RtspClient(this).apply {
+                setLogs(false)
+                // TCP always. The UDP option went with the checkbox — see [VideoTransport.RTSP].
+                setProtocol(Protocol.TCP)
+                if (config.username.isNotEmpty()) setAuthorization(config.username, config.password)
+                setOnlyVideo(true)
         // Our own handleConnectionDropped() backoff loop is authoritative on when to give up
         // (RECONNECT_MAX_MS wall-clock, not attempt count) — set this high so the library's own
-        // internal reTries counter (decremented by every client.reConnect() call) never becomes
+        // internal reTries counter (decremented by every client?.reConnect() call) never becomes
         // the limiting factor first.
-        client.setReTries(1000)
+
+        // Our own handleConnectionDropped() backoff loop is authoritative on when to give up
+        // (RECONNECT_MAX_MS wall-clock, not attempt count) — set this high so the library's own
+        // internal reTries counter (decremented by every client?.reConnect() call) never becomes
+        // the limiting factor first.
+                setReTries(1000)
+            })
+            VideoTransport.SRT -> SrtPushClient(SrtClient(this).apply {
+                setLogs(false)
+                // ⚠ NO setAuthorization CALL — it throws in this client. The credentials are
+                // already in the url that pushUrl() built.
+                setOnlyVideo(true)
+                setReTries(1000)
+                latencyMs = VideoTransport.clampLatencyMs(config.srtLatencyMs)
+                // The MPEG-TS mux must be told the codec; the default is H.264, so an H.265
+                // stream sent without this is muxed under the wrong stream type and no viewer
+                // decodes it. RTSP learns it from the VPS instead.
+                setVideoCodec(
+                    if (VideoCodec.fromPref(config.codec).isHevc) com.pedro.common.VideoCodec.H265
+                    else com.pedro.common.VideoCodec.H264)
+                if (config.srtPassphrase.isNotEmpty()) {
+                    setPassphrase(config.srtPassphrase, EncryptionType.AES128)
+                }
+            })
+        }
+        client = push
 
         if (screenMode) {
             // Screen-capture: no aircraft-feed listener, no NAL assembler, no keyframe
@@ -230,7 +399,8 @@ class DroneVideoStreamer(
         transcoder = null
         screenEncoder?.release()
         screenEncoder = null
-        try { client.disconnect() } catch (t: Throwable) { AppLog.w(TAG, "disconnect: ${t.message}") }
+        try { client?.disconnect() } catch (t: Throwable) { AppLog.w(TAG, "disconnect: ${t.message}") }
+        client = null
         streaming = false
         paramsSet = false
         sps = null; pps = null
@@ -257,9 +427,9 @@ class DroneVideoStreamer(
                 if (s != null && p != null) {
                     paramsSet = true
                     bootstrapHandler.removeCallbacks(bootstrapRunnable)
-                    client.setVideoInfo(ByteBuffer.wrap(s), ByteBuffer.wrap(p), null)
+                    client?.setVideoInfo(ByteBuffer.wrap(s), ByteBuffer.wrap(p), null)
                     AppLog.i(TAG, "source params found; sps=${s.size}B pps=${p.size}B — connecting")
-                    client.connect(config.pushUrl())
+                    client?.connect(config.pushUrl())
                 } else {
                     return // keep waiting for both SPS and PPS
                 }
@@ -269,7 +439,7 @@ class DroneVideoStreamer(
             val info = MediaCodec.BufferInfo()
             val ptsUs = (System.nanoTime() - startNs) / 1000
             info.set(0, nal.size, ptsUs, if (type == 5) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
-            client.sendVideo(ByteBuffer.wrap(nal), info)
+            client?.sendVideo(ByteBuffer.wrap(nal), info)
             countFrame(nal.size)
         } catch (t: Throwable) {
             AppLog.w(TAG, "frame push failed: ${t.message}")
@@ -285,9 +455,9 @@ class DroneVideoStreamer(
         try {
             // A non-null VPS is what tells the RTSP library this stream is H.265; it switches
             // the packetiser and the SDP with it. H.264 passes null, same as before.
-            client.setVideoInfo(s, p, v)
+            client?.setVideoInfo(s, p, v)
             AppLog.i(TAG, "encoder params ready — connecting")
-            client.connect(config.pushUrl())
+            client?.connect(config.pushUrl())
         } catch (t: Throwable) {
             AppLog.w(TAG, "transcode connect failed: ${t.message}")
         }
@@ -296,21 +466,58 @@ class DroneVideoStreamer(
     private fun onEncodedFrame(buf: ByteBuffer, info: MediaCodec.BufferInfo) {
         if (stopped) return
         try {
-            client.sendVideo(buf, info)
+            client?.sendVideo(buf, info)
             countFrame(info.size)
         } catch (t: Throwable) {
             AppLog.w(TAG, "encoded frame push failed: ${t.message}")
         }
     }
 
+    /**
+     * WHAT THE LINK IS DOING, every [RATE_LOG_INTERVAL_MS], at INFO so it reaches `app.log`
+     * without Detailed logging on. Only while CONNECTED: the encoder runs from the moment LIVE
+     * is tapped, so a push that never connected would otherwise report a healthy rate for a
+     * stream the server had refused.
+     *
+     * ⚠ Two numbers, because a stream that looks bad fails in one of two ways that need
+     * opposite fixes. `drops` climbing means the SEND QUEUE overflowed — the encoder is making
+     * more video than the link can carry, which is BANDWIDTH and no transport fixes it.
+     * `drops` at zero with a torn picture at the far end means packets are being LOST, which is
+     * what SRT recovers and RTSP does not.
+     *
+     * `wire` is the library's own count of what reaches the socket — headers, the MPEG-TS
+     * packing under SRT, and any retransmission — averaged over the SAME window as the payload
+     * rate beside it. Well above the payload rate means the link is repairing itself.
+     */
     private fun countFrame(size: Int) {
+        if (!streaming) return
         frameCount++
         frameBytesSinceLog += size
-        if (frameCount % 150 == 0) {
-            AppLog.v(TAG, "video: $frameCount frames pushed, ${frameBytesSinceLog / 1024}KB in last 150")
-            frameBytesSinceLog = 0
-        }
+        val now = System.currentTimeMillis()
+        if (lastRateLogMs == 0L) { lastRateLogMs = now; framesAtLastLog = frameCount; return }
+        val elapsed = now - lastRateLogMs
+        if (elapsed < RATE_LOG_INTERVAL_MS) return
+
+        val frames = frameCount - framesAtLastLog
+        val kbps = (frameBytesSinceLog * 8L) / elapsed        // bytes/ms*8 == kbit/s
+        val fps = frames * 1000L / elapsed
+        val wireBits = wireBitsSum.getAndSet(0)
+        val wireN = wireSamples.getAndSet(0)
+        val wire = if (wireN > 0) " wire=${wireBits / wireN / 1000}kbps" else ""
+        AppLog.i(TAG, "link [${config.transport.label}]: ${kbps}kbps$wire  ${fps}fps  " +
+                "drops=${client?.droppedVideoFrames ?: 0}  frames=$frameCount")
+
+        lastRateLogMs = now
+        framesAtLastLog = frameCount
+        frameBytesSinceLog = 0
     }
+
+    /** One per-second sample from whichever client is running. Averaged in [countFrame]. */
+    private fun recordWireBitrate(bitrate: Long) {
+        wireBitsSum.addAndGet(bitrate)
+        wireSamples.incrementAndGet()
+    }
+
 
     // ---- ConnectCheckerRtsp ----
 
@@ -356,7 +563,11 @@ class DroneVideoStreamer(
     private fun handleConnectionDropped(reason: String) {
         if (stopped) return
         streaming = false
-        if (reason.contains("Endpoint malformed") || reason.contains("access denied")) {
+        // ⚠ A REFUSAL IS NOT A DROPPED LINK. SRT_REJ_PEER is the server declining the publish
+        // — a missing or wrong passphrase, a credential it does not accept, or a path it will
+        // not take. All three are fixed on a screen, never by waiting.
+        if (reason.contains("Endpoint malformed") || reason.contains("access denied") ||
+            reason.contains("SRT_REJ_PEER")) {
             // Not a transient network problem — a config error retrying won't fix. Give up now.
             AppLog.w(TAG, "non-retryable failure ($reason) — giving up immediately")
             giveUp("Stream failed: $reason")
@@ -377,7 +588,7 @@ class DroneVideoStreamer(
             return
         }
         AppLog.i(TAG, "reconnect attempt in ${reconnectDelayMs}ms (elapsed ${elapsedMs}ms, reason=$reason)")
-        client.reConnect(reconnectDelayMs)
+        client?.reConnect(reconnectDelayMs)
         reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
     }
 
@@ -390,10 +601,32 @@ class DroneVideoStreamer(
     }
     override fun onAuthErrorRtsp() { streaming = false; onStatus(false, "Stream auth error (check user/pass)") }
     override fun onAuthSuccessRtsp() { AppLog.i(TAG, "auth ok") }
-    override fun onNewBitrateRtsp(bitrate: Long) {}
+    override fun onNewBitrateRtsp(bitrate: Long) = recordWireBitrate(bitrate)
+
+    // ---- ConnectChecker (the SRT client) ----
+    //
+    // The two clients report the same events under different names. Each override is one line
+    // into the handler the RTSP side already uses, so the state machine exists once.
+
+    override fun onConnectionStarted(url: String) { AppLog.i(TAG, "connecting ${config.urlSafe()}") }
+    override fun onConnectionSuccess() = onConnectionSuccessRtsp()
+    override fun onConnectionFailed(reason: String) = onConnectionFailedRtsp(reason)
+    override fun onDisconnect() = onDisconnectRtsp()
+    /** SRT has no credential exchange of its own — a refused login comes back as a failed
+     *  connection, not as this. Kept because the interface has it. */
+    override fun onAuthError() = onAuthErrorRtsp()
+    override fun onAuthSuccess() { AppLog.i(TAG, "auth ok") }
+    override fun onNewBitrate(bitrate: Long) = recordWireBitrate(bitrate)
+
 
     companion object {
         private const val TAG = "DroneVideoStreamer"
+        private const val RATE_LOG_INTERVAL_MS = 10_000L
+
+        /** The library's own limits — outside these [SrtClient.setPassphrase] throws. */
+        private const val SRT_PASSPHRASE_MIN = 10
+        private const val SRT_PASSPHRASE_MAX = 79
+
         private const val RECONNECT_MAX_MS = 60_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 2_000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
@@ -419,11 +652,28 @@ object VideoStreamerHolder {
         if (host.isEmpty() || streamId.isEmpty()) return null
         return DroneVideoStreamer.VideoConfig(
             host = host,
-            port = p.getInt("video_port", 8554),
+            streamId = streamId,
+            // ⚠ Keys must match the KEY_V_* constants in TakConnectActivity. They are literals
+            // here only because this file has no access to those private constants.
+            //
+            // The RTSP set is read whichever transport is selected — it is what the CoT
+            // advertises. The advertise set is RESOLVED by the screen, so this class never has
+            // to know a server slot exists.
             username = p.getString("video_user", "") ?: "",
             password = p.getString("video_pass", "") ?: "",
-            streamId = streamId,
-            tcp = p.getBoolean("video_tcp", true),
+            rtspPort = p.getInt("video_rtsp_port", VideoTransport.RTSP.defaultPort),
+            srtPort = p.getInt("video_srt_port", VideoTransport.SRT.defaultPort),
+            transport = VideoTransport.fromPref(p.getString("video_transport", null)),
+            // Read on every start, so a change on the Debug screen takes effect at the next
+            // LIVE and not at the next application launch.
+            srtLatencyMs = VideoTransport.srtLatencyMs(p),
+            srtPassphrase = p.getString("video_srt_passphrase", "") ?: "",
+            advertiseEnabled = p.getBoolean("video_adv_on", true),
+            advertiseHost = p.getString("video_adv_host", "") ?: "",
+            advertisePort = p.getInt("video_adv_port", VideoTransport.RTSP.defaultPort),
+            advertiseUser = p.getString("video_adv_user", "") ?: "",
+            advertisePass = p.getString("video_adv_pass", "") ?: "",
+
             profile = p.getString("video_profile", "standard") ?: "standard",
             codec = p.getString("video_codec", VideoCodec.H264.prefValue)
                 ?: VideoCodec.H264.prefValue,
