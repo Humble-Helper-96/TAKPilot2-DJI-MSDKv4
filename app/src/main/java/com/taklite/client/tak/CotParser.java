@@ -174,17 +174,26 @@ public class CotParser {
             }
 
             if (uid == null) return null;
-            if (lat == 0 && lon == 0) return null;
+            // Both flags come from the ONE rule in isLiveClient, and the 0,0 test below needs
+            // them first.
+            boolean persistent = isPersistentType(type, archived, hasTakv);
+            boolean liveClient = isLiveClient(hasTakv, hasEndpoint, persistent);
+            // A point at 0,0 is not a position. A marker or a track there is dropped, as before.
+            // A LIVE CLIENT at 0,0 is kept: that is a client with no fix that says "I am here, my
+            // position is not known" (CotBuilder.buildPLINoFix). It must enter the contact list,
+            // or nobody can send it a marker (operator, 2026-09-10). Only a live client: a
+            // persistent item at 0,0 would never be swept and would hold a contact slot for the
+            // life of the process (review, 2026-09-10). The map and the AR overlay do not draw
+            // a contact at 0,0 — TakMapMarkers takes its marker off, ArOverlayView skips it.
+            if (lat == 0 && lon == 0 && !liveClient) return null;
             if (callsign == null || callsign.isEmpty()) callsign = uid;
             if (team == null) team = "Cyan";
             if (role == null) role = "Team Member";
 
             TakUser user = new TakUser(uid, callsign, lat, lon, alt, team, role, staleTime);
             user.setType(type);   // raw CoT type, used to resolve the map symbol/icon
-            user.setPersistent(isPersistentType(type, archived));
-            // Both flags were computed and only logged. The map needs them: they are what
-            // separates a live client from a placed marker when the TYPE cannot.
-            user.setLiveClient(hasTakv || hasEndpoint);
+            user.setPersistent(persistent);
+            user.setLiveClient(liveClient);
 
             // Retention diagnostic — AIR DOMAIN EXCLUDED ON PURPOSE.
             //
@@ -365,8 +374,15 @@ public class CotParser {
      * @param archived whether the sender marked the event archived (see the parse loop). Treated as
      *                 a corroborating signal only — the type test carries the decision, because it
      *                 is not confirmed that every sending client puts the flag on the wire.
+     * @param hasTakv  whether the event carried a {@code <takv>} block. A client puts that block
+     *                 on ITS OWN position report and on nothing else. Thus an event with it is a
+     *                 live client, never a placed item, whatever else it says. Without this
+     *                 guard a client that put {@code <archived/>} on its own report would become
+     *                 immortal and would draw as a 2525 frame. No client on the operator's net
+     *                 does that (census below and 2026-09-10), but the code did not stop it.
      */
-    public static boolean isPersistentType(String type, boolean archived) {
+    public static boolean isPersistentType(String type, boolean archived, boolean hasTakv) {
+        if (hasTakv) return false;
         // ARCHIVED IS REQUIRED, AND THE TYPE STRING IS NOT TRUSTED ON ITS OWN.
         //
         // Measured on the operator's live net, 2026-08-04 — 605 consecutive inbound events:
@@ -395,6 +411,37 @@ public class CotParser {
         if (isUnitType(type)) return false;
         if (isTransientPoint(type)) return false;
         return true;
+    }
+
+    /**
+     * True for a LIVE CLIENT: a person or a machine that runs a TAK client and reports its own
+     * position. False for a PLACED item: a marker that somebody put on the map. The map draws a
+     * live client as a team dot and a placed item as a 2525 frame.
+     *
+     * This is the ONE place that holds the rule. Every renderer reads the flag and none of them
+     * repeats the test.
+     *
+     * The type cannot answer the question. CloudTAK reports its own users as {@code a-f-G-E-V-C}.
+     * That is not the {@code -G-U-} unit form, thus a type test drew a CloudTAK operator with a
+     * 2525 frame while every other client got a dot (operator, 2026-08-16).
+     *
+     * {@code takv} and {@code endpoint} alone cannot answer it either. TAK Aware puts a
+     * {@code <contact endpoint=…>} on a marker that it FORWARDS. The marker then looked like a
+     * live client and drew as a cyan dot — all four affiliations, the same dot (operator,
+     * 2026-09-10). Measured on the wire that day:
+     * <pre>
+     *   175  a-f-G-U-C      archived=false  takv=true   endpoint=true   team PLI
+     *   168  a-f-G-E-V-C    archived=false  takv=true   endpoint=true   CloudTAK users
+     *    46  a-f-G-E-V-C    archived=false  takv=false  endpoint=false  CloudTAK users
+     *     4  a-{f,h,n,u}-G  archived=TRUE   takv=false  endpoint=true   forwarded markers
+     * </pre>
+     * {@code endpoint} is on both groups. {@code archived} splits them, and so does {@code takv}.
+     * Thus: a persistent item (archived, and no takv) is a placed item and is never a live client.
+     * An item that is not persistent is a live client when it carries takv or an endpoint.
+     */
+    public static boolean isLiveClient(boolean hasTakv, boolean hasEndpoint, boolean persistent) {
+        if (persistent) return false;
+        return hasTakv || hasEndpoint;
     }
 
     /**

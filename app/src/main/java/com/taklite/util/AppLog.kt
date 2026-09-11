@@ -11,9 +11,14 @@ import android.provider.MediaStore
 import android.util.Log
 import java.io.File
 import java.io.FileWriter
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Drop-in replacement for android.util.Log across the TAK/bridge code.
@@ -27,6 +32,26 @@ import java.util.Locale
  * while wall-clock age doesn't (idle stretches produce no data, so a time window
  * is a poor proxy for "how much log data is this"). Oldest files are deleted
  * first whenever a new session file would push the folder over the cap.
+ *
+ * ## Lines are buffered, and the public file stays open (2026-09-10)
+ *
+ * Before this date each line went to the public archive on its own: one MediaStore stream
+ * opened, one line written, the stream closed. On Android 10 each of those is a call to the
+ * system media scanner. Measured in flight with logging on: the scanner used 120 % of a CPU
+ * core, more than the application, and the screen stuttered. With logging off, the same
+ * flight was smooth.
+ *
+ * Now a line goes to a buffer. The buffer goes to both files when it holds [FLUSH_BYTES], or
+ * [FLUSH_INTERVAL_MS] after its first line, whichever is first. The public stream is opened
+ * once per archive file and stays open until that file is full, logging is turned off, or a
+ * crash is written. Thus the scanner sees one open and one close per file, not one per line.
+ *
+ * ⚠ THREE THINGS MUST NOT WAIT FOR THE TIMER. An error line (E) and a crash trace (FATAL)
+ * flush at once — a trace that waits one second is a trace that the crash can take with it.
+ * Turning logging off flushes and closes. The Debug screen's Clear and Delete flush first,
+ * or they would clear the file and leave the last second of lines to reappear after it.
+ * A process that the system KILLS (an OOM kill has no crash handler) can lose the last
+ * [FLUSH_INTERVAL_MS] of lines. That is the accepted cost.
  *
  * Vendor-neutral (JDK + Android framework only) so it can live alongside
  * com.taklite.client.tak without breaking that package's no-SDK-imports rule.
@@ -44,6 +69,11 @@ object AppLog {
     private const val RETENTION_MS = 2L * 60 * 60 * 1000
     private const val PUBLIC_SUBFOLDER = "TAKPilot2 Logs"
     private const val PUBLIC_ARCHIVE_MAX_BYTES = 10L * 1024 * 1024
+    /** The buffer goes to the files at this size. 8 KB is about 60 lines: at the 2 Hz bridge
+     *  tick with the TAK subsystem on, that is one or two seconds of log. */
+    private const val FLUSH_BYTES = 8 * 1024
+    /** …or this long after the buffer's first line, so a quiet period does not hold lines. */
+    private const val FLUSH_INTERVAL_MS = 1000L
 
     private lateinit var appContext: Context
     private lateinit var prefs: SharedPreferences
@@ -53,8 +83,18 @@ object AppLog {
     private val timestampFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private val fileTimestampFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
 
-    // Public archive state — a new timestamped file per rotation, opened lazily.
+    // The buffer and its timer. All of these are read and written under [writeLock].
+    private val pending = StringBuilder()
+    private var pendingBytes = 0
+    private var scheduledFlush: ScheduledFuture<*>? = null
+    private val flusher: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "AppLog-flush").apply { isDaemon = true }
+    }
+
+    // Public archive state — a new timestamped file per rotation, opened lazily. The stream
+    // stays open for the life of the file; see the class note.
     private var publicUri: Uri? = null
+    private var publicStream: OutputStream? = null
     private var publicLegacyFile: File? = null
     private var publicBytesWritten: Long = 0
 
@@ -71,8 +111,18 @@ object AppLog {
     var enabled: Boolean
         get() = initialized && prefs.getBoolean(KEY_ENABLED, false)
         set(value) {
-            if (initialized) prefs.edit().putBoolean(KEY_ENABLED, value).apply()
+            if (!initialized) return
+            prefs.edit().putBoolean(KEY_ENABLED, value).apply()
+            // Off: the buffer goes to the files now, and the public file closes, so the
+            // archive holds every line up to the switch and the scanner can index the file.
+            if (!value) synchronized(writeLock) { flushLocked(closePublic = true) }
         }
+
+    /** Writes the buffer to both files now. For a caller that is about to read the file. */
+    @JvmStatic
+    fun flush() {
+        synchronized(writeLock) { flushLocked(closePublic = false) }
+    }
 
     /**
      * Detail level. false ("Standard") = only the pre-existing bridge/TAK Log.* call
@@ -226,6 +276,8 @@ object AppLog {
     @JvmStatic
     fun clearActive() {
         synchronized(writeLock) {
+            // Flush first, or the buffered lines land in the file the pilot just cleared.
+            flushLocked(closePublic = false)
             try {
                 FileWriter(activeLogFile(), false).use { it.write("") }
             } catch (t: Throwable) {
@@ -237,6 +289,7 @@ object AppLog {
     @JvmStatic
     fun deleteAll() {
         synchronized(writeLock) {
+            flushLocked(closePublic = false)
             try {
                 logDir().listFiles()?.forEach { it.delete() }
             } catch (t: Throwable) {
@@ -269,16 +322,53 @@ object AppLog {
             append('/').append(tag).append(": ").append(msg).append('\n')
         }
         synchronized(writeLock) {
+            pending.append(line)
+            pendingBytes += line.length
+            // E and FATAL go to the files NOW — see the class note. FATAL also closes the
+            // public file, because the process is about to end and nothing else will.
+            val urgent = level == "E" || level == "FATAL"
+            if (urgent || pendingBytes >= FLUSH_BYTES) {
+                flushLocked(closePublic = level == "FATAL")
+            } else if (scheduledFlush == null) {
+                scheduledFlush = flusher.schedule(
+                    { synchronized(writeLock) { flushLocked(closePublic = false) } },
+                    FLUSH_INTERVAL_MS, TimeUnit.MILLISECONDS,
+                )
+            }
+        }
+    }
+
+    /**
+     * Writes the buffer to both files. Caller holds [writeLock].
+     *
+     * @param closePublic also close the public stream after the write. The next flush opens a
+     *   new archive file. Used when the process is about to end (a crash) or logging is off.
+     */
+    private fun flushLocked(closePublic: Boolean) {
+        scheduledFlush?.cancel(false)
+        scheduledFlush = null
+        if (pending.isNotEmpty()) {
+            val chunk = pending.toString()
+            pending.setLength(0)
+            pendingBytes = 0
             try {
                 val active = activeLogFile()
                 if (active.exists() && active.length() > MAX_FILE_SIZE_BYTES) {
                     rotate(active)
                 }
-                FileWriter(active, true).use { it.append(line) }
+                FileWriter(active, true).use { it.append(chunk) }
             } catch (t: Throwable) {
             }
-            writePublic(line)
+            writePublic(chunk)
         }
+        if (closePublic) closePublicLocked()
+    }
+
+    /** Closes the public stream. The next write opens a new archive file. Caller holds [writeLock]. */
+    private fun closePublicLocked() {
+        runCatching { publicStream?.close() }
+        publicStream = null
+        publicUri = null
     }
 
     private fun rotate(active: File) {
@@ -294,16 +384,19 @@ object AppLog {
 
     // ---- Public archive: Downloads/TAKPilot2 Logs — capped by total size, not age ----
 
-    private fun writePublic(line: String) {
+    /** [chunk] is one or more whole lines — the buffer. Caller holds [writeLock]. */
+    private fun writePublic(chunk: String) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) writePublicMediaStore(line)
-            else writePublicLegacy(line)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) writePublicMediaStore(chunk)
+            else writePublicLegacy(chunk)
         } catch (t: Throwable) {
             // Public archive is best-effort — never let it take down the private log path.
+            // A stream that failed is dropped; the next flush opens a new file.
+            closePublicLocked()
         }
     }
 
-    private fun writePublicMediaStore(line: String) {
+    private fun writePublicMediaStore(chunk: String) {
         val resolver = appContext.contentResolver
         if (publicUri == null) {
             val values = ContentValues().apply {
@@ -318,12 +411,19 @@ object AppLog {
             enforcePublicArchiveCapMediaStore()
         }
         val uri = publicUri ?: return
-        resolver.openOutputStream(uri, "wa")?.use { it.write(line.toByteArray()) }
-        publicBytesWritten += line.toByteArray().size
-        if (publicBytesWritten > MAX_FILE_SIZE_BYTES) publicUri = null   // next write starts a fresh file
+        // ONE open per file, not one per line. This is the whole reason for the buffer.
+        val out = publicStream
+            ?: resolver.openOutputStream(uri, "wa")?.also { publicStream = it }
+            ?: return
+        val bytes = chunk.toByteArray()
+        out.write(bytes)
+        out.flush()
+        publicBytesWritten += bytes.size
+        // Full: close it, so the scanner indexes it, and let the next flush start a new file.
+        if (publicBytesWritten > MAX_FILE_SIZE_BYTES) closePublicLocked()
     }
 
-    private fun writePublicLegacy(line: String) {
+    private fun writePublicLegacy(chunk: String) {
         val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), PUBLIC_SUBFOLDER)
         if (!dir.exists()) dir.mkdirs()
         var f = publicLegacyFile
@@ -332,7 +432,7 @@ object AppLog {
             publicLegacyFile = f
             enforcePublicArchiveCapLegacy(dir, keep = f)
         }
-        FileWriter(f, true).use { it.append(line) }
+        FileWriter(f, true).use { it.append(chunk) }
     }
 
     /** Deletes the oldest archive entries (by DATE_ADDED) until the folder is back under the cap. */

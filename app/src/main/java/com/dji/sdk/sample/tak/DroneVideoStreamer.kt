@@ -550,6 +550,14 @@ class DroneVideoStreamer(
         }
     }
     override fun onConnectionFailedRtsp(reason: String) {
+        // The pilot stopped the push, and the server then closed its side. That is the normal
+        // end of a stream and not a fault; handleConnectionDropped already ignores it, but the
+        // line above it logged "connection failed" after every stop (from the Autel tree,
+        // 2026-09-10).
+        if (stopped) {
+            AppLog.i(TAG, "push closed after stop: $reason")
+            return
+        }
         AppLog.w(TAG, "connection failed: $reason")
         handleConnectionDropped(reason)
     }

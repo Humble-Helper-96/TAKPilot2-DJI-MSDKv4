@@ -32,13 +32,13 @@ public class TakUser {
     private boolean persistent;
 
     /**
-     * True when this contact announced itself as a LIVE TAK CLIENT — it carried {@code <takv>}
-     * or a {@code <contact endpoint=…>}.
+     * True for a LIVE TAK CLIENT: a person or a machine that reports its own position. False for
+     * a placed marker. Set at parse by {@link CotParser#isLiveClient}, which holds the rule and
+     * the measurements behind it. A renderer reads this flag; it does not repeat the test.
      *
-     * This is the only reliable way to tell a person running a client from a point somebody
-     * placed. The CoT TYPE cannot do it: CloudTAK reports its own users as {@code a-f-G-E-V-C},
-     * which is not the {@code -G-U-} unit form, so a type test draws them with a 2525 marker
-     * frame instead of a team dot (operator, 2026-08-16).
+     * A live client draws as a team dot. A placed marker draws as a 2525 frame. Neither the CoT
+     * type nor the {@code <takv>}/{@code endpoint} marks can decide this alone — see that method.
+     * Never true together with {@link #persistent}.
      */
     private boolean liveClient;
     /** <track course> in degrees true, or -1 when the sender did not report one. ADS-B

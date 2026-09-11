@@ -427,20 +427,44 @@ class DroneTakBridge(
         pushPilotPli()
     }
 
+    /** Latch for the one log line in pushPilotPli. Transition-only: this runs on the 2s tick. */
+    @Volatile private var pilotFixMissing = false
+
     /**
      * The PILOT's marker — the operator on the ground, at the controller's own position.
      *
-     * Until now nothing published this. `TakManager.sendPLI` had no caller anywhere in the
-     * source, so the operator's callsign sat at latitude 0, longitude 0 (the connect-time
-     * registration message) until it went stale, and the team's map showed the pilot in the Gulf
-     * of Guinea.
+     * Until 2026-08-05 nothing published this. `TakManager.sendPLI` had no caller anywhere in
+     * the source, so the operator's callsign sat at latitude 0, longitude 0 (the connect-time
+     * registration message) until it went stale.
      *
-     * Returns without sending when there is no fix. That is deliberate: the marker REFRESHES its
-     * stale time on every push, so a wrong position never ages off the team's map the way silence
-     * does. No marker is better than a marker in the wrong place.
+     * ## With no fix, the marker still goes out (2026-09-10, from the Autel tree)
+     *
+     * Before this date the method returned without sending when there was no fix. Thus the
+     * application published no pilot marker, and the controller was not in the CONTACT LIST of
+     * the other clients. Nobody can send a marker to a client that is not in their list. A phone
+     * indoors, or with a cold GPS receiver, could not receive markers. That is a worse condition
+     * than an unknown position.
+     *
+     * The behaviour, and its cost, live in the shared core: `TakManager.sendPilotPLI` takes a
+     * null location and sends the "position not known" form (`how="h-g-i-g-o"`, 0,0, `hae`,
+     * `ce` and `le` not known, no track, no GPS source). Read the note there.
      */
     private fun pushPilotPli() {
-        val fix = OperatorLocation.latest ?: return
+        val fix = OperatorLocation.latest
+        if (fix == null) {
+            if (!pilotFixMissing) {
+                pilotFixMissing = true
+                AppLog.w(TAG, "the controller has no position fix — the pilot marker goes out " +
+                    "in the \"position not known\" form (0,0). It stays in the contact list " +
+                    "of the team, thus you can still send markers to this controller. The " +
+                    "real position replaces it at the first fix. See OperatorLocation for " +
+                    "what feeds this.")
+            }
+        } else if (pilotFixMissing) {
+            pilotFixMissing = false
+            AppLog.i(TAG, "the controller has a fix — the pilot marker publishes a real " +
+                "position and no longer publishes 0,0")
+        }
         runCatching {
             // No team argument — the pilot marker's colour is TakManager's PILOT_TEAM, always,
             // so the operator is one consistent colour across both airframes.

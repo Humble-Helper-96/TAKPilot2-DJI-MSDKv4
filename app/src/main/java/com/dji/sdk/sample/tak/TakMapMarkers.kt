@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Handler
@@ -288,7 +290,16 @@ object TakMapMarkers {
 
     /** Add/update a contact in the model. Returns true if the map needs redrawing. */
     private fun stage(user: TakUser): Boolean {
-        if (user.lat == 0.0 && user.lon == 0.0) return false
+        // A contact at 0,0 has no position. It is not drawn — and a marker it HAD is taken off.
+        // Since 2026-09-10 the parser keeps a live client at 0,0 (a teammate with no fix, see
+        // CotParser). Each such report refreshes the contact, thus the stale sweep never runs
+        // for it; a plain `return` left that teammate's old dot at their last real position,
+        // fresh-coloured, for as long as their receiver stayed cold. remove() posts its own
+        // rebuild, so this returns false. The dot comes back at their next real fix.
+        if (user.lat == 0.0 && user.lon == 0.0) {
+            remove(user.uid)
+            return false
+        }
         if (hidden.contains(user.uid)) return false
         // A marker we currently own is already drawn by TakDropMarkers; the server echoing it
         // back must not draw a second copy. Note "currently" — once the pilot deletes the pin
@@ -656,17 +667,15 @@ object TakMapMarkers {
                 if (user.hasCourse()) courseBucket(user.course).toDouble() else null,
             )
         }
-        // ⚠ A LIVE CLIENT IS ALWAYS A TEAM DOT, whatever its CoT type says.
-        //
-        // CloudTAK reports its own users as `a-f-G-E-V-C`. That is not the `-G-U-` unit form,
-        // so the type test in milMarkerRes accepts it and drew a CloudTAK operator with a 2525
-        // marker frame while every other TAK client got a dot (operator, 2026-08-16). The type
-        // cannot answer this question; `takv`/`endpoint` can, and the parser has always known.
+        // A LIVE CLIENT IS A TEAM DOT, whatever its CoT type says. The parser sets the flag
+        // and holds the rule and the measurements — see CotParser.isLiveClient. Do not test
+        // the type, takv, endpoint or archived here. Each of those alone gave a wrong icon
+        // (operator, 2026-08-16 and 2026-09-10).
         //
         // Nulling res here rather than adding a branch keeps symbolHeightPx correct too — a dot
         // and a 2525 frame are not the same height.
         val res = if (user.isLiveClient) null else milMarkerRes(user.type)
-        val raw = if (res != null) makeMilIcon(res, user.callsign ?: user.uid)
+        val raw = if (res != null) makeMilIcon(res, user.callsign ?: user.uid, user.isStale)
                   else makeIcon(user.callsign ?: user.uid, user.team, user.isStale)
         return centerOnSymbol(raw, symbolHeightPx(res != null))
     }
@@ -721,6 +730,9 @@ object TakMapMarkers {
     private const val AIR_ICON_DP = 12f    // ADS-B traffic — context, not something acted on
     private const val PLI_DOT_DP = 10f     // team position dots
     private const val LABEL_SP = 8f
+    /** Alpha of a stale 2525 frame, 0-255. Grey and faded, with the label still readable.
+     *  Shared with ArOverlayView so the map and the AR view age a frame the same way. */
+    internal const val STALE_ALPHA = 150
 
     /**
      * The generated bitmaps are symbol-on-top, callsign-label-below. osmdroid could anchor at
@@ -762,11 +774,17 @@ object TakMapMarkers {
     } catch (e: Exception) { null }
 
     /** MIL-STD-2525 affiliation frame + callsign label below. */
-    fun makeMilIcon(resId: Int, callsign: String): Bitmap {
+    fun makeMilIcon(resId: Int, callsign: String, isStale: Boolean = false): Bitmap {
         val ctx = appContext
         val d = density
         val size = (MIL_ICON_DP * d).toInt()
         val icon = ctx?.let { drawableToBitmap(it, resId, size) }
+        // A stale marker draws grey, the same as a stale team dot in makeIcon. Before this the
+        // frame looked the same fresh or stale, and the stale sweep re-drew an identical bitmap.
+        val iconPaint = if (isStale) Paint().apply {
+            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+            alpha = STALE_ALPHA
+        } else null
 
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE; textSize = LABEL_SP * d; typeface = Typeface.DEFAULT_BOLD
@@ -782,7 +800,7 @@ object TakMapMarkers {
 
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        if (icon != null) c.drawBitmap(icon, (w - size) / 2f, 0f, null)
+        if (icon != null) c.drawBitmap(icon, (w - size) / 2f, 0f, iconPaint)
 
         val labelLeft = (w - labelW) / 2f
         val labelTop = (size + gap).toFloat()

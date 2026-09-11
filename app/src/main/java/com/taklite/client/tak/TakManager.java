@@ -299,20 +299,44 @@ public class TakManager implements TakClient.TakClientListener {
      * <p>No {@code team} parameter on purpose: the pilot marker is always {@link #PILOT_TEAM}.
      * The signature used to take one and silently ignore it, which promised callers a choice
      * the method never offered.
+     *
+     * <p><b>{@code location} may be null: the controller has no fix.</b> The marker still goes
+     * out, in the "position not known" form of {@link CotBuilder#buildPLINoFix} (operator,
+     * 2026-09-10). Before that date the caller sent nothing without a fix, thus the operator
+     * was not in the contact list of the other clients, and nobody could send them a marker.
+     * A controller indoors or with a cold receiver was not reachable. That is a worse condition
+     * than an unknown position.
+     *
+     * <p>⚠ Know the cost. A published marker REFRESHES: each send puts the stale time forward.
+     * Silence let the marker age off; this does not. A "not known" marker stays in every
+     * client's list, and at 0,0 on the map of a client that draws it, for as long as the
+     * controller has no fix. The real position replaces it at the first fix.
+     *
+     * <p>This lives HERE and not in the caller so that every app tree gets the same behaviour
+     * from the shared core.
      */
     public void sendPilotPLI(Location location, String callsign, String role,
                              int battery, String videoUrl) {
-        if (client != null && connected) {
+        if (client == null || !connected) return;
+        String xml;
+        String where;
+        if (location != null) {
             lastLat = location.getLatitude();
             lastLon = location.getLongitude();
-            String xml = CotBuilder.buildPLI(uid, pilotCallsign(callsign), PILOT_TEAM, role,
-                    location.getLatitude(), location.getLongitude(), location.getAltitude(),
+            double ce = location.hasAccuracy() ? location.getAccuracy() : 0;
+            xml = CotBuilder.buildPLI(uid, pilotCallsign(callsign), PILOT_TEAM, role, true,
+                    location.getLatitude(), location.getLongitude(), location.getAltitude(), ce,
                     location.getBearing(), location.getSpeed(), battery,
                     takvPlatform, deviceWithCallsign(callsign), takvOs, takvVersion, videoUrl);
-            sendCot(xml);
-            AppLog.d(TAG, "Pilot PLI sent: " + pilotCallsign(callsign) + " @ " + lastLat + ","
-                    + lastLon + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
+            where = lastLat + "," + lastLon;
+        } else {
+            xml = CotBuilder.buildPLINoFix(uid, pilotCallsign(callsign), PILOT_TEAM, role, battery,
+                    takvPlatform, deviceWithCallsign(callsign), takvOs, takvVersion, videoUrl);
+            where = "position not known";
         }
+        sendCot(xml);
+        AppLog.d(TAG, "Pilot PLI sent: " + pilotCallsign(callsign) + " @ " + where
+                + (videoUrl != null && !videoUrl.isEmpty() ? " (+video)" : ""));
     }
 
     /**
@@ -559,16 +583,14 @@ public class TakManager implements TakClient.TakClientListener {
             String cs = callsign != null ? callsign : uid;
             // Registration message so the server lists this client and applies channel routing.
             //
-            // ⚠ IT CARRIES 0,0 BECAUSE THERE IS NO FIX YET, AND THAT IS WHY IT MUST BE REPLACED.
-            // Until 2026-08-05 nothing replaced it: sendPLI had no caller anywhere, so the
-            // operator's callsign sat at latitude 0 longitude 0 on the team's map until it went
-            // stale. The bridge now publishes a real pilot position every tick once the
-            // controller has a fix. If it never gets one, this message simply goes stale and the
-            // marker disappears — which is the right outcome, because a marker at 0,0 is worse
-            // than no marker.
-            String initCot = CotBuilder.buildPLI(uid, pilotCallsign(cs), PILOT_TEAM, role,
-                    0, 0, 0, 0, 0, 100,
-                    takvPlatform, deviceWithCallsign(cs), takvOs, takvVersion);
+            // There is no fix at this point, thus it goes out in the "position not known" form
+            // (how="h-g-i-g-o", 0,0, ce/le/hae not known). Until 2026-08-05 nothing replaced it:
+            // sendPLI had no caller anywhere, so the operator's callsign sat at 0,0 on the team's
+            // map until it went stale. The bridge now sends a pilot PLI on every tick: the real
+            // position when the controller has a fix, and this same "not known" form when it
+            // does not (operator, 2026-09-10 — see sendPilotPLI).
+            String initCot = CotBuilder.buildPLINoFix(uid, pilotCallsign(cs), PILOT_TEAM, role,
+                    100, takvPlatform, deviceWithCallsign(cs), takvOs, takvVersion, null);
             client.sendMessage(initCot);
             AppLog.d(TAG, "Initial PLI sent to register with server (position follows)");
         }

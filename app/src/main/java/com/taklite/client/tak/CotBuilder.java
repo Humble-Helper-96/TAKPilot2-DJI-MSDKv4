@@ -10,7 +10,18 @@ public class CotBuilder {
     private static final SimpleDateFormat COT_DATE_FORMAT;
     private static final String COT_VERSION = "2.0";
     private static final String PLI_TYPE = "a-f-G-U-C";
+    /** `how` of a PLI with a real fix: machine, GPS. */
     private static final String PLI_HOW = "m-g";
+    /**
+     * `how` of a PLI WITHOUT a fix: "garbage in, garbage out". The CoT code that says the point
+     * came from nowhere. A receiver that reads `how` can see that this point is not a fix.
+     */
+    private static final String PLI_HOW_NO_FIX = "h-g-i-g-o";
+    /**
+     * The CoT value for "not known" in `hae`, `ce` and `le`. A receiver must not use a number
+     * that carries this value. It goes on the wire as the literal digits, the same as ATAK sends.
+     */
+    public static final String UNKNOWN = "9999999";
     private static final long STALE_DURATION_MS = 300000; // 5 minutes — matches ATAK default
 
     // Drone (air) track: friendly-Air-Military-rotorcraftH-unmanned(Q). ATAK/taklite CotParser
@@ -85,7 +96,7 @@ public class CotBuilder {
      * @param takvVersion  the {@code version} attribute — the caller's real app version, not a
      *   string owned by this shared class (which has no version of its own to report).
      */
-    /** Back-compat overload: no video advertised. */
+    /** Back-compat overload: no video advertised, accuracy not known. */
     public static String buildPLI(String uid, String callsign, String team, String role,
                                    double lat, double lon, double alt,
                                    double bearing, double speed, int battery,
@@ -102,9 +113,55 @@ public class CotBuilder {
      * is a screen capture of the controller, and it keeps running when the aircraft is down — but
      * the drone PLI stops the moment there is no GPS fix, so a video advertised there became
      * unreachable in exactly the case the screen-capture design exists to cover.
+     *
+     * Back-compat overload: accuracy not known, thus `ce` goes out as {@link #UNKNOWN}.
      */
     public static String buildPLI(String uid, String callsign, String team, String role,
                                    double lat, double lon, double alt,
+                                   double bearing, double speed, int battery,
+                                   String takvPlatform, String takvDevice,
+                                   String takvOs, String takvVersion, String videoUrl) {
+        return buildPLI(uid, callsign, team, role, true, lat, lon, alt, 0, bearing, speed,
+                battery, takvPlatform, takvDevice, takvOs, takvVersion, videoUrl);
+    }
+
+    /**
+     * A PLI for a client that has NO position fix.
+     *
+     * The client must still be in the contact list of the other clients. Nobody can send a marker
+     * to a client that is not in the list (operator, 2026-09-10). Thus the message goes out with
+     * the callsign, the endpoint, the team, the battery, the takv block and the video url — all
+     * the fields that make the client reachable — and a point that says "not known":
+     * <ul>
+     *   <li>{@code how="h-g-i-g-o"} in place of {@code m-g}: the point is not a GPS fix.</li>
+     *   <li>{@code lat="0.0" lon="0.0"} with {@code hae}, {@code ce} and {@code le} at
+     *       {@link #UNKNOWN}.</li>
+     *   <li>No {@code <track>} and no {@code <precisionlocation>}: there is no course, no speed
+     *       and no GPS source to report.</li>
+     * </ul>
+     * A PLI with a real fix carries {@code m-g}, the true {@code ce} of the fix and the GPS
+     * source. A receiver can tell the two apart from any one of those three fields.
+     *
+     * ⚠ The receive side must agree. {@code CotParser.parse} keeps a 0,0 event only when it
+     * carries {@code <takv>} or a contact endpoint — see the note there.
+     */
+    public static String buildPLINoFix(String uid, String callsign, String team, String role,
+                                        int battery, String takvPlatform, String takvDevice,
+                                        String takvOs, String takvVersion, String videoUrl) {
+        return buildPLI(uid, callsign, team, role, false, 0, 0, 0, 0, 0, 0, battery,
+                takvPlatform, takvDevice, takvOs, takvVersion, videoUrl);
+    }
+
+    /**
+     * @param positionKnown true for a real fix. False makes the "position not known" form — see
+     *   {@link #buildPLINoFix}; the lat/lon/alt/ce/bearing/speed arguments are then ignored.
+     * @param ce circular error of the fix in metres, or 0 (or less) when the caller does not know
+     *   it. An unknown accuracy goes out as {@link #UNKNOWN}. Before 2026-09-10 every PLI sent
+     *   {@link #UNKNOWN} whatever the receiver reported, thus the field told a teammate nothing.
+     */
+    public static String buildPLI(String uid, String callsign, String team, String role,
+                                   boolean positionKnown,
+                                   double lat, double lon, double alt, double ce,
                                    double bearing, double speed, int battery,
                                    String takvPlatform, String takvDevice,
                                    String takvOs, String takvVersion, String videoUrl) {
@@ -118,23 +175,36 @@ public class CotBuilder {
         sb.append("<event version=\"").append(COT_VERSION).append("\"");
         sb.append(" type=\"").append(PLI_TYPE).append("\"");
         sb.append(" uid=\"").append(escapeXml(uid)).append("\"");
-        sb.append(" how=\"").append(PLI_HOW).append("\"");
+        sb.append(" how=\"").append(positionKnown ? PLI_HOW : PLI_HOW_NO_FIX).append("\"");
         sb.append(" time=\"").append(time).append("\"");
         sb.append(" start=\"").append(start).append("\"");
         sb.append(" stale=\"").append(stale).append("\"");
         sb.append(">");
-        sb.append("<point lat=\"").append(lat).append("\"");
-        sb.append(" lon=\"").append(lon).append("\"");
-        sb.append(" hae=\"").append(alt).append("\"");
-        sb.append(" ce=\"9999999\" le=\"9999999\" />");
+        if (positionKnown) {
+            sb.append("<point lat=\"").append(lat).append("\"");
+            sb.append(" lon=\"").append(lon).append("\"");
+            sb.append(" hae=\"").append(alt).append("\"");
+            // One decimal. The value arrives as a float from the receiver; as a raw double it
+            // printed its float residue, 4.567 as "4.566999912261963" (review, 2026-09-10).
+            sb.append(" ce=\"").append(ce > 0 ? String.format(Locale.US, "%.1f", ce) : UNKNOWN)
+              .append("\"");
+            sb.append(" le=\"").append(UNKNOWN).append("\" />");
+        } else {
+            sb.append("<point lat=\"0.0\" lon=\"0.0\"");
+            sb.append(" hae=\"").append(UNKNOWN).append("\"");
+            sb.append(" ce=\"").append(UNKNOWN).append("\"");
+            sb.append(" le=\"").append(UNKNOWN).append("\" />");
+        }
         sb.append("<detail>");
         sb.append("<contact callsign=\"").append(escapeXml(callsign)).append("\" endpoint=\"*:-1:stcp\" />");
         sb.append("<__group name=\"").append(escapeXml(team)).append("\"");
         sb.append(" role=\"").append(escapeXml(role)).append("\" />");
         sb.append("<status battery=\"").append(battery).append("\" />");
-        sb.append("<track course=\"").append(bearing).append("\"");
-        sb.append(" speed=\"").append(speed).append("\" />");
-        sb.append("<precisionlocation geopointsrc=\"GPS\" altsrc=\"GPS\" />");
+        if (positionKnown) {
+            sb.append("<track course=\"").append(bearing).append("\"");
+            sb.append(" speed=\"").append(speed).append("\" />");
+            sb.append("<precisionlocation geopointsrc=\"GPS\" altsrc=\"GPS\" />");
+        }
         sb.append("<takv device=\"").append(escapeXml(takvDevice)).append("\"");
         sb.append(" os=\"").append(escapeXml(takvOs)).append("\"");
         sb.append(" platform=\"").append(escapeXml(takvPlatform)).append("\"");
