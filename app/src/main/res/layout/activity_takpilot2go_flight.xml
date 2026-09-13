@@ -357,7 +357,7 @@
         android:layout_gravity="top"
         android:orientation="horizontal"
         android:paddingHorizontal="8dp"
-        android:paddingTop="6dp">
+        android:paddingTop="8dp">
 
         <!-- STATUS, left. Specification §4.2 fixes the order: back, TAK, battery, signal, GPS,
              RTH. The capsule is what separates these from the video now. -->
@@ -369,8 +369,8 @@
             android:gravity="center_vertical"
             android:minHeight="@dimen/hud_capsule_height"
             android:orientation="horizontal"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="2dp">
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="3dp">
 
         <ImageButton
             android:id="@+id/flightBackButton"
@@ -490,8 +490,8 @@
             android:gravity="center_vertical"
             android:minHeight="@dimen/hud_capsule_height"
             android:orientation="horizontal"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="2dp">
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="3dp">
 
         <!-- Drop-pin heads the right-hand cluster and is deliberately the LARGEST control in the
              bar: it is the most-used action on this screen, and a pilot reaching for it is

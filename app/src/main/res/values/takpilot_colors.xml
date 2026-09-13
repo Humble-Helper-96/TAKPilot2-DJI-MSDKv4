@@ -98,10 +98,6 @@
 
     <!-- HUD text drop-shadow, so readouts stay legible over bright video. -->
     <color name="tp_shadow">#CC000000</color>
-    <!-- Wash behind the flight-screen HUD text panels. 40% black: enough to lift the
-         readouts off snow or wet asphalt, light enough to see movement through it.
-         Flight-tuned (operator, 2026-08-04) — do not re-tune without the aircraft. -->
-    <color name="tp_hud_panel_scrim">#66000000</color>
     <!-- Warning-banner severity tints. The banner sits on live video, so these are
          near-opaque: white text must stay legible over an arbitrary bright scene.
          Specification §4.8 names both values. -->
@@ -126,7 +122,13 @@
     <color name="tp_hud_signal_poor">#F44336</color>
     <color name="tp_hud_obstacle_warn">#FFCC00</color>
     <color name="tp_hud_obstacle_danger">#FF3B30</color>
-    <color name="tp_hud_toggle_off">#3A3A3A</color>
+    <!-- ⚠ tp_hud_toggle_off AND tp_hud_panel_scrim WERE REMOVED HERE ON 2026-09-13, from all
+         three trees at once. The first was the flat fill of the LIVE and REC switches and the
+         second was the wash behind the HUD text panels; the pills replaced the switches and the
+         outline replaced the panels (specification §4.3, §6.7), so nothing drew either one in
+         any tree. They were kept through the port only because the DJI trees still used them.
+         An idle pill takes tp_pill_idle_fill. Do not re-add a scrim to a screen that has no
+         panels. -->
     <color name="tp_hud_toggle_active">#E53935</color>
     <color name="tp_hud_toggle_reconnect">#FFB74D</color>
     <!-- NOT free to re-tune: it matches the magenta the ADS-B gateway tags its own tracks
