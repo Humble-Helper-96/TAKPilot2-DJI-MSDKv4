@@ -84,10 +84,24 @@
     <!-- The floating toolbar capsules. Large radius: "you touch this". -->
     <dimen name="hud_control_radius">20dp</dimen>
 
-    <!-- ⚠ A MINIMUM FOR BOTH TOOLBAR CAPSULES, NEVER A FIXED HEIGHT. The two clusters hold
-         different things, so they measure differently and two capsules that begin on one line
-         would end on another. A minimum can only make a capsule taller, thus it can never clip
-         its own content. -->
-    <dimen name="hud_capsule_height">40dp</dimen>
+    <!-- ⚠ BOTH TOOLBAR CAPSULES MUST BE THIS TALL, AND IT IS A MINIMUM, NOT A HEIGHT.
+         The two clusters hold different things, so they measure differently: the ACTIONS
+         capsule's tallest child is the 46dp drop pin and the STATUS capsule's is a 34dp icon.
+         Two capsules that begin on the same line and end on different ones read as a mistake.
+
+         ⚠ IT IS DERIVED, NOT CHOSEN: the actions capsule's natural height, which is the drop
+         pin plus the capsule's own paddingVertical on each side.
+
+             46dp drop pin + 2 x 3dp paddingVertical = 52dp
+
+         A value BELOW that does nothing at all === the actions capsule is already taller, and
+         the status capsule stays short. It was 40dp in the DJI trees from the 2026-09-13 port
+         until this was caught by comparing the three trees, and the capsules were not level.
+         If the drop pin or the padding changes, this changes with them.
+
+         A MINIMUM rather than a fixed height because either cluster may still grow: a longer
+         signal readout, a taller button style, a density not yet seen. minHeight can only make
+         a capsule taller, thus it can never clip its own content. -->
+    <dimen name="hud_capsule_height">52dp</dimen>
 
 </resources>
