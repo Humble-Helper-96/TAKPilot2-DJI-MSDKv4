@@ -314,9 +314,10 @@ class FieldGuideActivity : AppCompatActivity() {
         entry(
             listOf(arPill(on = false) to "Off", arPill(on = true) to "On"),
             "AR: markers on the video",
-            "This draws the markers on the live image near their positions. A marker outside " +
-                "the image shows as an arrow at the edge, which gives the direction to turn " +
-                "the camera.\n\n" +
+            "This draws the markers on the live image near their positions. The button is " +
+                "green when it is on, and it is ON when you open the flight screen. A marker " +
+                "outside the image shows as an arrow at the edge, which gives the direction to " +
+                "turn the camera.\n\n" +
                 "Touch and hold: select what the app draws (My Markers, Team Markers, Team " +
                 "Positions, Air Traffic, Weather) and set the air-traffic range.",
             listOf(

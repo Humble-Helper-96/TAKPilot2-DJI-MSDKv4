@@ -169,17 +169,21 @@
             <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
                  ISO/shutter the camera actually chose beneath it.
 
-                 Width is the MAP's width, not a number of its own: the map is the widest thing in
-                 this column, so matching it is what makes the exposure block, the readouts and the
-                 map read as one right-hand instrument stack instead of the slider hanging out over
-                 the video. It also tracks the h440dp dimen override for free. -->
+                 ⚠ match_parent, NOT @dimen/flight_map_size. The PANEL is the map's width and
+                 bg_hud_panel adds 8dp of padding on each side, so a child given the map's width
+                 is 16dp wider than the space it has. The panel sets gravity="end", thus the
+                 overflow went off the LEFT and clipped the "-2" label clean in half (operator,
+                 2026-08-18). match_parent insets the child within the padding, which is what the
+                 panel comment above always said the children do. The slider is 16dp narrower
+                 than the map and still reads as one stack, because the PANEL edge is what the
+                 eye follows, not the slider's. -->
             <com.dji.sdk.sample.takpilot2.EvSliderView
                 android:id="@+id/evSlider"
-                android:layout_width="@dimen/flight_map_size"
+                android:layout_width="match_parent"
                 android:layout_height="24dp" />
 
             <LinearLayout
-                android:layout_width="@dimen/flight_map_size"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 

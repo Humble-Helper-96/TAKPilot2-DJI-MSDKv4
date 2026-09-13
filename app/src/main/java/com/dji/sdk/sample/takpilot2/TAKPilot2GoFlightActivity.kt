@@ -433,6 +433,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         arButton.setOnClickListener { onArToggleTapped() }
         // Same long-press idiom as RTH (reset home) and drop-pin (markers list).
         arButton.setOnLongClickListener { onArOptionsTapped(); true }
+        // ON WHEN THE SCREEN OPENS (operator, 2026-08-15 on the Autel sibling, 2026-08-18
+        // here). Started here rather than in onResume deliberately: onDestroy stops the
+        // overlay, thus each entry to the flight screen brings it up on, while a mere pause —
+        // a dialog, the Field Guide — leaves it as the pilot set it. Turning it off and
+        // returning to the screen does bring it back; that is the operator's choice of
+        // "always on" over "remember my last setting".
+        arOverlay.start()
         refreshArButton()
 
         findViewById<ImageButton>(R.id.flightDropPinButton).setOnClickListener { onDropPinTapped() }
