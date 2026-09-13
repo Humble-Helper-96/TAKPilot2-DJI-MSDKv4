@@ -1,6 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The IDLE state of a toggle pill in the flight screen's actions capsule. Specification §6.7.
+     Deliberately colourless — white on the capsule's black — because a status colour here would
+     compete with the pill that is actually ON.
+
+     ⚠ THE GEOMETRY IS SHARED WITH bg_pill_active AND bg_pill_unknown AND MUST STAY SO. A control
+     that changes size when it turns on reads as a different control. Only the colour carries the
+     state.
+
+     The literals it held until 2026-09-13 were already these token values, so naming them moved
+     no pixel. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#33FFFFFF" />
-    <stroke android:width="1.5dp" android:color="#99FFFFFF" />
+    <corners android:radius="@dimen/hud_pill_radius" />
+    <solid android:color="@color/tp_pill_idle_fill" />
+    <stroke android:width="@dimen/hud_pill_stroke" android:color="@color/tp_pill_idle_stroke" />
 </shape>

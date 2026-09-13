@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Black outline around the flight-screen mini-map. Specification §4.9.
+
+     WHY: the map sits over live video with no panel behind it, the same as the HUD readouts
+     since the translucent blocks were removed. Its own tiles are pale — a road layer over a
+     light background — so its EDGE disappears against a bright scene exactly as the white text
+     did, and the map stops reading as a distinct instrument.
+
+     WHY THE SAME WEIGHT AS THE TEXT: hud_text_outline_width is the one per-device value the
+     whole HUD uses for its edge, so the map, the readouts and the EV slider carry a single
+     treatment rather than three values that drift apart.
+
+     This is the FOREGROUND of the map container, not of the map view itself. The container is
+     what the size toggle resizes, thus the outline follows the map to its expanded size with no
+     second value. A GradientDrawable stroke is inset by half its width inside the bounds, so
+     unlike a Canvas stroke on text it cannot be clipped by the view edge.
+
+     ⚠ THE CORNER MUST MATCH THE CONTAINER'S CLIP, AND THAT CLIP IS NOT THIS RADIUS. A stroke is
+     centred on a path inset by half its width, so the OUTER edge this frame presents has radius
+     (hud_pill_radius + stroke/2). The activity clips at (hud_pill_radius + stroke), putting the
+     map's cut edge on the MIDDLE of this stroke, because clipping at the bare 8dp leaves a
+     sliver of map outside the border on every corner.
+
+     ⚠ WIDENING THIS TO CHASE THE LAST OF THAT SEAM WAS TRIED AND REJECTED ON THE SIBLING
+     (operator, 2026-09-12): "close enough ... dont thicken it up". A hair of pale map can still
+     be found at a corner under magnification. One HUD edge weight is worth more than a perfect
+     corner. Do not give this frame its own width. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="@android:color/transparent" />
+
+    <corners android:radius="@dimen/hud_pill_radius" />
+
+    <stroke
+        android:width="@dimen/hud_text_outline_width"
+        android:color="@color/tp_hud_outline" />
+</shape>

@@ -159,24 +159,37 @@
              flush on one right edge as a single instrument stack. Letting it wrap would push
              the panel past the map on its padding alone, which reads as a misalignment.
              Children are match_parent so they inset with the panel's padding. -->
+        <!-- ⚠ THE TRANSLUCENT PANEL IS GONE (specification §4.3) and the readouts carry a BLACK
+             OUTLINE instead === see OutlinedTextView. The panel stopped white text washing out
+             over snow, wet asphalt or a white roof, and it worked, but it covered live video the
+             pilot flies from; its opacity was walked 55 % to 40 % to 20 % on the Autel sibling
+             chasing that trade. An outline is legible on any background and covers only the
+             pixels around the glyphs.
+
+             ⚠ REMOVING A BACKGROUND SILENTLY REMOVES ITS PADDING. bg_hud_panel supplied 8dp on
+             each side and 4dp top and bottom. The HORIZONTAL 8dp is restored explicitly, because
+             the block's width is the map's width and the children inset within it. The VERTICAL
+             4dp is deliberately NOT restored: it existed to hold the text off the panel's edge,
+             there is no panel now, and this is the SHORTEST screen of the three === that 16dp is
+             what pays for the outline's own padding. See the budget in dimens.xml. -->
         <LinearLayout
             android:layout_width="@dimen/flight_map_size"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_hud_panel"
             android:gravity="end"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingHorizontal="8dp">
 
             <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
                  ISO/shutter the camera actually chose beneath it.
 
-                 ⚠ match_parent, NOT @dimen/flight_map_size. The PANEL is the map's width and
-                 bg_hud_panel adds 8dp of padding on each side, so a child given the map's width
-                 is 16dp wider than the space it has. The panel sets gravity="end", thus the
-                 overflow went off the LEFT and clipped the "-2" label clean in half (operator,
-                 2026-08-18). match_parent insets the child within the padding, which is what the
-                 panel comment above always said the children do. The slider is 16dp narrower
-                 than the map and still reads as one stack, because the PANEL edge is what the
-                 eye follows, not the slider's. -->
+                 ⚠ match_parent, NOT @dimen/flight_map_size. The BLOCK is the map's width and
+                 carries 8dp of padding on each side, so a child given the map's width is 16dp
+                 wider than the space it has. The block sets gravity="end", thus the overflow
+                 went off the LEFT and clipped the "-2" label clean in half (operator,
+                 2026-08-18). match_parent insets the child within the padding.
+
+                 That 8dp came from bg_hud_panel until 2026-09-13 and is now explicit on the
+                 block === the fault this note describes is unchanged, and so is the fix. -->
             <com.dji.sdk.sample.takpilot2.EvSliderView
                 android:id="@+id/evSlider"
                 android:layout_width="match_parent"
@@ -187,14 +200,14 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
-                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                <com.dji.sdk.sample.takpilot2.OutlinedTextView style="@style/flightReadoutText" android:layout_width="0dp"
                     android:layout_weight="1" android:gravity="start" android:text="-2" />
 
-                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                <com.dji.sdk.sample.takpilot2.OutlinedTextView style="@style/flightReadoutText" android:layout_width="0dp"
                     android:layout_weight="1" android:gravity="center"
                     android:letterSpacing="0.08" android:text="EV" android:textColor="@color/tp_accent" />
 
-                <TextView style="@style/flightReadoutText" android:layout_width="0dp"
+                <com.dji.sdk.sample.takpilot2.OutlinedTextView style="@style/flightReadoutText" android:layout_width="0dp"
                     android:layout_weight="1" android:gravity="end" android:text="+2" />
             </LinearLayout>
 
@@ -204,14 +217,14 @@
                  anywhere on it, and the time is what a pilot writes in a log, calls on the radio,
                  and matches against the flight record afterwards. Seconds included: the HUD ticks
                  at 500ms, so the digit is live for a pilot timing a leg. -->
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvClock"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="2dp"
                 android:gravity="end"
                 android:text="00:00:00" />
 
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvOverlayText"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="4dp"
@@ -221,7 +234,7 @@
             <!-- Gimbal look angle, its own view so it can carry the same accuracy colour as the
                  crosshair centre ring: placement error scales as 1/sin^2(pitch), so a shallow angle
                  is a real accuracy warning rather than decoration. See updateGimbalPitch. -->
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvGimbalPitch"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="4dp"
@@ -239,22 +252,23 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- BOTTOM HUD PANEL, pinned above the map: RTH, HOME, FAA. Same backing as the top
-             panel, for the same reason. Order is fixed by specification §4.3. -->
+        <!-- BOTTOM HUD BLOCK, pinned above the map: RTH, HOME, FAA. Order is fixed by
+             specification §4.3. The panel is gone here for the same reason as the top block ===
+             see the note there, including why the vertical padding is not restored. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="6dp"
-            android:background="@drawable/bg_hud_panel"
             android:gravity="end"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingHorizontal="8dp">
 
 
             <!-- RTH height AS THE AIRCRAFT REPORTS IT, not as Pre-Flight requested. A set can be
                  accepted and not applied, or rejected while the screen keeps showing the number the
                  pilot typed. This is the one a pilot is about to rely on. Shows a dashed placeholder
                  until the aircraft has answered, because unknown must not look like a value. -->
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvRthAltitude"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="2dp"
@@ -264,7 +278,7 @@
             <!-- Home distance and bearing. Moved out of the telemetry block and down here, under
                  RTH: the two belong together — how far home is, and how high the aircraft will
                  climb to get there. -->
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvHomeDistance"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="2dp"
@@ -272,7 +286,7 @@
                 android:text="HOME" />
 
             <!-- FAA UASFM ceiling; own view so it can turn amber/red independently. Advisory. -->
-            <TextView
+            <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvFaaCeiling"
                 style="@style/flightReadoutText"
                 android:layout_marginBottom="6dp"
@@ -286,8 +300,19 @@
         <FrameLayout
             android:id="@+id/flightMapContainer"
             android:layout_width="@dimen/flight_map_size"
-            android:layout_height="@dimen/flight_map_height">
+            android:layout_height="@dimen/flight_map_height"
+            android:foreground="@drawable/bg_map_outline">
 
+            <!-- ⚠ mapbox_renderTextureMode="true" IS LOAD-BEARING FOR THE ROUNDED CORNERS.
+                 In texture mode this map renders into a TextureView, which is drawn into the
+                 ordinary view hierarchy and CAN be clipped by the container's outline. In the
+                 default surface mode it renders into a SurfaceView, which the system composites
+                 separately === a parent's outline clip does not touch it, so the corners would go
+                 back to square while the border stayed rounded, with no error anywhere.
+
+                 The flag was already set here before the corners needed it, for a reason this
+                 tree does not record. Do not remove it without checking the map corners AND
+                 finding out what else it was for. Specification §4.9 names this trap. -->
             <com.mapbox.mapboxsdk.maps.MapView
                 android:id="@+id/flightMapView"
                 android:layout_width="match_parent"
@@ -319,15 +344,33 @@
     <!-- Instrument toolbar: TAKPilot2's blue chrome, houses status readouts + flight actions.
          Solid bar overlaid on the video (not letterboxed space) — same overlay-on-FPV pattern
          already used by the HUD/status bars below. -->
+    <!-- ⚠ THE BAND IS TRANSPARENT AND KEEPS THE flightToolbar ID ON PURPOSE.
+         The AR overlay and the obstacle-edge view read this view's HEIGHT as their top chrome
+         inset, so that an edge arrow or a proximity label cannot be parked where the chrome
+         hides it === the case that matters most is the aircraft directly overhead. Splitting the
+         bar into two capsules without keeping a view that reports the band's height would have
+         broken both, silently. The band draws nothing; the two capsules inside it do. -->
     <LinearLayout
         android:id="@+id/flightToolbar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="@drawable/bg_toolbar"
-        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="4dp">
+        android:paddingHorizontal="8dp"
+        android:paddingTop="6dp">
+
+        <!-- STATUS, left. Specification §4.2 fixes the order: back, TAK, battery, signal, GPS,
+             RTH. The capsule is what separates these from the video now. -->
+        <LinearLayout
+            android:id="@+id/flightToolbarStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_hud_capsule"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/hud_capsule_height"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="2dp">
 
         <ImageButton
             android:id="@+id/flightBackButton"
@@ -427,10 +470,28 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_rth" />
 
+        </LinearLayout>
+
+        <!-- The gap. It holds the actions capsule against the right edge and leaves the middle
+             of the band as picture. See the two capsules' minHeight for why they sit level. -->
         <View
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1" />
+
+        <!-- ACTIONS, right. Drop-pin, AR, shutter, zoom, re-sync, LIVE, REC. This is the ONE
+             tree that keeps the shutter pill === specification §4.2 closes that slot wherever the
+             body has a shutter button, and this target is a phone. -->
+        <LinearLayout
+            android:id="@+id/flightToolbarActions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_hud_capsule"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/hud_capsule_height"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="2dp">
 
         <!-- Drop-pin heads the right-hand cluster and is deliberately the LARGEST control in the
              bar: it is the most-used action on this screen, and a pilot reaching for it is
@@ -451,7 +512,7 @@
         <!-- Tap toggles the AR overlay; long-press opens the AR options (6D-C). -->
         <TextView
             android:id="@+id/flightArButton"
-            android:layout_width="46dp"
+            android:layout_width="54dp"
             android:layout_height="34dp"
             android:layout_marginEnd="10dp"
             android:background="@drawable/bg_zoom_pill"
@@ -464,7 +525,7 @@
 
         <ImageButton
             android:id="@+id/flightShootPhotoButton"
-            android:layout_width="46dp"
+            android:layout_width="54dp"
             android:layout_height="34dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Take photo (saves to aircraft SD card)"
@@ -487,7 +548,7 @@
 
         <ImageButton
             android:id="@+id/flightResyncButton"
-            android:layout_width="46dp"
+            android:layout_width="54dp"
             android:layout_height="34dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_zoom_pill"
@@ -498,7 +559,7 @@
 
         <com.dji.sdk.sample.takpilot2.LiveToggleView
             android:id="@+id/flightStreamButton"
-            android:layout_width="82dp"
+            android:layout_width="66dp"
             android:layout_height="34dp"
             android:layout_marginHorizontal="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -506,12 +567,14 @@
 
         <com.dji.sdk.sample.takpilot2.RecordToggleView
             android:id="@+id/flightRecordButton"
-            android:layout_width="74dp"
+            android:layout_width="66dp"
             android:layout_height="34dp"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop recording to SD (not wired yet)" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

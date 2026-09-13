@@ -785,13 +785,13 @@ class FieldGuideActivity : AppCompatActivity() {
 
     private fun live(state: LiveToggleView.State): View =
         LiveToggleView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(82), dp(34))
+            layoutParams = LinearLayout.LayoutParams(dp(66), dp(34))
             setState(state)
         }
 
     private fun rec(recording: Boolean): View =
         RecordToggleView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(74), dp(34))
+            layoutParams = LinearLayout.LayoutParams(dp(66), dp(34))
             setRecording(recording)
         }
 
@@ -809,7 +809,7 @@ class FieldGuideActivity : AppCompatActivity() {
     private fun arPill(on: Boolean): View = TextView(this).apply {
         text = "AR"
         gravity = Gravity.CENTER
-        setBackgroundResource(if (on) R.drawable.bg_ar_pill_active else R.drawable.bg_zoom_pill)
+        setBackgroundResource(if (on) R.drawable.bg_pill_active else R.drawable.bg_zoom_pill)
         setTextColor(if (on) CONNECTED_GREEN else Color.WHITE)
         alpha = if (on) 1f else 0.45f
         textSize = 12f

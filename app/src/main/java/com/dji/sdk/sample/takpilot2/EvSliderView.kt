@@ -39,8 +39,19 @@ class EvSliderView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
     private val thumbRadius = 7f * density
-    private val trackInset = thumbRadius + 1f * density
     private val tickHalf = 4f * density
+
+    /** The one HUD edge weight — the readouts and the map frame draw with it too.
+     *  Specification §4.3: the whole HUD carries ONE weight and colour of edge. */
+    private val outlineWidth = resources.getDimension(R.dimen.hud_text_outline_width)
+
+    /**
+     * ⚠ THE INSET CARRIES THE OUTLINE TOO. The thumb sits at [trackInset] from each end, so at
+     * the extremes its outline is the outermost thing drawn — and the canvas is clipped to the
+     * view's bounds. Without the outline in this number the thumb's black edge is cut flat at
+     * both ends of travel, which a mid-track screenshot hides completely.
+     */
+    private val trackInset = thumbRadius + 1f * density + outlineWidth
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ContextCompat.getColor(context, R.color.tp_accent)
@@ -53,6 +64,13 @@ class EvSliderView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
     }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+    /** Drawn UNDERNEATH every shape, widened by the outline on each side. Specification §4.3:
+     *  the slider sits over live video with no panel behind it, exactly like the readouts. */
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.tp_hud_outline)
+        strokeCap = Paint.Cap.ROUND
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
@@ -70,18 +88,34 @@ class EvSliderView @JvmOverloads constructor(
         val left = trackInset
         val right = width - trackInset
 
+        val fx = if (steps <= 0) 0.5f else index.toFloat() / steps
+        val thumbX = left + (right - left) * fx
+        val ticks = floatArrayOf(0.25f, 0.5f, 0.75f)
+
+        // OUTLINE PASS FIRST, under everything. Each shape is drawn again at its own size plus
+        // the outline on each side, so the fills below cover the inner half and only the outer
+        // half shows as an edge — the same two-pass idea as OutlinedTextView.
+        outlinePaint.style = Paint.Style.STROKE
+        outlinePaint.strokeWidth = linePaint.strokeWidth + outlineWidth * 2f
+        canvas.drawLine(left, cy, right, cy, outlinePaint)
+        outlinePaint.strokeWidth = tickPaint.strokeWidth + outlineWidth * 2f
+        for (f in ticks) {
+            val x = left + (right - left) * f
+            canvas.drawLine(x, cy - tickHalf, x, cy + tickHalf, outlinePaint)
+        }
+        outlinePaint.style = Paint.Style.FILL
+        canvas.drawCircle(thumbX, cy, thumbRadius + outlineWidth, outlinePaint)
+
         // Static full-width line.
         canvas.drawLine(left, cy, right, cy, linePaint)
 
         // Three ticks crossing the line at 1/4, 1/2, 3/4.
-        for (f in floatArrayOf(0.25f, 0.5f, 0.75f)) {
+        for (f in ticks) {
             val x = left + (right - left) * f
             canvas.drawLine(x, cy - tickHalf, x, cy + tickHalf, tickPaint)
         }
 
         // Thumb.
-        val fx = if (steps <= 0) 0.5f else index.toFloat() / steps
-        val thumbX = left + (right - left) * fx
         canvas.drawCircle(thumbX, cy, thumbRadius, thumbPaint)
     }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ON state of a toggle pill. Specification §6.7.
+
+     It was named bg_ar_pill_active until 2026-09-13, when the name was already wrong: the zoom,
+     re-sync and RTH controls and the Field Guide's picture of a toggle all drew it too.
+
+     Status green. A control that is easy to leave running by accident over a busy picture has to
+     answer "is it on" from across the screen, not by a small glyph's tint.
+
+     ⚠ SAME GEOMETRY AS bg_zoom_pill — see that file. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="@dimen/hud_pill_radius" />
+    <solid android:color="@color/tp_pill_active_fill" />
+    <stroke android:width="@dimen/hud_pill_stroke" android:color="@color/tp_state_go" />
+</shape>

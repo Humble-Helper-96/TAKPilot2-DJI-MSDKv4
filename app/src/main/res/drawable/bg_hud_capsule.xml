@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A floating CONTROL capsule on the flight screen. Specification §4.2.
+
+     WHAT IT REPLACED: a solid bar across the WHOLE width (bg_toolbar). It was opaque chrome over
+     the one thing the pilot flies from, and once the HUD readouts lost their panels it was the
+     only element left still separating itself with a solid background.
+
+     The controls now sit in two capsules that float on the video — status on the left, actions
+     on the right — and the strip between them is picture again.
+
+     WHY A FILL HERE AND AN OUTLINE ON THE READOUTS: a capsule covers a small patch, so it can
+     afford to be opaque, and the icons inside it keep their own colours (green for connected,
+     red for live, amber for caution) which an outline would fight. The readouts cover far more
+     of the picture and carry no colour of their own, so they take the outline instead.
+
+     ⚠ THE RADIUS IS THE LARGE ONE ON PURPOSE. hud_control_radius says "you touch this"; the
+     small hud_pill_radius says "you read this" — the pills inside, the mini-map frame. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/tp_hud_capsule" />
+    <corners android:radius="@dimen/hud_control_radius" />
+</shape>

@@ -134,4 +134,36 @@
          #E91E63 until 2026-08-14 and no code used it; every tree drew #FF00FF. -->
     <color name="tp_ar_aircraft">#FF00FF</color>
 
+    <!-- HUD CHROME — specification §6.1, ported from the Autel sibling 2026-09-13 (D14 to D18).
+         Values are the sibling's exactly; a token that means one colour in one tree and another
+         colour in another is the fault this file exists to prevent. -->
+
+    <!-- The edge every HUD element carries over live video: the readouts, the EV slider and the
+         mini-map's frame. It replaced the translucent panels, which covered the picture.
+         ⚠ FULLY OPAQUE ON PURPOSE. tp_shadow is 80 % black and reads as a halo; this has to
+         survive being HALF COVERED by the glyph fill drawn over it, so any transparency here
+         shows as a grey smear rather than a border. -->
+    <color name="tp_hud_outline">#FF000000</color>
+
+    <!-- Fill behind a floating CONTROL capsule: the two toolbar clusters and the mini-map's
+         zoom button. 70 % black, borrowed from TAK Aware's overlay-fill, which the operator's
+         team runs alongside this application. A capsule may be this heavy where the readouts
+         may not: it is a SMALL patch of the picture, and the icons in it keep their own colour
+         rather than take an outline. -->
+    <color name="tp_hud_capsule">#B3000000</color>
+
+    <!-- TOGGLE-PILL FILLS AND STROKES — specification §6.7. A pill says its state with COLOUR,
+         because the state has to be answerable from across the screen over a busy picture.
+         The fills are their stroke colour at 30 %; they carry alpha, thus they cannot be a
+         reference to the opaque token beside them and each is its own token.
+         ⚠ tp_pill_unknown_fill and tp_pill_sync_fill hold the same value and are NOT the same
+         decision: one means "the aircraft has not answered", the other "the link dropped and we
+         are retrying". -->
+    <color name="tp_pill_idle_fill">#33FFFFFF</color>
+    <color name="tp_pill_idle_stroke">#99FFFFFF</color>
+    <color name="tp_pill_active_fill">#4D4CAF50</color>
+    <color name="tp_pill_unknown_fill">#4DFFB74D</color>
+    <color name="tp_pill_live_fill">#4DE53935</color>
+    <color name="tp_pill_sync_fill">#4DFFB74D</color>
+
 </resources>

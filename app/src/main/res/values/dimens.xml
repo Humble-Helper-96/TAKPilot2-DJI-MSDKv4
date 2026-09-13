@@ -28,7 +28,25 @@
              paddingTop 60 + EV slider 24 + map 110 + paddingBottom 12 + margins 20
                + 16 x 10 text lines + 2 panels x 8dp padding = 402dp
 
-         against 411dp of screen, so 9dp of slack. The conformance note on the D1 fix
+         against 411dp of screen, so 9dp of slack.
+
+         ⚠ RE-COUNTED 2026-09-13 FOR THE HUD REFRESH, AND IT CAME OUT LEVEL:
+
+             2 panels x 8dp of vertical padding       =16dp   (the panels are gone; §4.3)
+             7 outlined views x about 1.6dp           +11dp   (OutlinedTextView's own padding)
+             the height size hierarchy                + 4dp   (§4.4, net of the smaller unit
+                                                               and position line)
+                                                      =======
+                                                       =1dp
+
+         The panels were paying for the outline and did not know it. The vertical 4dp they
+         supplied is DELIBERATELY NOT restored on the blocks === see the flight layout === because
+         that is the 16dp above, and without it this refresh would not fit on this screen.
+
+         ⚠ THIS IS THE SHORTEST SCREEN OF THE THREE and this is still arithmetic, not a
+         measurement. MEASURE IT with `dumpsys activity top` on the phone before release. The
+         failure mode is the mini-map clipped SILENTLY at the bottom of the column. One more
+         outlined readout costs about 1.6dp. The conformance note on the D1 fix
          names exactly this remedy: take the height from flight_map_size, never by re-joining
          the readout lines. **This is arithmetic, not a measurement.** -->
     <dimen name="flight_map_size">110dp</dimen>
@@ -43,4 +61,33 @@
          changed no pixel; it exists so a controller can raise it (conformance D7).
          On a sunlight-readable screen at arm's length 12sp is too small. -->
     <dimen name="flight_readout_text_size">12sp</dimen>
+
+    <!-- HUD CHROME DIMENSIONS === specification §7, ported from the Autel sibling 2026-09-13.
+
+         ⚠ THIS TREE'S BASE BUCKET IS A PHONE. The Autel controller draws readouts at 18sp and
+         this target draws them at 12sp, so these are NOT that tree's numbers. They match the
+         MSDKv5 sibling, which also draws at 12sp. -->
+
+    <!-- The one edge weight the whole HUD shares === readouts, EV slider, map frame. About an
+         EIGHTH of the readout text size.
+         ⚠ TOO WIDE AND THE READOUTS TURN TO BLACK BLOBS: the stroke is CENTRED on the glyph
+         edge, so half of it falls inside the letter and is covered by the fill. -->
+    <dimen name="hud_text_outline_width">1.5dp</dimen>
+
+    <!-- The shape of every toggle pill, and of the mini-map's corners.
+         ⚠ 8dp IS NOT hud_control_radius. The capsule is the container and takes the large
+         radius; the pills inside it take the small one, and so does the map, which is read
+         rather than pressed. -->
+    <dimen name="hud_pill_radius">8dp</dimen>
+    <dimen name="hud_pill_stroke">1.5dp</dimen>
+
+    <!-- The floating toolbar capsules. Large radius: "you touch this". -->
+    <dimen name="hud_control_radius">20dp</dimen>
+
+    <!-- ⚠ A MINIMUM FOR BOTH TOOLBAR CAPSULES, NEVER A FIXED HEIGHT. The two clusters hold
+         different things, so they measure differently and two capsules that begin on one line
+         would end on another. A minimum can only make a capsule taller, thus it can never clip
+         its own content. -->
+    <dimen name="hud_capsule_height">40dp</dimen>
+
 </resources>

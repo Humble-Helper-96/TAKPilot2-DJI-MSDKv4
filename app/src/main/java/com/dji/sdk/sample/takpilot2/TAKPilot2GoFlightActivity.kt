@@ -248,6 +248,34 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             if (AppLog.resourceMonitor) View.VISIBLE else View.GONE
 
         mapContainer = findViewById(R.id.flightMapContainer)
+        // ROUND THE MAP ITSELF, not just its frame. Specification §4.9.
+        //
+        // bg_map_outline is the container's FOREGROUND: it draws the border over the map but
+        // clips nothing, so rounding that drawable alone leaves square tiles filling the corners
+        // the border has curved away from. The clip has to happen here.
+        //
+        // ⚠ THIS WORKS ONLY BECAUSE THE MAP IS IN TEXTURE MODE. A SurfaceView-backed map is
+        // composited separately and a parent's outline clip does not touch it. See the note on
+        // mapbox_renderTextureMode in the layout — that flag is load-bearing for these corners.
+        //
+        // ⚠ THE CLIP RADIUS IS NOT THE FRAME'S RADIUS. A shape's stroke is centred on a path
+        // inset by half its width, so a frame declaring hud_pill_radius presents an OUTER edge
+        // of (radius + stroke/2), which curves away from the corner faster than a bare-radius
+        // clip does — clipping at the bare radius leaves a sliver of map outside the border on
+        // every corner. Clipping at (radius + stroke) puts the map's cut edge on the MIDDLE of
+        // the stroke, giving half the stroke of tolerance on each side, because two
+        // independently anti-aliased edges do not have to agree to the pixel.
+        //
+        // The outline is rebuilt from the view's CURRENT size on every call, so the map's size
+        // toggle needs nothing here.
+        val mapFrameStroke = resources.getDimension(R.dimen.hud_text_outline_width)
+        val mapClipRadius = resources.getDimension(R.dimen.hud_pill_radius) + mapFrameStroke
+        mapContainer.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, mapClipRadius)
+            }
+        }
+        mapContainer.clipToOutline = true
         mapView = findViewById(R.id.flightMapView)
         mapView.onCreate(savedInstanceState)
 
@@ -1103,7 +1131,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         val on = arOverlay.isRunning
         arButton.alpha = if (on) 1f else 0.45f
         arButton.setBackgroundResource(
-            if (on) R.drawable.bg_ar_pill_active else R.drawable.bg_zoom_pill
+            if (on) R.drawable.bg_pill_active else R.drawable.bg_zoom_pill
         )
         arButton.setTextColor(
             if (on) ContextCompat.getColor(applicationContext, R.color.tp_state_go) else android.graphics.Color.WHITE
@@ -2087,7 +2115,11 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         // That is 5dp and 12dp of slack. The weighted spacer absorbs nothing at this point, and
         // overflow CLIPS THE MAP SILENTLY — no warning, no log. If a line has to be added here,
         // take the height from @dimen/flight_map_size first.
-        fpvOverlayText.text = buildString {
+        // ⚠ A SPANNABLE, NOT A PLAIN STRING, since 2026-09-13: the height figure is large and
+        // its unit small (specification §4.4), and that is carried by RelativeSizeSpans rather
+        // than by separate views. OutlinedTextView draws the text layout twice, so each run is
+        // outlined at its OWN size — an implementation that re-renders the string would lose it.
+        fpvOverlayText.text = android.text.SpannableStringBuilder().apply {
             // LINE ORDER IS DELIBERATE, and matches the Autel sibling so a pilot reads the same
             // block in the same order on either aircraft (operator, 2026-08-02):
             //   1 callsign + speed   2 height   3 lat/lon   4 home
@@ -2102,13 +2134,31 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // point) — labelling an uncorrected figure AGL is exactly the inaccuracy the terrain
             // correction exists to remove, so the label moves with it. MSL is computed
             // separately and can be present while the first still reads ALT. See TerrainAgl.
-            if (hud != null && hud.hasFix) {
-                append("%s %s".format(
+            val heightStart = length
+            val heightText = if (hud != null && hud.hasFix) {
+                "%s %s".format(
                     Units.feet(aglReading.meters),
                     if (aglReading.terrainCorrected) "AGL" else "ALT",
-                ))
+                )
             } else {
-                append("— ft AGL")
+                "— ft AGL"
+            }
+            append(heightText)
+            // THE FIGURE IS LARGE AND THE UNIT IS SMALL. Height is the number a pilot checks
+            // most, and at one size it was lost among its neighbours.
+            //
+            // Split at the FIRST space: Units.feet is "<number> ft", so everything before it is
+            // the figure and everything after is the unit and the label. Guarded, because a
+            // format with no space would otherwise span the whole line at the large size and
+            // blow this column's height budget — and this is the shortest screen of the three.
+            val unitAt = heightText.indexOf(' ')
+            if (unitAt > 0) {
+                setSpan(android.text.style.RelativeSizeSpan(HEIGHT_FIGURE_SCALE),
+                    heightStart, heightStart + unitAt,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(android.text.style.RelativeSizeSpan(HEIGHT_UNIT_SCALE),
+                    heightStart + unitAt, length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             // AGL AND MSL GET THEIR OWN LINES, never "AGL · MSL" on one.
             //
@@ -2123,11 +2173,17 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             val msl = aglReading.mslMeters
             append(if (msl != null) "%s MSL".format(Units.feet(msl)) else "— ft MSL")
             append('\n')
+            // The coordinates recede. They are the line a pilot reads only when somebody asks
+            // for them, and making them smaller is what lets the height stand out WITHOUT the
+            // block growing — the unit and this line give back most of what the figure takes.
+            val coordStart = length
             if (hud != null && hud.hasFix) {
                 append("%.4f, %.4f".format(hud.lat, hud.lon))
             } else {
                 append("—, —")
             }
+            setSpan(android.text.style.RelativeSizeSpan(REFERENCE_SCALE),
+                coordStart, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             // NO FLIGHT TIMER HERE ANY MORE, and no home line — home moved to its own view
             // beneath the RTH height, where the two related numbers sit together.
             //
@@ -2268,6 +2324,18 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     companion object {
+        // TELEMETRY SIZE HIERARCHY — specification §4.4. The height figure is large, its unit
+        // and the position line are small. Values are the Autel sibling's, and they are RATIOS
+        // rather than sizes, so they carry across a tree that draws readouts at 12sp where that
+        // sibling draws them at 18sp.
+        //
+        // ⚠ THE UNIT AND THE POSITION LINE ARE NOT DECORATION — they are what pays for the
+        // figure. Raising HEIGHT_FIGURE_SCALE without lowering the other two grows the block by
+        // the full increase, and this is the shortest screen of the three.
+        private const val HEIGHT_FIGURE_SCALE = 1.55f
+        private const val HEIGHT_UNIT_SCALE = 0.80f
+        private const val REFERENCE_SCALE = 0.85f
+
         /** Flight-screen lifecycle + toolbar actions (RTH, zoom, TAK toggle, LIVE, nav). */
         private const val TAG = "TP2Flight"
         /** Camera capture operations specifically — recording and stills. */
