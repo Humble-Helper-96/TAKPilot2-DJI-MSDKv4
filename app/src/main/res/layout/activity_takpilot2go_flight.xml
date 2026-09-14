@@ -211,6 +211,34 @@
                     android:layout_weight="1" android:gravity="end" android:text="+2" />
             </LinearLayout>
 
+            <!-- CAMERA MEDIA MODE, under the exposure block (specification §4.3, ledger D22;
+                 ported from the Autel tree 2026-09-14).
+
+                 ⚠ IT IS A READOUT AND NOT A CONTROL, AND THE DIFFERENCE IS THE WHOLE POINT.
+                 Outlined glyph and word with no backing, like every other readout. A pill would
+                 say "touch me", and this application does not drive the media mode: the RC-N1's
+                 photo/video switch and its shutter move the camera without this application
+                 being asked, and the picture changes shape and field of view with it — 4:3
+                 against 16:9. Giving the pilot the FACT costs nothing; a control would be a new
+                 write to the camera.
+
+                 WHY IT IS HERE: the mode changes how the picture LOOKS, as EV does, so it sits
+                 with the exposure controls and not in the actions capsule.
+
+                 ⚠ UNKNOWN IS ITS OWN STATE. Amber "? MODE" until the camera answers.
+
+                 ⚠ HEIGHT — MEASURED 2026-09-14 (ledger D20/D22). This is the SHORTEST screen of
+                 the three. The column had 12px of slack at v1.2.4; this view is 45px and the
+                 position line leaving the telemetry block (§4.4) with MSL receding gave 38px
+                 back, so with a 2dp margin the spacer measured EXACTLY 0px — on the map's clip
+                 edge. NO MARGIN here (its own outline padding is 4px) and the gimbal line's
+                 margin below trimmed, to hold about 10px. Not the Autel tree's 6dp — §7. -->
+            <com.dji.sdk.sample.takpilot2.MediaModeView
+                android:id="@+id/fpvMediaMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end" />
+
             <!-- Wall clock. Right-aligned and directly above the telemetry block so it reads as
                  part of the readouts, not as a label on the EV slider. The flight screen is
                  full-screen and covers the system status bar, so without this there is no time
@@ -234,10 +262,13 @@
             <!-- Gimbal look angle, its own view so it can carry the same accuracy colour as the
                  crosshair centre ring: placement error scales as 1/sin^2(pitch), so a shallow angle
                  is a real accuracy warning rather than decoration. See updateGimbalPitch. -->
+            <!-- 2dp, not 4dp, since v1.2.5: the media-mode readout above needed the height —
+                 see its note. This is the last view in the top block, so the margin only sets
+                 the gap to the weighted spacer. -->
             <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvGimbalPitch"
                 style="@style/flightReadoutText"
-                android:layout_marginBottom="4dp"
+                android:layout_marginBottom="2dp"
                 android:gravity="end"
                 android:text="" />
         </LinearLayout>

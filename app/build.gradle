@@ -87,10 +87,17 @@ android {
         //                 (§4.1 MUST), exclude the toolbar band and the mini-map BY CORNER from
         //                 its measured bounds, nothing else. The contacts log says where the
         //                 last arrow landed. Nothing on the wire changed. Not flown.
+        //           1.2.5 the HUD says which media mode the camera is in — ledger D22. A glyph
+        //                 and a word between the EV scale and the clock, amber "? MODE" until the
+        //                 camera answers, read off the SystemState push the bridge already owns.
+        //                 The RC-N1's switch and shutter move the camera without the app being
+        //                 asked and the picture changes shape with it; this is the explanation.
+        //                 Paid for: the aircraft position line leaves the telemetry block and
+        //                 MSL recedes to the reference size (§4.4). Column re-measured. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 11
-        versionName "1.2.4"
+        versionCode 12
+        versionName "1.2.5"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

@@ -80,6 +80,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private lateinit var resourceMonitorCells: List<TextView>
     private lateinit var noVideoCover: View
     private lateinit var fpvOverlayText: TextView
+    /** Camera media mode readout — a fact, not a control. See [renderMediaMode]. */
+    private lateinit var fpvMediaMode: MediaModeView
     private lateinit var toolbarBattery: BatteryGaugeView
     private lateinit var toolbarGps: TextView
     private lateinit var toolbarGpsIcon: ImageView
@@ -231,6 +233,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             runOnUiThread { renderWarning() }
         }
         fpvOverlayText = findViewById(R.id.fpvOverlayText)
+        fpvMediaMode = findViewById(R.id.fpvMediaMode)
         fpvFaaCeiling = findViewById(R.id.fpvFaaCeiling)
         fpvRthAltitude = findViewById(R.id.fpvRthAltitude)
         fpvHomeDistance = findViewById(R.id.fpvHomeDistance)
@@ -2015,6 +2018,29 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         return bmp
     }
 
+    /**
+     * Draws the camera's media mode from what the CAMERA reports, never from what was asked.
+     *
+     * ⚠ **THE RC-N1 MOVES THE CAMERA AND NOTHING SAID SO.** Its photo/video switch and its
+     * shutter put the camera in a stills mode and leave it there; the picture changes shape and
+     * field of view, 4:3 against 16:9, with no explanation on screen. Measured in flight on the
+     * Autel sibling 2026-09-13 with its hardware shutter — the same class of fault, and this
+     * tree has two buttons that cause it. This readout is the explanation, and it costs
+     * nothing: the mode is already on the camera's status push the bridge owns.
+     *
+     * The words are decided by [com.dji.sdk.sample.tak.MediaModePolicy]; unknown is amber
+     * (§4.6) and a mode this code does not handle is shown by name (§4.3).
+     */
+    private fun renderMediaMode(hud: com.dji.sdk.sample.tak.DroneTakBridge.Hud?) {
+        if (!::fpvMediaMode.isInitialized) return
+        val r = com.dji.sdk.sample.tak.MediaModePolicy.reading(hud?.cameraFlatMode?.name, hud?.cameraMode?.name)
+        when (r.mode) {
+            com.dji.sdk.sample.tak.MediaModePolicy.Mode.PHOTO -> fpvMediaMode.setMode(MediaModeView.Mode.PHOTO)
+            com.dji.sdk.sample.tak.MediaModePolicy.Mode.VIDEO -> fpvMediaMode.setMode(MediaModeView.Mode.VIDEO)
+            null -> fpvMediaMode.setMode(null, unhandledName = r.other)
+        }
+    }
+
     private fun updateHud() {
         val hud = TakBridgeHolder.hud()
         val takOk = TakManager.getInstance().isConnected
@@ -2075,6 +2101,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         toolbarTakDot.setColorFilter(if (takOk) 0xFF4CAF50.toInt() else 0xFFF44336.toInt())
 
         recordToggle.setRecording(hud?.isRecording == true)
+        renderMediaMode(hud)
 
         // Home point: independent of the aircraft's current GPS fix (the home location, once
         // set, stays valid even if the live fix drops momentarily) — so this isn't gated behind
@@ -2108,21 +2135,17 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         updateFaaCeiling(hud, aglReading)
 
-        // FOUR lines. The right-hand column has to hold the exposure block, this readout AND the
-        // mini-map inside one landscape screen height, and it overflowed on the Pixel once MSL
-        // and gimbal lines were added. The two heights were merged onto one line to buy that
-        // height back; they were split again 2026-08-13 because the merge was the wrong saving —
-        // see the AGL/MSL note below and TAKPILOT2-UI-SPEC.md §4.4.
+        // THREE lines (specification §4.4, amended 2026-09-13). The right-hand column has to
+        // hold the exposure block, this readout AND the mini-map inside one landscape screen
+        // height. The two heights were merged onto one line once to buy height back and split
+        // again 2026-08-13 because the merge was the wrong saving — see the AGL/MSL note below.
         //
-        // ⚠ COLUMN HEIGHT BUDGET — check this before adding anything to flightHudColumn.
-        // Fixed height, worst case (FAA ceiling visible), at 12sp bold ≈ 16dp a line:
-        //   paddingTop 60 + EV slider 24 + map @dimen/flight_map_size + paddingBottom 12
-        //   + margins 20 + 16 x (4 readout lines + 6 single-line views)
-        // Base bucket (map 130dp): 406dp against the S20 Ultra's 411dp landscape height.
-        // h440dp bucket (map 160dp): 436dp against the Pixel 8 Pro's ~448dp.
-        // That is 5dp and 12dp of slack. The weighted spacer absorbs nothing at this point, and
-        // overflow CLIPS THE MAP SILENTLY — no warning, no log. If a line has to be added here,
-        // take the height from @dimen/flight_map_size first.
+        // ⚠ COLUMN HEIGHT BUDGET — MEASURED, not computed, since 2026-09-14 (ledger D20). On
+        // the S20 Ultra at v1.2.4 the weighted spacer held 12px = 4.6dp and the map ended on
+        // the column's bottom padding. Overflow CLIPS THE MAP SILENTLY — no warning, no log.
+        // The media-mode readout (§4.3) is paid for by the position line leaving this block
+        // and MSL receding; if a line has to be added here, take the height from
+        // @dimen/flight_map_size first, and MEASURE with `dumpsys activity top`.
         // ⚠ A SPANNABLE, NOT A PLAIN STRING, since 2026-09-13: the height figure is large and
         // its unit small (specification §4.4), and that is carried by RelativeSizeSpans rather
         // than by separate views. OutlinedTextView draws the text layout twice, so each run is
@@ -2130,9 +2153,9 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         fpvOverlayText.text = android.text.SpannableStringBuilder().apply {
             // LINE ORDER IS DELIBERATE, and matches the Autel sibling so a pilot reads the same
             // block in the same order on either aircraft (operator, 2026-08-02):
-            //   1 callsign + speed   2 height   3 lat/lon   4 home
-            // Height is second because it is the number a pilot checks constantly. Lat/lon and
-            // home are reference figures, looked up only when somebody asks for them.
+            //   1 callsign + speed   2 height   3 MSL
+            // Height is second because it is the number a pilot checks constantly. MSL is a
+            // reference figure, looked up only when somebody asks for it.
             // The clock sits below the EV slider in its own view — see fpvClock.
             append(currentCallsign)
             append(if (hud != null) "   ${Units.mph(hud.speedMs)}" else "   — mph")
@@ -2178,20 +2201,22 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             // The Autel sibling has always been split; this is the join being removed, not a new
             // line being added. Height comes from the budget noted above.
             append('\n')
+            // MSL RECEDES TO THE REFERENCE SIZE (§4.4, operator 2026-09-13). It is a figure a
+            // pilot reads when somebody asks for it, not one they fly by — the standing the
+            // coordinates used to have — so it takes that scale rather than competing with the
+            // AGL figure directly above it. This is also part of what pays for the media-mode
+            // readout on this, the shortest screen of the three.
+            val mslStart = length
             val msl = aglReading.mslMeters
             append(if (msl != null) "%s MSL".format(Units.feet(msl)) else "— ft MSL")
-            append('\n')
-            // The coordinates recede. They are the line a pilot reads only when somebody asks
-            // for them, and making them smaller is what lets the height stand out WITHOUT the
-            // block growing — the unit and this line give back most of what the figure takes.
-            val coordStart = length
-            if (hud != null && hud.hasFix) {
-                append("%.4f, %.4f".format(hud.lat, hud.lon))
-            } else {
-                append("—, —")
-            }
             setSpan(android.text.style.RelativeSizeSpan(REFERENCE_SCALE),
-                coordStart, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                mslStart, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            // ⚠ THE AIRCRAFT COORDINATES WERE A FOURTH LINE HERE AND ARE GONE (§4.4, operator
+            // 2026-09-13). They were the least-read line in the block and the column needed the
+            // room for the media-mode readout. WHAT IT COSTS, recorded so it stays a decision:
+            // the TAK feed is a screen capture, thus these coordinates were the only way a
+            // viewer watching the VIDEO rather than a TAK client could read the aircraft's
+            // position. Every TAK client still has the aircraft marker and loses nothing.
             // NO FLIGHT TIMER HERE ANY MORE, and no home line — home moved to its own view
             // beneath the RTH height, where the two related numbers sit together.
             //

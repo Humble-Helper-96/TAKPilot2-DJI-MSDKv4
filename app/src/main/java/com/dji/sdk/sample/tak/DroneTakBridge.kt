@@ -170,6 +170,13 @@ class DroneTakBridge(
     private val videoDataRateCallback =
         dji.sdk.airlink.OcuSyncLink.VideoDataRateCallback { lastVideoDataRateMbps = it }
     private val cameraStateCallback = SystemState.Callback {
+        // A media-mode CHANGE is worth one line: the RC-N1's switch and shutter move the camera
+        // without this application being asked, and the picture changes shape with it. Steady
+        // state is not logged — this push arrives several times a second.
+        val before = lastCameraState
+        if (before != null && (before.flatMode != it.flatMode || before.mode != it.mode)) {
+            AppLog.i(TAG, "camera media mode: ${before.flatMode}/${before.mode} -> ${it.flatMode}/${it.mode}")
+        }
         lastCameraState = it
         if (!exposureApplied) {
             exposureApplied = true
@@ -598,6 +605,14 @@ class DroneTakBridge(
          * sorties on an RTH height the pilot believed they had changed. The HUD shows this one.
          */
         val rthHeightM: Int? = null,
+        /**
+         * The camera's media mode AS THE CAMERA REPORTS IT, off the same [SystemState] push as
+         * [isRecording]. The flat mode is what the Mini 2 acts on; the legacy mode is read only
+         * when the flat one is UNKNOWN. [MediaModePolicy] turns the pair into the readout's
+         * words. Null before the camera has answered — unknown is its own state (§4.6).
+         */
+        val cameraFlatMode: dji.common.camera.SettingsDefinitions.FlatCameraMode? = null,
+        val cameraMode: dji.common.camera.SettingsDefinitions.CameraMode? = null,
     )
 
     /**
@@ -658,6 +673,8 @@ class DroneTakBridge(
             // aircraft continuously rather than from a one-shot read at connect. Non-positive
             // means it has not reported one yet — shown as unknown, never as 0 ft.
             state?.goHomeHeight?.takeIf { it > 0 },
+            lastCameraState?.flatMode,
+            lastCameraState?.mode,
         )
     }
 

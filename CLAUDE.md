@@ -89,8 +89,11 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.4 IS BUILT AND ON THE PHONE — versionCode 11, 2026-09-14 — D23, the AR edge-arrow clamp,
-measured: the right arrow reaches the picture's edge (1890 of 1920px). Not flown.** Before it,
+**v1.2.5 IS BUILT AND ON THE PHONE — versionCode 12, 2026-09-14 — D22, the media-mode readout,
+measured: the column spacer is 11px with the readout in (it was 0px before two margins were
+trimmed), and the readout followed a real PHOTO_SINGLE/VIDEO_NORMAL change. Not flown.** Before it,
+**v1.2.4 — versionCode 11 — D23, the AR edge-arrow clamp, measured: the right arrow reaches the
+picture's edge (1890 of 1920px).** Before it,
 **v1.2.3 — versionCode 10 — the `com.taklite` conformance pass, no UI change, not flown.** It is the first of the small updates that bring this tree up to the Autel
 flight-screen work (ledger D20, D22 to D25 still open; D24 draws nothing on a Mini 2). The next
 D20 BASELINE IS MEASURED on this build (ledger D20, 2026-09-14): the column fits with 12px
