@@ -754,6 +754,9 @@ class DroneTakBridge(
          */
         val cameraFlatMode: dji.common.camera.SettingsDefinitions.FlatCameraMode? = null,
         val cameraMode: dji.common.camera.SettingsDefinitions.CameraMode? = null,
+        /** The aircraft is in its automatic landing phase — the RTH menu's Cancel Landing reads
+         *  and verifies against this. Off the same state push as [isGoingHome]. */
+        val isLanding: Boolean = false,
     )
 
     /**
@@ -816,6 +819,7 @@ class DroneTakBridge(
             state?.goHomeHeight?.takeIf { it > 0 },
             lastCameraState?.flatMode,
             lastCameraState?.mode,
+            state?.flightMode == dji.common.flightcontroller.FlightMode.AUTO_LANDING,
         )
     }
 

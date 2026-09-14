@@ -95,7 +95,11 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.11 IS BUILT AND ON THE PHONE — versionCode 20, 2026-09-14 — four operator calls: map
+**v1.2.12 IS BUILT AND ON THE PHONE — versionCode 21, 2026-09-14 — one text size and one gap
+for the action pills; the RTH long-press is the Autel v2.1.4 MENU (Cancel Return / Cancel Landing
+only when they apply, Reset Home Point always), verified against `isGoingHome`/`isLanding` 1.5 s
+after the cancel. ⚠ The cancels have not been exercised against a real return. Not flown.**
+Before it, **v1.2.11 — versionCode 20 — four operator calls: map
 marks a third smaller, EV slider to the picture, the on-screen shutter pill REMOVED (the shutter
 slot is closed here too now), the toolbar 45dp (26dp pills — a per-device departure from §6.7's
 34, recorded on D20), map 137x154dp. Measured: spacer 14px. Not flown.** Before it,

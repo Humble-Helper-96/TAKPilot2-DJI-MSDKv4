@@ -136,7 +136,9 @@ class LiveToggleView @JvmOverloads constructor(
         // ⚠ INSET BY HALF THE STROKE, OR THE BORDER IS CLIPPED FLAT — see RecordToggleView.
         val half = pillStroke / 2f
         trackRect.set(half, half, w - half, h - half)
-        textPaint.textSize = h * 0.4f
+        // The same size as the AR and 1X TextViews beside it — one dimen, not a fraction of
+        // the pill's height, which drifted to ~10sp when the pills went to 26dp.
+        textPaint.textSize = resources.getDimension(R.dimen.hud_pill_text_size)
     }
 
     override fun onDraw(canvas: Canvas) {

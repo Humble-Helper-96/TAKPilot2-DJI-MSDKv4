@@ -548,7 +548,6 @@
             android:id="@+id/flightDropPinButton"
             android:layout_width="44dp"
             android:layout_height="36dp"
-            android:layout_marginEnd="10dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Drop a TAK marker at the camera crosshair"
             android:padding="1dp"
@@ -560,13 +559,13 @@
             android:id="@+id/flightArButton"
             android:layout_width="54dp"
             android:layout_height="26dp"
-            android:layout_marginEnd="10dp"
+            android:layout_marginStart="@dimen/hud_pill_gap"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle AR marker overlay"
             android:gravity="center"
             android:text="AR"
             android:textColor="@color/tp_text_primary"
-            android:textSize="14sp"
+            android:textSize="@dimen/hud_pill_text_size"
             android:textStyle="bold" />
 
         <!-- THE SHUTTER SLOT IS CLOSED (operator, 2026-09-14, v1.2.11). The RC-N1 has a
@@ -579,20 +578,20 @@
             android:id="@+id/flightZoomButton"
             android:layout_width="54dp"
             android:layout_height="26dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/hud_pill_gap"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle camera zoom (1x/2x)"
             android:gravity="center"
             android:text="1X"
             android:textColor="@color/tp_text_primary"
-            android:textSize="14sp"
+            android:textSize="@dimen/hud_pill_text_size"
             android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/flightResyncButton"
             android:layout_width="54dp"
             android:layout_height="26dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/hud_pill_gap"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Video re-sync"
             android:padding="4dp"
@@ -603,7 +602,7 @@
             android:id="@+id/flightStreamButton"
             android:layout_width="66dp"
             android:layout_height="26dp"
-            android:layout_marginHorizontal="6dp"
+            android:layout_marginStart="@dimen/hud_pill_gap"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop live stream (not wired yet)" />
 
@@ -611,8 +610,7 @@
             android:id="@+id/flightRecordButton"
             android:layout_width="66dp"
             android:layout_height="26dp"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="6dp"
+            android:layout_marginStart="@dimen/hud_pill_gap"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop recording to SD (not wired yet)" />
 

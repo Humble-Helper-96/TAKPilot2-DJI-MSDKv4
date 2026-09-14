@@ -287,7 +287,11 @@ class FieldGuideActivity : AppCompatActivity() {
             "Return to Home",
             "Touch: sends the aircraft home. The app asks you to confirm. Touch the button " +
                 "again during the return to stop it and get control.\n\n" +
-                "Touch and hold: moves the home point to your position. Use this if you moved " +
+                "Touch and hold: opens a menu. Cancel Return is there while the aircraft is " +
+                "returning, and Cancel Landing while it is landing — the aircraft can start " +
+                "either by itself, and these stop it and give you the sticks. The app does not " +
+                "ask you to confirm, and it tells you if the aircraft did not stop.\n\n" +
+                "Reset Home Point moves the home point to your position. Use this if you moved " +
                 "away from the takeoff point. The app asks you to confirm.\n\n" +
                 "The house is green when the home point is set.",
         )

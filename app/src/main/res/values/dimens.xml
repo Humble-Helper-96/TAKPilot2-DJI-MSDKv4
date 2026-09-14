@@ -118,5 +118,14 @@
          paddingTop. ⚠ §6.7 says 34dp pills; this phone runs 26 — a per-device departure the
          operator took, recorded on ledger D20. -->
     <dimen name="hud_capsule_height">40dp</dimen>
+    <!-- ONE text size for every pill that carries a word — AR, 1X, LIVE, REC (operator,
+         2026-09-14). The two custom views used to size their word from the pill's height
+         (0.4 of it), which at 26dp came out near 10sp against the TextViews' 14sp. -->
+    <dimen name="hud_pill_text_size">14sp</dimen>
+    <!-- ONE gap between neighbouring pills in the actions capsule (operator, 2026-09-14). The
+         gaps were 10, 18, 8, 6 and 12dp, each pill carrying its own margins from a different
+         day. Every pill now has this on its start edge only; the capsule's own padding closes
+         the ends. -->
+    <dimen name="hud_pill_gap">8dp</dimen>
 
 </resources>

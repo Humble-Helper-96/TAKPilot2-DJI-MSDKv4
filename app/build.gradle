@@ -128,10 +128,15 @@ android {
         //                 shutter pill is GONE (the RC-N1's buttons and the REC-as-shutter pill
         //                 cover it), and the toolbar is a quarter shorter — 45dp — with the 14dp
         //                 that frees spent on the map (154dp tall). Measured. Not flown.
+        //           1.2.12 AR, 1X, LIVE and REC share one text size and one gap; the RTH
+        //                 long-press is a MENU — Cancel Return while returning, Cancel Landing
+        //                 while landing, Reset Home Point always — ported from Autel v2.1.4, no
+        //                 confirmation on the cancels, verified against the aircraft's state
+        //                 1.5 s later. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 20
-        versionName "1.2.11"
+        versionCode 21
+        versionName "1.2.12"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

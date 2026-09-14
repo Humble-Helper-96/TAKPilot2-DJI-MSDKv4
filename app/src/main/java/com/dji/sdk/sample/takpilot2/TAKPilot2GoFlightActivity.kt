@@ -647,8 +647,93 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
      *  has walked/driven somewhere else since the aircraft auto-set home at takeoff.
      *  Confirmed first — this changes where RTH sends the aircraft, so a stale/bad GPS fix
      *  here is a real safety concern, unlike RTH-cancel which is always safe. */
+    /**
+     * The RTH long-press menu: cancel a return or a landing that is running, or move the home
+     * point. Ported from the Autel tree's v2.1.4 (2026-09-14), where a 12.5-hour mission found an
+     * aircraft returning on its own with no way in the application to stop it.
+     *
+     * ⚠ **NO CONFIRMATION ON THE CANCELS, BY THE OPERATOR'S DECISION.** `startGoHome` has one and
+     * this deliberately does not: this is the UNDO of something the aircraft started by itself,
+     * the pilot is fighting it while they read this, and a dialog costs seconds. Choosing it from
+     * a long-press menu is already a deliberate act, and the §4.8 banner has been saying a return
+     * is running.
+     *
+     * ⚠ **AN ITEM IS OFFERED ONLY WHEN IT APPLIES.** A menu that lists Cancel Return while nothing
+     * is returning teaches a pilot that the menu does not mean what it says.
+     *
+     * ⚠ **VERIFIED AGAINST THE AIRCRAFT, NOT THE CALLBACK** — safety rule 4 on the control that
+     * most needs it. `cancelGoHome`'s success means the command was taken; the truth is
+     * `isGoingHome` on the state push the bridge already receives, read [RTH_CANCEL_CONFIRM_MS]
+     * later. The tap on RTH keeps its own cancel-while-returning behaviour.
+     */
     private fun onRthLongPressed() {
-        AppLog.v(TAG, "long-press: RTH (reset home point)")
+        AppLog.v(TAG, "long-press: RTH (menu)")
+        val fc = DJISampleApplication.getAircraftInstance()?.flightController
+        val hud = TakBridgeHolder.hud()
+        val returning = hud?.isGoingHome == true
+        val landing = hud?.isLanding == true
+        val b = AlertDialog.Builder(this, R.style.TakDialogTheme).setTitle("Return to Home")
+        b.setMessage(when {
+            returning -> "The aircraft is returning home."
+            landing -> "The aircraft is landing."
+            else -> null
+        })
+        if (fc != null && returning) {
+            b.setPositiveButton("Cancel Return") { _, _ -> cancelReturn(fc) }
+        } else if (fc != null && landing) {
+            b.setPositiveButton("Cancel Landing") { _, _ -> cancelLanding(fc) }
+        }
+        b.setNeutralButton("Reset Home Point…") { _, _ -> confirmResetHome() }
+        b.setNegativeButton("Close", null)
+        b.show()
+    }
+
+    private fun cancelReturn(fc: dji.sdk.flightcontroller.FlightController) {
+        AppLog.w(TAG, "CANCEL RETURN requested by the pilot from the RTH menu")
+        showNotice("Cancelling the return")
+        fc.cancelGoHome { error ->
+            if (error == null) AppLog.i(TAG, "cancelGoHome: accepted")
+            else {
+                AppLog.e(TAG, "cancelGoHome FAILED: ${error.description}")
+                runOnUiThread { showNotice("The aircraft refused to stop the return", refused = true) }
+            }
+        }
+        handler.postDelayed({
+            if (TakBridgeHolder.hud()?.isGoingHome == true) {
+                AppLog.e(TAG, "RETURN DID NOT STOP — still going home ${RTH_CANCEL_CONFIRM_MS}ms after cancelGoHome")
+                showNotice("The return did not stop", refused = true)
+            } else {
+                AppLog.i(TAG, "return cancelled — the aircraft is no longer going home")
+                showNotice("Return cancelled. You have the aircraft.")
+            }
+        }, RTH_CANCEL_CONFIRM_MS)
+    }
+
+    /** As [cancelReturn], for the landing phase. Verified the same way. */
+    private fun cancelLanding(fc: dji.sdk.flightcontroller.FlightController) {
+        AppLog.w(TAG, "CANCEL LANDING requested by the pilot from the RTH menu")
+        showNotice("Cancelling the landing")
+        fc.cancelLanding { error ->
+            if (error == null) AppLog.i(TAG, "cancelLanding: accepted")
+            else {
+                AppLog.e(TAG, "cancelLanding FAILED: ${error.description}")
+                runOnUiThread { showNotice("The aircraft refused to stop the landing", refused = true) }
+            }
+        }
+        handler.postDelayed({
+            if (TakBridgeHolder.hud()?.isLanding == true) {
+                AppLog.e(TAG, "LANDING DID NOT STOP ${RTH_CANCEL_CONFIRM_MS}ms after cancelLanding")
+                showNotice("The landing did not stop", refused = true)
+            } else {
+                showNotice("Landing cancelled. You have the aircraft.")
+            }
+        }, RTH_CANCEL_CONFIRM_MS)
+    }
+
+    /** Reset the aircraft's home point to the pilot's current position — see the note above
+     *  [onRthLongPressed] for why this one IS confirmed: it changes where RTH sends the aircraft. */
+    private fun confirmResetHome() {
+        AppLog.v(TAG, "RTH menu: reset home point")
         val fc = DJISampleApplication.getAircraftInstance()?.flightController
         if (fc == null) {
             AppLog.w(TAG, "reset home point ignored — aircraft not connected")
@@ -2380,6 +2465,8 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val HOME_LINE_LAYER_ID = "home-line-layer"
         private const val HOME_ICON_DP = 13
         private const val HOME_NOTICE_MS = 5000L
+        /** How long after cancelGoHome/cancelLanding the aircraft's state is re-read. */
+        private const val RTH_CANCEL_CONFIRM_MS = 1500L
 
         /** Minimum height above ground for a marker drop, feet. Below this the slant
          *  solve degenerates onto the aircraft's own position — see dropRefusalReason. */
