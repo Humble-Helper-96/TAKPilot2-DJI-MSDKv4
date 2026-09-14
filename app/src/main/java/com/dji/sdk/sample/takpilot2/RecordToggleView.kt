@@ -33,6 +33,19 @@ import com.dji.sdk.sample.R
  * feature is on". Red here means "the camera is writing to the card" — a different question, and
  * the one a pilot must never misread. Only the hue departs from the neighbours; the treatment
  * does not.
+ *
+ * ## In stills mode it is a SHUTTER (specification §6.7, ledger D25; ported 2026-09-14)
+ *
+ * When the CAMERA is in stills, the dot and the word give way to the still-camera symbol
+ * alone, and a tap takes a photo. The RC-N1's photo/video toggle moves the camera without this
+ * application being asked and leaves it there — measured on the bench 2026-09-14 — and this
+ * pill changing shape is the second cue, where the pilot's thumb already is; the HUD readout
+ * says it in words a few lines away. Same symbol as that readout, from [CameraGlyphs].
+ *
+ * ⚠ THE PILL FOLLOWS THE CAMERA; IT DOES NOT SET IT. Stills mode takes the idle treatment and
+ * no colour: a shutter is a momentary action, not a state that is on, and red must keep its
+ * one meaning. The word was tried on the Autel tree and removed — glyph plus PHOTO filled the
+ * pill edge to edge, and the pill cannot widen (§4.2).
  */
 class RecordToggleView @JvmOverloads constructor(
     context: Context,
@@ -52,6 +65,34 @@ class RecordToggleView @JvmOverloads constructor(
     private val liveFill = ContextCompat.getColor(context, R.color.tp_pill_live_fill)
 
     private var isRecording: Boolean = false
+
+    /** True when the CAMERA is in stills mode, so this pill is a shutter. Read from the camera's
+     *  own push through the HUD tick — never from what was asked. */
+    private var photoMode: Boolean = false
+
+    fun setPhotoMode(photo: Boolean) {
+        if (photoMode == photo) return
+        photoMode = photo
+        // Owned here rather than by the caller: the description and the drawing are the same
+        // fact, and setting it from the HUD tick would rewrite it twice a second for nothing.
+        contentDescription = if (photo) "Take a photo. The camera is in photo mode."
+        else "Start or stop recording to the aircraft SD card"
+        invalidate()
+    }
+
+    /** The still-camera symbol for stills mode. Stroked, like the HUD readout's copy of it. */
+    private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = pillStroke
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val glyphPath = android.graphics.Path()
+    private val glyphBox = RectF()
+
+    /** The shutter symbol's size as a fraction of the pill's height — sits in the pill the way
+     *  LIVE's content does. */
+    private val GLYPH_FRACTION = 0.62f
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -95,6 +136,19 @@ class RecordToggleView @JvmOverloads constructor(
         strokePaint.color = if (isRecording) colorRecording else idleStroke
         canvas.drawRoundRect(trackRect, cornerRadius, cornerRadius, fillPaint)
         canvas.drawRoundRect(trackRect, cornerRadius, cornerRadius, strokePaint)
+
+        // ⚠ STILLS MODE: THE SYMBOL ALONE, AND NO WORD. A shutter is a glyph in every camera a
+        // pilot has used; the HUD readout already says PHOTO in words; and a lone symbol is a
+        // stronger SILHOUETTE against REC's dot-and-word than a second word would be — which is
+        // the mode cue this pill was changed to carry. Idle colours: see the class note.
+        if (photoMode) {
+            val glyphSize = h * GLYPH_FRACTION
+            CameraGlyphs.still(glyphPath, glyphBox, (w - glyphSize) / 2f,
+                h / 2f - glyphSize / 2f, glyphSize)
+            glyphPaint.color = content
+            canvas.drawPath(glyphPath, glyphPaint)
+            return
+        }
 
         // The dot and the label are CENTRED AS ONE GROUP, not pinned to the ends. The knob used
         // to hold the left end and the text was centred in what was left, so the two moved

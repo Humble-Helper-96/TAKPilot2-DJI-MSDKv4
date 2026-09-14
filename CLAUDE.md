@@ -54,7 +54,13 @@ A UI change lands in all three applications, or it lands in none.
 9. **A completion callback can fire TWICE.** `Gimbal.setControllerMaxSpeed` invoked its
    callback twice per write on the Mini 2 (2026-08-12). Make completion handlers one-shot
    when a second call would repeat work.
-10. **The Mini 2 refuses both battery-threshold writes**, and DJI's documentation is wrong —
+10. **The RC-N1's shutter/record button is the APP's to act on in video mode.** With this
+   application on the link the press arrives as a `HardwareState` event and the aircraft records
+   NOTHING unless the app starts it; in photo mode the camera takes the picture natively and the
+   app must NOT also shoot. Measured 2026-09-14 against the SD card. And the RC object the SDK
+   hands out is REPLACED about 8 s after it first appears — an RC callback armed once is lost;
+   `DroneTakBridge` re-arms on identity change from its tick. See ledger D26.
+11. **The Mini 2 refuses both battery-threshold writes**, and DJI's documentation is wrong —
    it lists `setSeriousLowBatteryWarningThreshold` as supported on the Mini 2. The aircraft
    holds warning 20% / land 10% and the app cannot change them. Trust the aircraft's answer,
    never the documentation. The read-back after Apply is what catches this class of refusal.
@@ -89,7 +95,20 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.5 IS BUILT AND ON THE PHONE — versionCode 12, 2026-09-14 — D22, the media-mode readout,
+**v1.2.11 IS BUILT AND ON THE PHONE — versionCode 20, 2026-09-14 — four operator calls: map
+marks a third smaller, EV slider to the picture, the on-screen shutter pill REMOVED (the shutter
+slot is closed here too now), the toolbar 45dp (26dp pills — a per-device departure from §6.7's
+34, recorded on D20), map 137x154dp. Measured: spacer 14px. Not flown.** Before it,
+**v1.2.10 — versionCode 18/19 — the column reaches the
+picture: map and EV slider 137dp wide, map 140dp tall and flush with the picture's bottom (column
+paddingBottom 0), RTH/HOME/FAA tightened; measured, 10px in the spacer. Not flown.** Before it, **v1.2.9 — versionCode 16 — the camera's own word as the
+§4.8 notice: Photo Saved (on the file), Recording Started/Stopped (on the camera's edge), the
+mid-screen Toasts gone; all three seen on screen. Not flown.** Before it, **v1.2.8 — versionCode
+15 — the RC-N1's record button records (ledger D26), verified against the card; v1.2.7 (versionCode 14) was the diagnostics that
+found it — SD state, media files, RC buttons, and the RC object the SDK replaces. Not flown.**
+Before it, **v1.2.6 — versionCode 13 — D25, the record pill is a shutter in stills, verified.**
+Before it,
+**v1.2.5 — versionCode 12 — D22, the media-mode readout,
 measured: the column spacer is 11px with the readout in (it was 0px before two margins were
 trimmed), and the readout followed a real PHOTO_SINGLE/VIDEO_NORMAL change. Not flown.** Before it,
 **v1.2.4 — versionCode 11 — D23, the AR edge-arrow clamp, measured: the right arrow reaches the

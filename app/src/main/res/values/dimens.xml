@@ -49,14 +49,24 @@
          outlined readout costs about 1.6dp. The conformance note on the D1 fix
          names exactly this remedy: take the height from flight_map_size, never by re-joining
          the readout lines. **This is arithmetic, not a measurement.** -->
-    <dimen name="flight_map_size">110dp</dimen>
+    <!-- 137dp, MEASURED on the S20 Ultra 2026-09-14 (operator): at 110dp the map's left edge
+         sat 80px = 30dp to the right of where the 16:9 picture ends (1920px in a 2326px
+         window — FpvTextureView pillarboxes fit-left, so that strip is black). The column is
+         the map's width, so this also widens the EV slider and the scale row to the same
+         edge. 137 puts the map's left edge about 4dp off the picture. The HEIGHT is held at
+         110dp below: the column had 11px of slack, and width is free here where height is not. -->
+    <dimen name="flight_map_size">137dp</dimen>
     <!-- Keeps the resource row clear of the HUD column: map width plus the column's end
-         padding. Tracks flight_map_size by hand, so change both together. -->
-    <dimen name="flight_resource_row_margin_end">124dp</dimen>
-    <!-- Separate from flight_map_size so a taller screen can carry a taller map
-         without a wider HUD column. Equal to the width today, so the map is square
-         and nothing moved when this was introduced (conformance D8). -->
-    <dimen name="flight_map_height">110dp</dimen>
+         padding (137 + 14). Tracks flight_map_size by hand, so change both together. -->
+    <dimen name="flight_resource_row_margin_end">151dp</dimen>
+    <!-- Separate from flight_map_size so a wider column need not be a taller one. NOT equal
+         to the width since v1.2.10: the map is 137x140dp. MEASURED (2026-09-14): with the
+         RTH/HOME/FAA lines tightened the column's weighted spacer held 57px at 110dp of map;
+         18dp more map left about 10px, and the last 12dp came from the column's paddingBottom
+         going to zero so the map's bottom edge lines up with the picture's (operator), and 14dp
+         more from the toolbar band shrinking 60 to 45dp in v1.2.11. Every dp
+         added here comes straight out of that spacer; measure before touching it (D20). -->
+    <dimen name="flight_map_height">154dp</dimen>
     <!-- HUD readout size, per bucket. 12sp is what hudText already used, so this
          changed no pixel; it exists so a controller can raise it (conformance D7).
          On a sunlight-readable screen at arm's length 12sp is too small. -->
@@ -102,6 +112,11 @@
          A MINIMUM rather than a fixed height because either cluster may still grow: a longer
          signal readout, a taller button style, a density not yet seen. minHeight can only make
          a capsule taller, thus it can never clip its own content. -->
-    <dimen name="hud_capsule_height">52dp</dimen>
+    <!-- 40dp since v1.2.11: the toolbar is a quarter shorter (operator, 2026-09-14) — the drop
+         pin is 36dp, every other pill and icon 26dp, the capsules pad 2dp, the band 5dp. Still
+         DERIVED: the drop pin plus its padding. The band is 45dp and so is the column's
+         paddingTop. ⚠ §6.7 says 34dp pills; this phone runs 26 — a per-device departure the
+         operator took, recorded on ledger D20. -->
+    <dimen name="hud_capsule_height">40dp</dimen>
 
 </resources>

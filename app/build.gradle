@@ -94,10 +94,44 @@ android {
         //                 asked and the picture changes shape with it; this is the explanation.
         //                 Paid for: the aircraft position line leaves the telemetry block and
         //                 MSL recedes to the reference size (§4.4). Column re-measured. Not flown.
+        //           1.2.6 the record pill follows the camera's mode — ledger D25. In stills it
+        //                 is the still-camera symbol alone and a tap takes a photo with no mode
+        //                 change; in video it is the dot and REC as before. Bench-measured first:
+        //                 the RC-N1's photo/video toggle moves the camera and leaves it there,
+        //                 with nothing from this application. Recording start/stop is now a log
+        //                 line. Not flown.
+        //           1.2.7 THE BENCH DIAGNOSTICS for the RC-N1's shutter/record button, which
+        //                 beeps and does nothing the camera reports. The bridge now logs the SD
+        //                 card state on change, every new media file, a still being shot or
+        //                 stored, and — taking the RC HardwareState slot on purpose, see the
+        //                 bridge — every controller button the phone hears. No UI change.
+        //           1.2.8 ONE PRESS OF THE RC-N1's RECORD BUTTON RECORDS — ledger D26. The
+        //                 diagnostics showed the phone hears the press and the aircraft waits
+        //                 for the app; now the press goes through the REC pill's own path, start
+        //                 and stop, in video mode only. In photo mode the camera shoots natively
+        //                 and the app stays out of it. Not flown.
+        //           1.2.9 THE CAMERA SAYS WHAT IT DID, in the notice under the toolbar: "Photo
+        //                 Saved" when the FILE lands on the card, "Recording Started" and
+        //                 "Recording Stopped" on the camera's own recording edge — so the
+        //                 hardware buttons get the same words as the pills. The four mid-screen
+        //                 Toasts that said "saved" on the shutter callback are gone; a refusal
+        //                 is a notice in the refused style. Not flown.
+        //           1.2.10 THE COLUMN REACHES THE PICTURE (operator, 2026-09-14). The map and the
+        //                 EV slider are 137dp wide, not 110: the 16:9 picture ends 30dp short of
+        //                 where the map began, and that strip was black. The map's height stays
+        //                 128dp — a 137x128 rectangle, the 18dp bought by the RTH/HOME/FAA
+        //                 lines losing their margins and font padding, and 12dp more from the
+        //                 column's bottom padding so the map's bottom edge lines up with the
+        //                 picture's. Measured on the phone: about 10px left in the column. Not flown.
+        //           1.2.11 FOUR OPERATOR CALLS ON THE PHONE (2026-09-14): the mini-map's marks are
+        //                 a third smaller, the EV slider reaches the picture, the on-screen
+        //                 shutter pill is GONE (the RC-N1's buttons and the REC-as-shutter pill
+        //                 cover it), and the toolbar is a quarter shorter — 45dp — with the 14dp
+        //                 that frees spent on the map (154dp tall). Measured. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 12
-        versionName "1.2.5"
+        versionCode 20
+        versionName "1.2.11"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

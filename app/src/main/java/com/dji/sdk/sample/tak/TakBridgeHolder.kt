@@ -28,8 +28,28 @@ object TakBridgeHolder {
             it.videoUrl = videoUrl
             it.cameraPointEnabled = cameraPointEnabled
             it.zoomFactor = zoomFactor
+            it.onShutterRecordPressed = onShutterRecordPressed
+            it.onCameraEvent = onCameraEvent
             it.start()
         }
+    }
+
+    // Remembered like videoUrl, so a bridge restarted on reconnect keeps the flight screen's
+    // hook. The flight screen clears it in onDestroy — this object outlives the screen.
+    private var onShutterRecordPressed: (() -> Unit)? = null
+
+    /** See [DroneTakBridge.onShutterRecordPressed]. Null to clear. */
+    fun setOnShutterRecordPressed(cb: (() -> Unit)?) {
+        onShutterRecordPressed = cb
+        bridge?.onShutterRecordPressed = cb
+    }
+
+    private var onCameraEvent: ((DroneTakBridge.CameraEvent) -> Unit)? = null
+
+    /** See [DroneTakBridge.onCameraEvent]. Null to clear. Same lifetime rule as the hook above. */
+    fun setOnCameraEvent(cb: ((DroneTakBridge.CameraEvent) -> Unit)?) {
+        onCameraEvent = cb
+        bridge?.onCameraEvent = cb
     }
 
     fun stop() {

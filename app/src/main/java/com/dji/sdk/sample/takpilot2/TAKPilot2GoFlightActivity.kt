@@ -437,6 +437,34 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         recordToggle = findViewById(R.id.flightRecordButton)
         recordToggle.setOnClickListener { onRecordToggleTapped() }
+        // The camera's own word on what it did, as a §4.8 notice under the toolbar — the same
+        // place and size the Autel tree uses for "Photo Saved". From the camera's report, not
+        // from the request: the RC-N1's shutter never calls this application, and a shutter
+        // callback is not a saved file. The Toasts these replace were large, mid-screen, and
+        // said "saved" before anything was.
+        TakBridgeHolder.setOnCameraEvent { e ->
+            showNotice(when (e) {
+                com.dji.sdk.sample.tak.DroneTakBridge.CameraEvent.PHOTO_SAVED -> "Photo Saved"
+                com.dji.sdk.sample.tak.DroneTakBridge.CameraEvent.RECORDING_STARTED -> "Recording Started"
+                com.dji.sdk.sample.tak.DroneTakBridge.CameraEvent.RECORDING_STOPPED -> "Recording Stopped"
+            })
+        }
+        // ⚠ THE RC-N1's SHUTTER/RECORD BUTTON IS OURS TO ACT ON IN VIDEO MODE (ledger D26,
+        // 2026-09-14). The aircraft records nothing on it unless the app starts it — three
+        // presses, three beeps, no MP4 on the card. It goes through the SAME path as the REC
+        // pill, start and stop alike. In PHOTO mode the camera has ALREADY taken the picture
+        // natively by the time this arrives, so it is logged and nothing more: acting would
+        // shoot twice. Decided by the camera's reported mode, never by what was asked.
+        TakBridgeHolder.setOnShutterRecordPressed {
+            val h = TakBridgeHolder.hud()
+            val mode = com.dji.sdk.sample.tak.MediaModePolicy.reading(h?.cameraFlatMode?.name, h?.cameraMode?.name).mode
+            if (mode == com.dji.sdk.sample.tak.MediaModePolicy.Mode.PHOTO) {
+                AppLog.i(REC_TAG, "RC shutter pressed in stills — the camera shoots natively, nothing to do")
+            } else {
+                AppLog.i(REC_TAG, "RC record pressed — through the REC pill's path")
+                onRecordToggleTapped()
+            }
+        }
 
         rthButton = findViewById(R.id.flightRthButton)
         rthButton.setOnClickListener { onRthTapped() }
@@ -495,7 +523,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<ImageButton>(R.id.flightShootPhotoButton).setOnClickListener { onShootPhotoTapped() }
 
         liveToggle = findViewById(R.id.flightStreamButton)
         liveToggle.setOnClickListener { onLiveToggleTapped() }
@@ -691,6 +718,30 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         if (TakBridgeHolder.hud()?.isRecording == true) {
             AppLog.i(REC_TAG, "already recording — sending stopRecordVideo")
             camera.stopRecordVideo(recordResultCallback("Recording stopped", "Stop failed", "stopRecordVideo"))
+            return
+        }
+        // ⚠ **IN STILLS MODE THIS PILL IS A SHUTTER** (§6.7, ledger D25). The pill has already
+        // changed shape to say so — see renderMediaMode.
+        //
+        // ⚠ NO MODE DANCE HERE, AND THAT IS THE POINT. The camera is ALREADY in stills, so the
+        // shutter is a single call with nothing to set and nothing to restore. The on-screen
+        // shutter that dragged the camera PHOTO_SINGLE -> shoot -> VIDEO_NORMAL underneath
+        // whatever it was doing — the path that once left a camera stuck in photo mode
+        // (2026-08-03) — was removed in v1.2.11.
+        //
+        // ⚠ WHAT IT COSTS, RECORDED SO IT STAYS A DECISION: this pill could start a recording
+        // from ANY mode in one tap. It cannot while the camera is in stills. The RC-N1's
+        // photo/video toggle and its record button are that path — the toggle moves the camera
+        // between the two modes and leaves it there, measured on the bench 2026-09-14.
+        val hudNow = TakBridgeHolder.hud()
+        if (com.dji.sdk.sample.tak.MediaModePolicy.reading(hudNow?.cameraFlatMode?.name, hudNow?.cameraMode?.name).mode
+            == com.dji.sdk.sample.tak.MediaModePolicy.Mode.PHOTO) {
+            AppLog.i(REC_TAG, "tap: shutter (the camera is in stills)")
+            camera.startShootPhoto(CommonCallbacks.CompletionCallback<DJIError> { error ->
+                AppLog.i(REC_TAG, "shoot photo (stills pill) result: ${error?.description ?: "OK"}")
+                // Saved is the card's word, not this callback's — see setOnCameraEvent.
+                if (error != null) runOnUiThread { showNotice("Photo failed: ${error.description}", refused = true) }
+            })
             return
         }
         AppLog.i(REC_TAG, "starting recording (flatModeSupported=${camera.isFlatCameraModeSupported})")
@@ -1866,62 +1917,6 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun onShootPhotoTapped() {
-        AppLog.v(REC_TAG, "tap: shutter (photo)")
-        val camera = DJISampleApplication.getAircraftInstance()?.camera
-        if (camera == null) {
-            AppLog.w(REC_TAG, "photo ignored — aircraft not connected")
-            Toast.makeText(this, "Aircraft not connected", Toast.LENGTH_SHORT).show()
-            return
-        }
-        AppLog.i(REC_TAG, "photo: switching to PHOTO_SINGLE (flatModeSupported=${camera.isFlatCameraModeSupported})")
-        val restoreVideoMode = CommonCallbacks.CompletionCallback<DJIError> { error ->
-            AppLog.i(REC_TAG, "shoot photo result: ${error?.description ?: "OK"}")
-            runOnUiThread {
-                val msg = if (error == null) "Photo saved to aircraft SD card" else "Photo failed: ${error.description}"
-                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-            }
-            restoreVideoModeAfterPhoto(camera)
-        }
-        val shootAfterMode = CommonCallbacks.CompletionCallback<DJIError> { modeError ->
-            AppLog.i(REC_TAG, "photo: set PHOTO_SINGLE mode: ${modeError?.description ?: "OK"}")
-            if (modeError != null) {
-                runOnUiThread {
-                    Toast.makeText(this, "Couldn't switch to photo mode: ${modeError.description}", Toast.LENGTH_SHORT).show()
-                }
-                return@CompletionCallback
-            }
-            // Re-push the same metering/exposure-mode/EV used for video onto photo mode before
-            // shooting — PHOTO_SINGLE has its own separately-persisted exposure state, so
-            // without this the still's EV wouldn't necessarily match what the live feed showed.
-            ExposureController.applyExposureSettings(applicationContext, camera) {
-                camera.startShootPhoto(restoreVideoMode)
-            }
-        }
-        if (camera.isFlatCameraModeSupported) {
-            camera.setFlatMode(SettingsDefinitions.FlatCameraMode.PHOTO_SINGLE, shootAfterMode)
-        } else {
-            camera.setMode(SettingsDefinitions.CameraMode.SHOOT_PHOTO, shootAfterMode)
-        }
-    }
-
-    /**
-     * Puts the camera back in VIDEO_NORMAL after a still — but only once it is actually willing
-     * to change mode, and verified rather than assumed.
-     *
-     * `startShootPhoto`'s completion callback means "the shutter fired", NOT "the camera is
-     * done". While the still is still being written the camera rejects a mode change outright.
-     * Field-observed 2026-08-03 on the Air 2: the restore ran 14ms after the shoot callback and
-     * every call returned "Undefined Error", so the camera stayed in photo mode for the rest of
-     * the flight with nothing on screen saying so — the live FPV is this screen's primary job, so
-     * that is not a cosmetic failure.
-     *
-     * So: wait for [TakBridgeHolder.photoInProgress] to clear, then switch, then retry if the
-     * switch itself is still refused. Both waits share one attempt budget — after
-     * [PHOTO_RESTORE_MAX_ATTEMPTS] it tries anyway rather than waiting forever on a camera state
-     * that may never arrive, and if that final attempt fails the pilot is TOLD, because a camera
-     * silently left in photo mode is exactly the failure this is here to prevent.
-     */
     /**
      * Paints the one warning that currently owns the banner, or hides it.
      *
@@ -1954,44 +1949,13 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         flightDiagnostics.visibility = View.VISIBLE
     }
 
-    private fun restoreVideoModeAfterPhoto(camera: Camera, attempt: Int = 1) {
-        if (TakBridgeHolder.photoInProgress() && attempt < PHOTO_RESTORE_MAX_ATTEMPTS) {
-            handler.postDelayed(
-                { restoreVideoModeAfterPhoto(camera, attempt + 1) }, PHOTO_RESTORE_RETRY_MS)
-            return
-        }
-        AppLog.i(REC_TAG, "photo: restoring VIDEO_NORMAL + PROGRAM auto-exposure (attempt $attempt)")
-        ExposureController.applyDefaults(applicationContext, camera) { err ->
-            if (err == null) {
-                if (attempt > 1) AppLog.i(REC_TAG, "photo: VIDEO mode restored on attempt $attempt")
-                return@applyDefaults
-            }
-            if (attempt < PHOTO_RESTORE_MAX_ATTEMPTS) {
-                AppLog.w(REC_TAG, "photo: VIDEO mode restore refused (${err.description}) — " +
-                    "camera still busy, retrying (attempt $attempt)")
-                handler.postDelayed(
-                    { restoreVideoModeAfterPhoto(camera, attempt + 1) }, PHOTO_RESTORE_RETRY_MS)
-            } else {
-                AppLog.e(REC_TAG, "photo: VIDEO mode restore FAILED after $attempt attempts " +
-                    "(${err.description}) — camera left in PHOTO mode")
-                runOnUiThread {
-                    Toast.makeText(
-                        this,
-                        "Camera stuck in photo mode — tap Video Re-Sync or re-enter flight screen",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            }
-        }
-    }
-
     private fun recordResultCallback(successMsg: String, failurePrefix: String, op: String) =
         CommonCallbacks.CompletionCallback<DJIError> { error ->
             AppLog.i(REC_TAG, "$op result: ${error?.description ?: "OK"}")
-            runOnUiThread {
-                val msg = if (error == null) successMsg else "$failurePrefix: ${error.description}"
-                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-            }
+            // Success is NOT announced here: the camera announces it, on its isRecording edge,
+            // through the notice — see setOnCameraEvent. This callback only means the request
+            // was accepted. A refusal is the pilot's to see, in the notice's refused style.
+            if (error != null) runOnUiThread { showNotice("$failurePrefix: ${error.description}", refused = true) }
         }
 
     /** Aircraft marker icon: a cyan heading arrow (rasterized from the vector), sized for the
@@ -2038,6 +2002,15 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             com.dji.sdk.sample.tak.MediaModePolicy.Mode.PHOTO -> fpvMediaMode.setMode(MediaModeView.Mode.PHOTO)
             com.dji.sdk.sample.tak.MediaModePolicy.Mode.VIDEO -> fpvMediaMode.setMode(MediaModeView.Mode.VIDEO)
             null -> fpvMediaMode.setMode(null, unhandledName = r.other)
+        }
+        // ⚠ THE RECORD PILL FOLLOWS THE CAMERA TOO (§6.7, D25). In stills it is a shutter — see
+        // onRecordToggleTapped. Driven from here rather than from the tap so it is right the
+        // moment the camera moves, including when the RC-N1's toggle moves it and this
+        // application is never asked. ONLY PHOTO_SINGLE: a burst or interval mode is shown by
+        // name in the readout and the pill stays REC, because one tap there would not take
+        // one picture.
+        if (::recordToggle.isInitialized) {
+            recordToggle.setPhotoMode(r.mode == com.dji.sdk.sample.tak.MediaModePolicy.Mode.PHOTO)
         }
     }
 
@@ -2336,6 +2309,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // The holder outlives this screen; a hook left behind would keep it alive and act on
+        // a dead Activity. See TakBridgeHolder.setOnShutterRecordPressed.
+        TakBridgeHolder.setOnShutterRecordPressed(null)
+        TakBridgeHolder.setOnCameraEvent(null)
         AppLog.v(TAG, "onDestroy")
         // Stop the AR redraw loop explicitly — it posts to a Handler several times a second and
         // would otherwise keep firing against a dead Activity.
@@ -2387,24 +2364,21 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
          *  operator filters TAK logging off — which is exactly when they are chasing a memory
          *  problem and need this most. Same reasoning as the bridge's readiness tag. */
         private const val RESOURCE_TAG = "TP2Resources"
-        /** Post-still VIDEO-mode restore: poll interval and total attempts (~3.6s of patience).
-         *  Comfortably longer than the Air 2 takes to write a still, while still giving up in
-         *  time to warn the pilot rather than retrying silently forever. */
-        private const val PHOTO_RESTORE_RETRY_MS = 300L
-        private const val PHOTO_RESTORE_MAX_ATTEMPTS = 12
         /** FOV calibration step. 0.5 deg is finer than the eye can judge at the frame edge,
          *  so it never limits how closely the pilot can converge. */
         private const val FOV_STEP_DEG = 0.5
         private const val AIRCRAFT_ICON_ID = "aircraft-icon"
         private const val AIRCRAFT_SOURCE_ID = "aircraft-source"
         private const val AIRCRAFT_LAYER_ID = "aircraft-layer"
-        private const val AIRCRAFT_ICON_DP = 28
+        // 20, from 28 (operator, 2026-09-14): on a 137x154dp map the aircraft and home marks
+        // covered the streets the pilot was reading. The team marks scaled with them.
+        private const val AIRCRAFT_ICON_DP = 20
         private const val HOME_ICON_ID = "home-icon"
         private const val HOME_SOURCE_ID = "home-source"
         private const val HOME_LAYER_ID = "home-layer"
         private const val HOME_LINE_SOURCE_ID = "home-line-source"
         private const val HOME_LINE_LAYER_ID = "home-line-layer"
-        private const val HOME_ICON_DP = 18
+        private const val HOME_ICON_DP = 13
         private const val HOME_NOTICE_MS = 5000L
 
         /** Minimum height above ground for a marker drop, feet. Below this the slant

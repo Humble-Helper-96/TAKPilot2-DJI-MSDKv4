@@ -177,6 +177,19 @@ class DroneTakBridge(
         if (before != null && (before.flatMode != it.flatMode || before.mode != it.mode)) {
             AppLog.i(TAG, "camera media mode: ${before.flatMode}/${before.mode} -> ${it.flatMode}/${it.mode}")
         }
+        // Likewise a recording starting or stopping: the RC-N1's record button does this with
+        // no line from this application, and a flight log that cannot say when the card was
+        // being written to cannot answer "was that recorded?".
+        if (before != null && before.isRecording != it.isRecording) {
+            AppLog.i(TAG, "camera recording: ${before.isRecording} -> ${it.isRecording} (mode ${it.flatMode})")
+            cameraEvent(if (it.isRecording) CameraEvent.RECORDING_STARTED else CameraEvent.RECORDING_STOPPED)
+        }
+        // And a still being taken or written, for the same reason: the RC-N1's shutter takes a
+        // photo natively — or does not — with no line from this application.
+        if (before != null && (before.isShootingSinglePhoto != it.isShootingSinglePhoto ||
+                before.isStoringPhoto != it.isStoringPhoto)) {
+            AppLog.i(TAG, "camera still: shooting=${it.isShootingSinglePhoto} storing=${it.isStoringPhoto} (mode ${it.flatMode})")
+        }
         lastCameraState = it
         if (!exposureApplied) {
             exposureApplied = true
@@ -190,9 +203,130 @@ class DroneTakBridge(
     // resolved by switching to PROGRAM auto-exposure; it fired too often to keep in flight.)
     private val exposureSettingsCallback = ExposureSettings.Callback { lastExposure = it }
 
+    /**
+     * The SD card, as the camera reports it. Logged on every CHANGE and held for the HUD.
+     *
+     * ⚠ BENCH 2026-09-14: the RC-N1's shutter/record button beeped and the camera reported no
+     * recording and no photo. "The card refused" is one of the two explanations and this is
+     * what separates it from "the press never reached the camera".
+     */
+    @Volatile var lastStorage: dji.common.camera.StorageState? = null
+        private set
+    private val storageStateCallback = dji.common.camera.StorageState.Callback { st ->
+        val b = lastStorage
+        if (b == null || b.isInserted != st.isInserted || b.isVerified != st.isVerified ||
+            b.hasError() != st.hasError() || b.isFull != st.isFull || b.isReadOnly != st.isReadOnly ||
+            b.isInvalidFormat != st.isInvalidFormat || b.isFormatted != st.isFormatted) {
+            AppLog.i(TAG, "SD card: inserted=${st.isInserted} verified=${st.isVerified} error=${st.hasError()} " +
+                "full=${st.isFull} readOnly=${st.isReadOnly} invalidFormat=${st.isInvalidFormat} " +
+                "formatted=${st.isFormatted} free=${st.remainingSpaceInMB}/${st.totalSpaceInMB}MB " +
+                "captures=${st.availableCaptureCount}")
+        }
+        lastStorage = st
+    }
+
+    /**
+     * What the CAMERA says happened, for the flight screen's notice (specification §4.8).
+     *
+     * ⚠ FROM THE CAMERA'S REPORT, NEVER FROM THE REQUEST'S CALLBACK. "Photo saved" fires when
+     * the FILE lands on the card — `startShootPhoto`'s callback means the shutter fired, not
+     * that anything was written (the Autel tree's v2.0.1 lesson), and the RC-N1's own shutter
+     * never calls this application at all. The recording notices fire on the camera's
+     * `isRecording` edge, which the REC pill and the hardware button both produce. Delivered on
+     * the main thread; null when no flight screen is up.
+     */
+    enum class CameraEvent { PHOTO_SAVED, RECORDING_STARTED, RECORDING_STOPPED }
+    @Volatile var onCameraEvent: ((CameraEvent) -> Unit)? = null
+    private fun cameraEvent(e: CameraEvent) { onCameraEvent?.let { cb -> handler.post { cb(e) } } }
+
+    /** A file landing on the card is the one proof that a photo or a recording happened. */
+    private val mediaFileCallback = dji.sdk.media.MediaFile.Callback { f ->
+        AppLog.i(TAG, "new media file: ${f?.fileName} ${f?.mediaType} ${f?.fileSize}B")
+        // A JPEG only: an MP4 landing is the recording STOPPING, and that notice has already
+        // gone out on the isRecording edge.
+        if (f?.mediaType == dji.sdk.media.MediaFile.MediaType.JPEG) cameraEvent(CameraEvent.PHOTO_SAVED)
+    }
+
+    /**
+     * The controller's buttons, as the phone hears them.
+     *
+     * ⚠ THIS SLOT WAS DELIBERATELY LEFT EMPTY UNTIL 2026-09-14 — ControlResponse.logYawSmoothness
+     * records why: a listener slot holds one client, and detaching an RC listener killed the
+     * signal bars on the Autel sibling. It is taken now because the RC-N1's shutter/record
+     * button DOES NOTHING VISIBLE on the bench — a pilot-facing fault, not a diagnostic — and
+     * whether the press reaches the phone is the first question. Owned here, like every other
+     * SDK callback; armed at start(); NEVER detached in stop() (rule 2). Logged on the CHANGE of
+     * any button's clicked state, so a held button is one line and a steady state is none.
+     */
+    /**
+     * Fired on the main thread once per press of the RC-N1's shutter/record button.
+     *
+     * ⚠ THE PRESS IS THE APP'S TO ACT ON IN VIDEO MODE (bench, 2026-09-14, ledger D26): with
+     * this application on the link the aircraft records NOTHING on that button unless the app
+     * starts it — three presses, three beeps, no MP4 on the card. In photo mode the camera
+     * takes the picture NATIVELY (`new media file` followed the press, and the card agrees),
+     * so the consumer must not also shoot. The consumer decides by the camera's mode; this
+     * only reports the press. Null when no flight screen is up, and then nothing happens —
+     * the same as before v1.2.8.
+     */
+    @Volatile var onShutterRecordPressed: (() -> Unit)? = null
+
+    private var lastButtons: String? = null
+    private val hardwareStateCallback = dji.common.remotecontroller.HardwareState.HardwareStateCallback { hw ->
+        fun b(name: String, btn: dji.common.remotecontroller.HardwareState.Button?) =
+            if (btn != null && btn.isPresent && btn.isClicked) name else null
+        val pressed = listOfNotNull(
+            b("shootPhotoAndRecord", hw.shootPhotoAndRecordButton), b("shutter", hw.shutterButton),
+            b("record", hw.recordButton), b("photoVideoToggle", hw.photoAndVideoToggleButton),
+            b("playback", hw.playbackButton), b("pause", hw.pauseButton), b("goHome", hw.goHomeButton),
+            b("C1", hw.c1Button), b("C2", hw.c2Button), b("C3", hw.c3Button), b("function", hw.functionButton),
+            b("menu", hw.menuButton),
+        ).joinToString(",")
+        if (pressed != lastButtons) {
+            if (pressed.isNotEmpty()) AppLog.i(TAG, "RC button: $pressed")
+            val wasRecordPressed = lastButtons?.contains("shootPhotoAndRecord") == true
+            lastButtons = pressed
+            // One event per PRESS, on the clicked edge, never on the release and never repeated
+            // while held.
+            if (pressed.contains("shootPhotoAndRecord") && !wasRecordPressed) {
+                onShutterRecordPressed?.let { cb -> handler.post { cb() } }
+            }
+        }
+    }
+
+    /**
+     * Arms the RC hardware-state callback on the remote controller object that EXISTS NOW.
+     *
+     * ⚠ THE RC IS NOT THERE WHEN start() RUNS, AND THE ONE THAT ARRIVES IS REPLACED. Measured
+     * 2026-09-14 on the Mini 2 + RC-N1: `aircraft.remoteController` was null at bridge start
+     * with every camera callback already live; the REMOTE_CONTROLLER component appeared 2.5 s
+     * after productConnect — and 8 s later the SDK swapped it for a DIFFERENT object
+     * (`onComponentChange key:REMOTE_CONTROLLER old:bcx@8cc593f new:dcb@6234bb3`). A callback set
+     * on the first object dies with it. So this tracks the object's IDENTITY and re-arms from
+     * every 2 s tick whenever the SDK's current RC is not the one that was armed. The Autel
+     * sibling's v2.0.2 is the same lesson with one fewer twist: ask again, always.
+     */
+    private var armedRc: dji.sdk.remotecontroller.RemoteController? = null
+    private var rcArmWarned = false
+    private fun armRemoteControllerIfNeeded() {
+        val rc = DJISampleApplication.getAircraftInstance()?.remoteController
+        if (rc == null) {
+            if (!rcArmWarned) { AppLog.w(TAG, "RC hardware-state callback NOT armed: no remote controller yet — will retry each tick"); rcArmWarned = true }
+            armedRc = null
+            return
+        }
+        if (rc === armedRc) return
+        try {
+            rc.setHardwareStateCallback(hardwareStateCallback)
+            AppLog.i(TAG, "RC hardware-state callback armed on $rc" + (if (armedRc != null) " (replaced $armedRc)" else ""))
+            armedRc = rc
+        } catch (t: Throwable) { AppLog.w(TAG, "RC hardware-state callback unavailable: ${t.message}") }
+    }
+
     private val tick = object : Runnable {
         override fun run() {
             try {
+                armRemoteControllerIfNeeded()
                 pushOnce()
             } catch (t: Throwable) {
                 AppLog.w(TAG, "telemetry push failed: ${t.message}")
@@ -232,6 +366,9 @@ class DroneTakBridge(
             }
             aircraft.camera?.setSystemStateCallback(cameraStateCallback)
             aircraft.camera?.setExposureSettingsCallback(exposureSettingsCallback)
+            try { aircraft.camera?.setStorageStateCallBack(storageStateCallback) } catch (t: Throwable) { AppLog.w(TAG, "storage-state callback unavailable: ${t.message}") }
+            try { aircraft.camera?.setMediaFileCallback(mediaFileCallback) } catch (t: Throwable) { AppLog.w(TAG, "media-file callback unavailable: ${t.message}") }
+            armRemoteControllerIfNeeded()
             // TODO: resolve the real aircraft serial (BaseProduct.getSerialNumber) as a
             // stable per-aircraft uid, matching V5's approach. Deferred — droneUid falls
             // back to the caller-provided session uid, which is enough for a live PLI.
@@ -293,6 +430,10 @@ class DroneTakBridge(
         // signal bars on the flight screen must never depend on a TAK toggle.
         try { aircraft?.camera?.setSystemStateCallback(null) } catch (_: Throwable) {}
         try { aircraft?.camera?.setExposureSettingsCallback(null) } catch (_: Throwable) {}
+        try { aircraft?.camera?.setStorageStateCallBack(null) } catch (_: Throwable) {}
+        try { aircraft?.camera?.setMediaFileCallback(null) } catch (_: Throwable) {}
+        // The RC hardware-state callback is DELIBERATELY NOT removed — see its declaration and
+        // the AirLink note above: an RC listener detached once stayed detached on the sibling.
         lastState = null
         lastGimbal = null
         lastBattery = null

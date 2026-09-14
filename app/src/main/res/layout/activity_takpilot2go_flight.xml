@@ -142,9 +142,13 @@
         android:layout_gravity="end"
         android:gravity="end"
         android:orientation="vertical"
-        android:paddingTop="60dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="45dp"
+        android:paddingBottom="0dp"
         android:paddingEnd="14dp">
+        <!-- paddingBottom is 0 (operator, 2026-09-14): the map's bottom edge lines up with the
+             picture's, which fills the full 1080px here. The phone's rounded screen corner
+             reaches about 6px into that spot, under the map's own 8dp corner. Per-device — the
+             siblings keep an inset. -->
 
         <!-- TOP HUD PANEL: exposure controls, clock, telemetry and gimbal, on one
              translucent backing. Ported from the Autel sibling 2026-08-14 (conformance D4,
@@ -177,8 +181,12 @@
             android:layout_height="wrap_content"
             android:gravity="end"
             android:orientation="vertical"
-            android:paddingHorizontal="8dp">
+            android:paddingStart="2dp"
+            android:paddingEnd="8dp">
 
+            <!-- paddingStart 2dp, not 8 (operator, 2026-09-14): the slider's left end sat 11dp
+                 off the picture; now about 5dp. The right padding stays 8, it is what the
+                 readouts' outline needs. -->
             <!-- EV compensation slider biasing the shutter-priority auto-ISO, with the live
                  ISO/shutter the camera actually chose beneath it.
 
@@ -289,7 +297,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"
+            android:layout_marginBottom="4dp"
             android:gravity="end"
             android:orientation="vertical"
             android:paddingHorizontal="8dp">
@@ -299,10 +307,15 @@
                  accepted and not applied, or rejected while the screen keeps showing the number the
                  pilot typed. This is the one a pilot is about to rely on. Shows a dashed placeholder
                  until the aircraft has answered, because unknown must not look like a value. -->
+            <!-- ⚠ TIGHT ON PURPOSE (operator, 2026-09-14): no margins between these three lines
+                 and no font padding, so the bottom block spends as little height as three short
+                 lines can. The outline's own half-stroke padding in OutlinedTextView is what
+                 keeps the stroke off the clip edge. Measured, not computed — see D20. -->
             <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvRthAltitude"
                 style="@style/flightReadoutText"
-                android:layout_marginBottom="2dp"
+                android:includeFontPadding="false"
+                android:layout_marginBottom="0dp"
                 android:gravity="end"
                 android:text="RTH --" />
 
@@ -312,7 +325,8 @@
             <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvHomeDistance"
                 style="@style/flightReadoutText"
-                android:layout_marginBottom="2dp"
+                android:includeFontPadding="false"
+                android:layout_marginBottom="0dp"
                 android:gravity="end"
                 android:text="HOME" />
 
@@ -320,7 +334,8 @@
             <com.dji.sdk.sample.takpilot2.OutlinedTextView
                 android:id="@+id/fpvFaaCeiling"
                 style="@style/flightReadoutText"
-                android:layout_marginBottom="6dp"
+                android:includeFontPadding="false"
+                android:layout_marginBottom="0dp"
                 android:gravity="end"
                 android:text=""
                 android:visibility="gone" />
@@ -388,7 +403,7 @@
         android:layout_gravity="top"
         android:orientation="horizontal"
         android:paddingHorizontal="8dp"
-        android:paddingTop="8dp">
+        android:paddingTop="5dp">
 
         <!-- STATUS, left. Specification §4.2 fixes the order: back, TAK, battery, signal, GPS,
              RTH. The capsule is what separates these from the video now. -->
@@ -401,12 +416,12 @@
             android:minHeight="@dimen/hud_capsule_height"
             android:orientation="horizontal"
             android:paddingHorizontal="10dp"
-            android:paddingVertical="3dp">
+            android:paddingVertical="2dp">
 
         <ImageButton
             android:id="@+id/flightBackButton"
-            android:layout_width="40dp"
-            android:layout_height="34dp"
+            android:layout_width="32dp"
+            android:layout_height="26dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Menu (home)"
             android:padding="2dp"
@@ -420,8 +435,8 @@
              before battery/signal/GPS rather than after them. -->
         <FrameLayout
             android:id="@+id/toolbarTakButton"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
             android:layout_marginEnd="14dp"
             android:clickable="true"
             android:focusable="true"
@@ -432,16 +447,16 @@
                  silhouette + separate "TAK" TextView overlay is gone. -->
             <ImageView
                 android:id="@+id/toolbarTakIcon"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
                 android:scaleType="fitCenter"
                 android:contentDescription="TAK server connection"
                 android:src="@drawable/ic_tak_logo" />
 
             <ImageView
                 android:id="@+id/toolbarTakDot"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
                 android:layout_gravity="bottom|start"
                 android:src="@drawable/bg_status_dot" />
 
@@ -449,15 +464,15 @@
 
         <com.dji.sdk.sample.takpilot2.BatteryGaugeView
             android:id="@+id/toolbarBattery"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
             android:layout_marginEnd="14dp"
             android:contentDescription="Battery" />
 
         <com.dji.sdk.sample.takpilot2.SignalBarsView
             android:id="@+id/toolbarSignal"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
             android:contentDescription="RC signal strength" />
 
         <TextView
@@ -474,8 +489,8 @@
 
         <ImageView
             android:id="@+id/toolbarGpsIcon"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
             android:contentDescription="GPS satellites"
             android:src="@drawable/ic_gps" />
 
@@ -492,8 +507,8 @@
 
         <ImageButton
             android:id="@+id/flightRthButton"
-            android:layout_width="40dp"
-            android:layout_height="34dp"
+            android:layout_width="32dp"
+            android:layout_height="26dp"
             android:layout_marginEnd="12dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Return to home"
@@ -522,7 +537,7 @@
             android:minHeight="@dimen/hud_capsule_height"
             android:orientation="horizontal"
             android:paddingHorizontal="10dp"
-            android:paddingVertical="3dp">
+            android:paddingVertical="2dp">
 
         <!-- Drop-pin heads the right-hand cluster and is deliberately the LARGEST control in the
              bar: it is the most-used action on this screen, and a pilot reaching for it is
@@ -531,8 +546,8 @@
              pair either way round. -->
         <ImageButton
             android:id="@+id/flightDropPinButton"
-            android:layout_width="56dp"
-            android:layout_height="46dp"
+            android:layout_width="44dp"
+            android:layout_height="36dp"
             android:layout_marginEnd="10dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Drop a TAK marker at the camera crosshair"
@@ -544,7 +559,7 @@
         <TextView
             android:id="@+id/flightArButton"
             android:layout_width="54dp"
-            android:layout_height="34dp"
+            android:layout_height="26dp"
             android:layout_marginEnd="10dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle AR marker overlay"
@@ -554,20 +569,16 @@
             android:textSize="14sp"
             android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/flightShootPhotoButton"
-            android:layout_width="54dp"
-            android:layout_height="34dp"
-            android:background="@drawable/bg_zoom_pill"
-            android:contentDescription="Take photo (saves to aircraft SD card)"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_camera_shutter" />
+        <!-- THE SHUTTER SLOT IS CLOSED (operator, 2026-09-14, v1.2.11). The RC-N1 has a
+             photo/video button and a shutter, both measured working (ledger D26), and the REC
+             pill is a shutter whenever the camera is in stills (D25) — the on-screen shutter
+             was a third way to do the same thing, and its PHOTO_SINGLE -> shoot -> VIDEO mode
+             dance was the path that once stranded a camera in photo mode (2026-08-03). -->
 
         <TextView
             android:id="@+id/flightZoomButton"
             android:layout_width="54dp"
-            android:layout_height="34dp"
+            android:layout_height="26dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Toggle camera zoom (1x/2x)"
@@ -580,18 +591,18 @@
         <ImageButton
             android:id="@+id/flightResyncButton"
             android:layout_width="54dp"
-            android:layout_height="34dp"
+            android:layout_height="26dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_zoom_pill"
             android:contentDescription="Video re-sync"
-            android:padding="6dp"
+            android:padding="4dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_resync" />
 
         <com.dji.sdk.sample.takpilot2.LiveToggleView
             android:id="@+id/flightStreamButton"
             android:layout_width="66dp"
-            android:layout_height="34dp"
+            android:layout_height="26dp"
             android:layout_marginHorizontal="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="Start/stop live stream (not wired yet)" />
@@ -599,7 +610,7 @@
         <com.dji.sdk.sample.takpilot2.RecordToggleView
             android:id="@+id/flightRecordButton"
             android:layout_width="66dp"
-            android:layout_height="34dp"
+            android:layout_height="26dp"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"

@@ -726,9 +726,11 @@ object TakMapMarkers {
      * were worse here than they were there — a 32dp marker was a quarter of the map's width.
      * The expanded 260dp state makes the new sizes roomier again rather than tighter.
      */
-    private const val MIL_ICON_DP = 14f    // shared markers AND the pilot's own dropped markers
-    private const val AIR_ICON_DP = 12f    // ADS-B traffic — context, not something acted on
-    private const val PLI_DOT_DP = 10f     // team position dots
+    // Scaled by about 0.7 with the aircraft and home marks (operator, 2026-09-14) so the
+    // three families keep their proportion on the mini-map.
+    private const val MIL_ICON_DP = 12f    // shared markers AND the pilot's own dropped markers
+    private const val AIR_ICON_DP = 9f     // ADS-B traffic — context, not something acted on
+    private const val PLI_DOT_DP = 8f      // team position dots
     private const val LABEL_SP = 8f
     /** Alpha of a stale 2525 frame, 0-255. Grey and faded, with the label still readable.
      *  Shared with ArOverlayView so the map and the AR view age a frame the same way. */

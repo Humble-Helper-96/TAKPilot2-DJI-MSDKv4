@@ -331,7 +331,11 @@ class FieldGuideActivity : AppCompatActivity() {
         entry(
             listOf(image(R.drawable.ic_camera_shutter) to "Photo"),
             "Photo",
-            "Takes a photo. The app saves it to the card in the aircraft, not to your phone.",
+            "The controller's photo/video button puts the camera in photo mode, and it stays " +
+                "there. The readout under the EV scale says PHOTO, and the REC control becomes " +
+                "this symbol. Tap it, or press the controller's shutter, to take a photo. The " +
+                "app saves it to the card in the aircraft, not to your phone. Press the " +
+                "photo/video button again to return to video.",
         )
 
         entry(
