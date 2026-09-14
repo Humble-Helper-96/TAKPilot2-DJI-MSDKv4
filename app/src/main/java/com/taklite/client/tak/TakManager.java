@@ -529,7 +529,12 @@ public class TakManager implements TakClient.TakClientListener {
 
     @Override
     public void onCotReceived(String xml) {
-        AppLog.d(TAG, "CoT received: " + xml.substring(0, Math.min(xml.length(), 200)));
+        // REDACT BEFORE TRUNCATING, not after — a teammate's marker can carry a
+        // <__video url="rtsp://user:pass@..."> in a PLI, and that url is exactly the kind of
+        // thing that shows up in the first 200 chars. Truncating first could still leak a
+        // partial credential; redacting the whole string first cannot.
+        String redacted = redactCredentials(xml);
+        AppLog.d(TAG, "CoT received: " + redacted.substring(0, Math.min(redacted.length(), 200)));
         // t-x-g-c is the server saying "your channels changed, read them again". It arrives
         // whether the change came from this controller or from an administrator in TAK Portal,
         // and it arrives about a tenth of a second after the change — see the group-change
@@ -613,43 +618,59 @@ public class TakManager implements TakClient.TakClientListener {
     }
 
     private void processCoT(String xml) {
+        // §3 "each inbound message is parsed up to 3x": parseDisconnect, then parseAlert, then
+        // parse used to run unconditionally in sequence — three full fresh parses — even though
+        // the three type-sets below are mutually exclusive, so the CoT's own <event type> already
+        // determines which single one could possibly succeed. peekEventType is a one-tag sniff,
+        // not a full-document parse. A null sniff (couldn't tell — malformed XML, unexpected
+        // shape) falls back to trying every branch as before: this can only skip an attempt that
+        // was guaranteed to return null anyway, never change which branch ends up handling it.
+        String sniffedType = CotParser.peekEventType(xml);
+        boolean isDisconnectType = sniffedType == null || "t-x-d-d".equals(sniffedType);
+        boolean isAlertType = sniffedType == null
+                || "b-a-o-tbl".equals(sniffedType) || "b-a-o-can".equals(sniffedType);
+
         // Check for disconnect
-        try {
-            String disconnectedUid = CotParser.parseDisconnect(xml);
-            if (disconnectedUid != null) {
-                AppLog.d(TAG, "User disconnected: " + disconnectedUid);
-                TakUser user = takUsers.get(disconnectedUid);
-                if (user != null && !user.isPersistent()) {
-                    // A client went away. Backdate its stale time and let removeStaleUsers()
-                    // collect it, so it greys before it disappears.
-                    user.setStaleTime(System.currentTimeMillis() - 1);
-                    mainHandler.post(() -> {
-                        synchronized (listeners) {
-                            for (TakUserListener l : listeners) l.onTakUserUpdated(user);
-                        }
-                    });
-                } else {
-                    // A `t-x-d-d` is also TAK's DELETE for a map item. Persistent items are exempt
-                    // from the stale sweep, so backdating would never remove them — delete here.
-                    //
-                    // Fired even when the uid is NOT in takUsers: a marker restored from the saved
-                    // store may not be in memory as a contact, and the team deleting it must still
-                    // clear the persisted copy. Listeners treat this as "forget it for good".
-                    takUsers.remove(disconnectedUid);
-                    mainHandler.post(() -> {
-                        synchronized (listeners) {
-                            for (TakUserListener l : listeners) l.onTakUserDeleted(disconnectedUid);
-                        }
-                    });
+        if (isDisconnectType) {
+            try {
+                String disconnectedUid = CotParser.parseDisconnect(xml);
+                if (disconnectedUid != null) {
+                    AppLog.d(TAG, "User disconnected: " + disconnectedUid);
+                    TakUser user = takUsers.get(disconnectedUid);
+                    if (user != null && !user.isPersistent()) {
+                        // A client went away. Backdate its stale time and let removeStaleUsers()
+                        // collect it, so it greys before it disappears.
+                        user.setStaleTime(System.currentTimeMillis() - 1);
+                        mainHandler.post(() -> {
+                            synchronized (listeners) {
+                                for (TakUserListener l : listeners) l.onTakUserUpdated(user);
+                            }
+                        });
+                    } else {
+                        // A `t-x-d-d` is also TAK's DELETE for a map item. Persistent items are
+                        // exempt from the stale sweep, so backdating would never remove them —
+                        // delete here.
+                        //
+                        // Fired even when the uid is NOT in takUsers: a marker restored from the
+                        // saved store may not be in memory as a contact, and the team deleting it
+                        // must still clear the persisted copy. Listeners treat this as "forget it
+                        // for good".
+                        takUsers.remove(disconnectedUid);
+                        mainHandler.post(() -> {
+                            synchronized (listeners) {
+                                for (TakUserListener l : listeners) l.onTakUserDeleted(disconnectedUid);
+                            }
+                        });
+                    }
+                    return;
                 }
-                return;
+            } catch (Exception e) {
+                // ignore
             }
-        } catch (Exception e) {
-            // ignore
         }
 
         // Check for alert
-        CotParser.AlertMessage alert = CotParser.parseAlert(xml);
+        CotParser.AlertMessage alert = isAlertType ? CotParser.parseAlert(xml) : null;
         if (alert != null) {
             String senderUid = alert.linkedUid != null ? alert.linkedUid : "";
             if (senderUid.equals(uid)) return;

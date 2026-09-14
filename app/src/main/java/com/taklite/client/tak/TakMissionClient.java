@@ -331,15 +331,23 @@ public class TakMissionClient {
             if (statusOut != null) statusOut[0] = code;
             InputStream is = (code >= 200 && code < 300) ? c.getInputStream() : c.getErrorStream();
             String resp = readAll(is);
-            if (code < 200 || code >= 300) AppLog.w(TAG, method + " " + path + " -> " + code + " : " + snippet(resp));
+            if (code < 200 || code >= 300) AppLog.w(TAG, method + " " + redactPath(path) + " -> " + code + " : " + snippet(resp));
             return resp;
         } catch (Exception e) {
-            AppLog.w(TAG, method + " " + path + " error: " + e.getMessage());
+            AppLog.w(TAG, method + " " + redactPath(path) + " error: " + e.getMessage());
             if (statusOut != null) statusOut[0] = -1;
             return null;
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    // subscribe() puts the feed password in the query string (?password=...). Every doRequest
+    // log line goes through this before it reaches AppLog, so a subscribe failure never writes
+    // the plaintext password to logcat or to the exported log file.
+    private static String redactPath(String path) {
+        if (path == null) return null;
+        return path.replaceAll("([?&]password=)[^&\\s]+", "$1<redacted>");
     }
 
     private static String readAll(InputStream is) {

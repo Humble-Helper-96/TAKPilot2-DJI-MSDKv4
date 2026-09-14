@@ -31,6 +31,55 @@ public class CotParser {
         COT_DATE_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
     }
 
+    /**
+     * §3 "XML parser re-created per message": {@code XmlPullParserFactory.newInstance()} does a
+     * classpath/system-property lookup for an implementation every time it is called — real work,
+     * paid on every single inbound CoT event, for a factory whose configuration never changes.
+     * Built once and reused; {@link XmlPullParserFactory#newPullParser()} still hands out a fresh
+     * (and cheap) parser instance per call, which is the part that actually needs to be new —
+     * an {@link XmlPullParser} is stateful for the one document it walks and is not shared.
+     */
+    private static XmlPullParserFactory factory;
+
+    private static synchronized XmlPullParser newParser(String cleanedXml) throws XmlPullParserException {
+        if (factory == null) {
+            factory = XmlPullParserFactory.newInstance();
+            factory.setNamespaceAware(false);
+        }
+        XmlPullParser parser = factory.newPullParser();
+        parser.setInput(new StringReader(cleanedXml));
+        return parser;
+    }
+
+    /**
+     * Reads only the {@code <event type="…">} attribute — one tag, not the whole document — so
+     * {@link com.taklite.client.tak.TakManager#processCoT} (a friend by convention, not package)
+     * can route to the ONE parser below that can possibly succeed instead of trying all three in
+     * sequence on every inbound message (the other §3 half of this finding: disconnect, then
+     * alert, then position, each a full fresh parse, on every single event). Null on any failure
+     * — the caller's contract is to fall back to the old try-all-three sequence when this can't
+     * tell, never to drop an event it would otherwise have parsed.
+     */
+    public static String peekEventType(String xml) {
+        if (xml == null || xml.isEmpty()) return null;
+        try {
+            String cleaned = xml.replaceAll("<\\?xml[^?]*\\?>", "").trim();
+            if (cleaned.isEmpty()) return null;
+            XmlPullParser parser = newParser(cleaned);
+            for (int eventType = parser.getEventType(); eventType != XmlPullParser.END_DOCUMENT; eventType = parser.next()) {
+                if (eventType == XmlPullParser.START_TAG) {
+                    if ("event".equals(parser.getName())) {
+                        return parser.getAttributeValue(null, "type");
+                    }
+                    return null;   // first tag isn't <event> — not a shape any parser below handles
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public static class AlertMessage {
         public String alertId;
         public String senderCallsign;
@@ -48,10 +97,7 @@ public class CotParser {
             String cleaned = xml.replaceAll("<\\?xml[^?]*\\?>", "").trim();
             if (cleaned.isEmpty()) return null;
 
-            XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
-            factory.setNamespaceAware(false);
-            XmlPullParser parser = factory.newPullParser();
-            parser.setInput(new StringReader(cleaned));
+            XmlPullParser parser = newParser(cleaned);
 
             String uid = null;
             String type = null;
@@ -69,6 +115,13 @@ public class CotParser {
             boolean archived = false;    // <archived/> in detail — see isPersistentType
             boolean hasTakv = false;     // <takv> = a live TAK CLIENT announcing itself
             boolean hasEndpoint = false; // <contact endpoint=…> = reachable, i.e. also a client
+            // A UAS SAYS SO ABOUT ITSELF, and that is the only honest way to tell one from an
+            // ADS-B aircraft. Both are air domain and both can be a-f-A-…; the CoT TYPE cannot
+            // separate them, because a gateway is free to send a-f-A-M-… for a military
+            // aircraft. But <vehicle> and <_uastool> are blocks a UAS client puts on its own
+            // report and nothing else does — CotBuilder.buildDronePLI writes both. Failing to
+            // see them leaves the contact as ordinary air traffic, which is the safe direction.
+            boolean hasUasDetail = false;
 
             for (int eventType = parser.getEventType(); eventType != XmlPullParser.END_DOCUMENT; eventType = parser.next()) {
                 if (eventType == XmlPullParser.START_TAG) {
@@ -129,6 +182,8 @@ public class CotParser {
                         alt = parseDouble(parser.getAttributeValue(null, "hae"));
                     } else if ("takv".equals(tag)) {
                         hasTakv = true;
+                    } else if ("vehicle".equals(tag) || "_uastool".equals(tag)) {
+                        hasUasDetail = true;
                     } else if ("contact".equals(tag)) {
                         callsign = parser.getAttributeValue(null, "callsign");
                         hasEndpoint = parser.getAttributeValue(null, "endpoint") != null;
@@ -184,7 +239,7 @@ public class CotParser {
             // or nobody can send it a marker (operator, 2026-09-10). Only a live client: a
             // persistent item at 0,0 would never be swept and would hold a contact slot for the
             // life of the process (review, 2026-09-10). The map and the AR overlay do not draw
-            // a contact at 0,0 — TakMapMarkers takes its marker off, ArOverlayView skips it.
+            // a contact at 0,0 — TakMapMarkers.upsert takes its marker off, ArOverlayView skips it.
             if (lat == 0 && lon == 0 && !liveClient) return null;
             if (callsign == null || callsign.isEmpty()) callsign = uid;
             if (team == null) team = "Cyan";
@@ -209,6 +264,11 @@ public class CotParser {
             // Detect drone: type contains "-A-" (Air domain, e.g. a-f-A-M-H-Q)
             if (isAirDomain(type)) {
                 user.setDrone(true);
+                // The map draws THIS ONE as a 2525 air frame in the affiliation colour instead
+                // of the white aircraft silhouette (operator, 2026-09-14): on a 4-inch mini-map
+                // the other aircraft of the flight is what the pilot is looking for, and it
+                // looked the same as every airliner overhead. TakMapMarkers.milAirMarkerRes.
+                user.setUas(isUasReport(type, hasUasDetail));
             }
             if (videoUrl != null) user.setVideoUrl(videoUrl);
             if (videoAlias != null) user.setVideoAlias(videoAlias);
@@ -232,10 +292,7 @@ public class CotParser {
             String cleaned = xml.replaceAll("<\\?xml[^?]*\\?>", "").trim();
             if (cleaned.isEmpty()) return null;
 
-            XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
-            factory.setNamespaceAware(false);
-            XmlPullParser parser = factory.newPullParser();
-            parser.setInput(new StringReader(cleaned));
+            XmlPullParser parser = newParser(cleaned);
 
             AlertMessage alert = new AlertMessage();
 
@@ -280,10 +337,7 @@ public class CotParser {
             String cleaned = xml.replaceAll("<\\?xml[^?]*\\?>", "").trim();
             if (cleaned.isEmpty()) return null;
 
-            XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
-            factory.setNamespaceAware(false);
-            XmlPullParser parser = factory.newPullParser();
-            parser.setInput(new StringReader(cleaned));
+            XmlPullParser parser = newParser(cleaned);
 
             String linkedUid = null;
 
@@ -442,6 +496,30 @@ public class CotParser {
     public static boolean isLiveClient(boolean hasTakv, boolean hasEndpoint, boolean persistent) {
         if (persistent) return false;
         return hasTakv || hasEndpoint;
+    }
+
+    /**
+     * True when this event is a UAS reporting ITSELF, and not air traffic from a gateway.
+     *
+     * The one place that holds the rule, like {@link #isLiveClient}. The map draws a UAS as a
+     * 2525 air frame in its affiliation colour and draws everything else in the air domain as
+     * the white aircraft silhouette (operator, 2026-09-14), so this decides which symbol the
+     * pilot sees.
+     *
+     * ⚠ **THE COT TYPE CANNOT ANSWER IT.** Both are air domain and both are usually
+     * {@code a-f-A-…}; a gateway is free to send {@code a-f-A-M-…} for a military aircraft, and
+     * a type test would then paint an airliner as the other aircraft of the flight.
+     *
+     * {@code <vehicle>} and {@code <_uastool>} are blocks a UAS client puts on its own position
+     * report and that nothing else sends — {@link CotBuilder#buildDronePLI} writes both. A UAS
+     * that sends neither keeps the silhouette, which is the SAFE direction to fail: a pilot who
+     * looks twice at an airliner loses a second, a pilot who reads an airliner as the other
+     * aircraft flies at it.
+     *
+     * @param hasUasDetail whether the event carried {@code <vehicle>} or {@code <_uastool>}.
+     */
+    public static boolean isUasReport(String type, boolean hasUasDetail) {
+        return hasUasDetail && isAirDomain(type);
     }
 
     /**

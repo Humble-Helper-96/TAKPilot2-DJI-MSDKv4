@@ -93,4 +93,32 @@ class CotParserPolicyTest {
         // The safe direction to fail — see the note on isPersistentType.
         assertFalse(CotParser.isPersistentType("a-h-G", false, false))
     }
+
+    // ---- UAS against air traffic ---------------------------------------------------------
+
+    @Test
+    fun ourOwnDronePliReadsAsAUas() {
+        // a-f-A-M-H-Q with <vehicle> and <_uastool> — exactly what CotBuilder.buildDronePLI
+        // sends, thus what a sibling TAKPilot on the net sends. This is the contact the pilot
+        // was hunting for on the mini-map.
+        assertTrue(CotParser.isUasReport("a-f-A-M-H-Q", true))
+    }
+
+    @Test
+    fun adsbTrafficIsNotAUasEvenWhenItsTypeLooksMilitary() {
+        // The whole point of the split. a-f-A-C-F is the ordinary ADS-B shape (552 of 605 events
+        // in the 2026-08-04 census); a-f-A-M-F-Q is what a gateway may send for a military
+        // aircraft, and a TYPE test would paint it as the other aircraft of the flight.
+        assertFalse(CotParser.isUasReport("a-f-A-C-F", false))
+        assertFalse(CotParser.isUasReport("a-f-A-M-F-Q", false))
+    }
+
+    @Test
+    fun aGroundContactIsNeverAUasHoweverItIsDressed() {
+        // The detail blocks alone do not do it: the contact must also be in the air domain, or
+        // a ground vehicle carrying a <vehicle> block would take an AIR frame.
+        assertFalse(CotParser.isUasReport("a-f-G-U-C", true))
+        assertFalse(CotParser.isUasReport("a-f-G-E-V", true))
+        assertFalse(CotParser.isUasReport(null, true))
+    }
 }

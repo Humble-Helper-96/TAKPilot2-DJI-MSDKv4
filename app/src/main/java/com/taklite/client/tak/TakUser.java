@@ -21,6 +21,8 @@ public class TakUser {
     private double sensorAzimuth = -1;
     private double sensorRange = -1;
     private boolean drone;
+    /** A UAS: the sender said so with a &lt;vehicle&gt; or &lt;_uastool&gt; block. See CotParser. */
+    private boolean uas;
     private String operatorUid;
     private String type;   // raw CoT type (e.g. a-f-G-U-C, b-m-p-s-m), for map symbol resolution
     /**
@@ -110,6 +112,9 @@ public class TakUser {
     public double getSensorRange() { return sensorRange; }
     public void setSensorRange(double sensorRange) { this.sensorRange = sensorRange; }
     public boolean hasSensorFov() { return sensorFov >= 0 && sensorAzimuth >= 0 && sensorRange > 0; }
+    public boolean isUas() { return uas; }
+    public void setUas(boolean uas) { this.uas = uas; }
+
     public boolean isDrone() { return drone; }
     public void setDrone(boolean drone) { this.drone = drone; }
     public String getOperatorUid() { return operatorUid; }

@@ -69,10 +69,20 @@ android {
         //           1.2.2 the team-dot rendering, from the main merge: a live TAK client draws
         //                 as a dot, not a 2525 marker frame. First release cut from main after
         //                 device-compat was merged and deleted.
+        //           1.2.3 com.taklite synced to the taklite-core master — the tree's conformance
+        //                 pass (check-taklite.sh CONFORMS, three pinned waivers). On the wire:
+        //                 UTF-8 pinned on send, one FIFO sender thread so two CoT can no longer
+        //                 interleave into one document, a carried decoder so a non-ASCII callsign
+        //                 split across two reads is no longer mojibake, the marker type escaped,
+        //                 the feed password redacted from the log. Takes the Autel v2.1.6
+        //                 CotParser.isUasReport rule (a UAS says so with <vehicle>/<_uastool>;
+        //                 the type cannot tell it from ADS-B) — parsed and held on TakUser.uas,
+        //                 NOT yet drawn: the 2525 air frame is Autel-only until the spec has it.
+        //                 No UI change. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 9
-        versionName "1.2.2"
+        versionCode 10
+        versionName "1.2.3"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

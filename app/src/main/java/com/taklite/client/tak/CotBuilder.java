@@ -25,10 +25,10 @@ public class CotBuilder {
     private static final long STALE_DURATION_MS = 300000; // 5 minutes — matches ATAK default
 
     // Drone (air) track: friendly-Air-Military-rotorcraftH-unmanned(Q). ATAK/taklite CotParser
-    // detects the air domain ("-A-") as a drone. 60 seconds (operator, 2026-08-13): long
-    // enough that a momentary GPS-lock loss does not blink the aircraft off TAK (15s did —
-    // it staled out almost as fast as the telemetry hiccup itself), short enough that a
-    // landed or powered-down aircraft leaves the picture inside a minute. 2 minutes kept a
+    // detects the air domain ("-A-") as a drone. 60 seconds (operator, 2026-08-13 flights):
+    // long enough that a momentary GPS-lock loss does not blink the aircraft off TAK (15s did
+    // — it staled out almost as fast as the telemetry hiccup itself), short enough that a
+    // landed or disconnected aircraft leaves the picture inside a minute. 2 minutes kept a
     // ghost aircraft on other screens too long after shutdown.
     //
     // ⚠ The stale time alone does NOT make a marker expire. The bridge must also STOP
@@ -56,25 +56,27 @@ public class CotBuilder {
     /**
      * AIRFRAME IDENTITY BROADCAST IN EVERY DRONE CoT.
      *
-     * <p>The vendor tags are correct here and stay: this really is a DJI aircraft, and receiving
-     * TAK clients match on these strings. {@code SENSOR_MODEL} was {@code M30T} until 2026-08-11
-     * — a stray literal that told every client on the channel this was a Matrice 30T. It is a
-     * Mini 2. A teammate or a log reading the airframe type got the wrong aircraft and the wrong
-     * camera. The Autel sibling carried the identical defect in the opposite direction, which is
-     * how it was found.
+     * These were {@code _DJIV5_}, {@code DJIV5} and {@code M30T} until 2026-08-05 — carried over
+     * from the DJI build this was ported from and never changed. The effect was not cosmetic:
+     * an Autel EVO II was telling every client on the channel it was a DJI Matrice 30T, so any
+     * teammate or log reading the airframe type got the wrong aircraft and the wrong camera.
      *
      * <p>Named constants rather than literals at the three append sites, for two reasons: they
      * are one identity expressed in three attributes and must move together, and this class is
      * otherwise sibling-agnostic (see the takvPlatform note below — it is shared in SHAPE with
-     * the Autel port, which keeps its own copy of this file with its own values). Anything
+     * the DJI port, which keeps its own copy of this file with its own values). Anything
      * app-specific in here should be obvious rather than buried in a StringBuilder.
      *
      * <p>⚠ These strings go to OTHER PEOPLE'S CLIENTS, which may match on them to decide how to
      * draw the aircraft. If the drone stops rendering correctly in a TAK client after this
      * change, suspect these first — the receiving side may recognise a fixed set of vendor tags.
-     * {@code SENSOR_MODEL} is the one to check on a Mini 2, because it is now the only one of
-     * the three that has ever changed.
      */
+    // ⚠ THESE ARE THIS TREE'S IDENTITY ON THE TAK NETWORK, and they are the per-vendor
+    // divergence inside a contractually vendor-neutral core (ledger V34). SENSOR_MODEL said
+    // "M30T" until 2026-08-11 — a stray literal that told every client on the channel this
+    // Mini 2 was a Matrice 30T. The real fix is extracting these to per-app configuration so
+    // com.taklite can be byte-identical again (V40); until then, the test
+    // theDronePliIdentifiesThisAirframeAndNotAnother pins the values.
     private static final String VEHICLE_TYPE_TAG = "_DJIV5_";
     private static final String VEHICLE_TYPE = "DJIV5";
     private static final String SENSOR_MODEL = "MINI2";
@@ -88,7 +90,7 @@ public class CotBuilder {
      * @param takvPlatform the client-identity string that becomes {@code <takv platform="...">}
      *   — what a TAK server's "Connected Users" panel shows as the client type. Pass whatever
      *   the calling app actually is; this class stays sibling-agnostic on purpose (shared with
-     *   the Autel port, which is a different app and must not be labeled as this one).
+     *   the DJI port, which is a different app and must not be labeled as this one).
      * @param takvDevice   the {@code device} attribute — real hardware identity (and whatever
      *   else the caller wants folded in, e.g. the current callsign) helps a teammate tell two
      *   otherwise-identical installs apart in the server's connected-users list.
@@ -533,7 +535,7 @@ public class CotBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         sb.append("<event version=\"").append(COT_VERSION).append("\"");
-        sb.append(" type=\"").append(cotType).append("\"");
+        sb.append(" type=\"").append(escapeXml(cotType)).append("\"");
         sb.append(" uid=\"").append(escapeXml(markerUid)).append("\"");
         sb.append(" how=\"h-g-i-g-o\"");
         sb.append(" time=\"").append(time).append("\"");
@@ -578,9 +580,9 @@ public class CotBuilder {
      * <p>⚠ This used to emit {@code <__video sensor=".." url=".."/>} and nothing else. That is
      * self-consistent — our own {@link CotParser} reads exactly those two attributes — but no
      * client can build a player from it, so the marker arrived on ATAK/CloudTAK/TAKAware with no
-     * play control and the stream never reached the video manager. Confirmed on the 2026-08-12
-     * flight: the url WAS on the wire (246 of 702 operator PLIs carried it) and still nothing
-     * offered to play it.
+     * play control and the stream never reached the video manager. Confirmed on the DJI
+     * sibling's 2026-08-12 flight: the url WAS on the wire (246 of 702 operator PLIs carried it)
+     * and still nothing offered to play it.
      *
      * <p>The shape below is the one CloudTAK's CoT library (dfpc-coe/node-CoT) requires: a nested
      * {@code ConnectionEntry} whose {@code uid} and {@code address} are BOTH mandatory. Optional

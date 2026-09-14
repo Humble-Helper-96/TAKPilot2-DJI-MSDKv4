@@ -12,7 +12,16 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -39,10 +48,32 @@ public class TakClient extends Thread {
     private final TakClientListener listener;
 
     private volatile boolean mRun;
-    private PrintWriter mBufferOut;
+    /** Volatile: written by the reader thread in connect/closeConnection, read by the sender. */
+    private volatile PrintWriter mBufferOut;
     private InputStream mInputStream;
     private SSLSocket sslSocket;
     private Socket socket;
+
+    /**
+     * THE SINGLE WRITER. Every outbound CoT goes through this one FIFO thread (R27).
+     *
+     * It used to be a new Thread per message, which was wrong three ways:
+     *  1. No ordering. Markers re-send under a STABLE uid so the server updates in place, so a
+     *     re-aim overtaking its own previous send leaves the marker at the stale position until
+     *     something re-sends it. The drone PLI and the camera point in one tick describe one
+     *     instant and could likewise cross.
+     *  2. Worse than ordering: two println calls on one BufferedWriter can INTERLEAVE, splicing
+     *     two events into one malformed XML document on the wire.
+     *  3. ~3 CoT every 2s in steady flight is ~2,700 thread creations an hour, on a controller.
+     *
+     * A single-thread executor is also the pattern TakMissionManager already uses for its own
+     * serialised I/O, so this is house style rather than a new idea.
+     */
+    private final ExecutorService sendExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "TakClient-Send");
+        t.setDaemon(true);
+        return t;
+    });
 
     public interface TakClientListener {
         void onConnected();
@@ -64,7 +95,7 @@ public class TakClient extends Thread {
     }
 
     /**
-     * Writes one CoT to the server. Fire and forget, on its own thread.
+     * Writes one CoT to the server. Fire and forget, on the single sender thread.
      *
      * ⚠ THE FAILURES HERE USED TO BE COMPLETELY SILENT, which is why a marker that never left
      * the socket and a marker the server rejected looked identical from the log (2026-08-15).
@@ -77,33 +108,49 @@ public class TakClient extends Thread {
      *     checkError() is the ONLY way to see that failure, and it also clears nothing, so it
      *     is safe to call on every message.
      *
-     * The signature stays void on purpose. The write happens on a new thread after this method
-     * has already returned, thus any status handed back to the caller would be a lie.
+     * The signature stays void on purpose. The write happens on the sender thread after this
+     * method has already returned, thus any status handed back to the caller would be a lie.
      */
     public void sendMessage(final String message) {
         if (mBufferOut == null) {
             AppLog.w(TAG, "CoT DROPPED — the output stream is not open (message discarded)");
             return;
         }
-        new Thread(() -> {
-            try {
-                if (mBufferOut != null) {
-                    mBufferOut.println(message);
-                    mBufferOut.flush();
+        try {
+            sendExecutor.execute(() -> {
+                // Read the field ONCE into a local. It was read three separate times before,
+                // while the reader thread could close() and null it in between — so a send
+                // could NPE, or write into an already-closed writer (which PrintWriter
+                // swallows) after passing a null check that was true a moment earlier.
+                final PrintWriter out = mBufferOut;
+                if (out == null) {
+                    AppLog.w(TAG, "CoT DROPPED — the connection closed before this message "
+                            + "reached the socket (" + message.length() + " chars)");
+                    return;
+                }
+                try {
+                    out.println(message);
+                    out.flush();
                     // The real failure detector for this stream — see the note above.
-                    if (mBufferOut.checkError()) {
+                    if (out.checkError()) {
                         AppLog.e(TAG, "CoT WRITE FAILED — the socket reported an error and the "
                                 + "message did not go out (" + message.length() + " chars)");
                     }
+                } catch (Exception e) {
+                    AppLog.e(TAG, "Error sending message", e);
                 }
-            } catch (Exception e) {
-                AppLog.e(TAG, "Error sending message", e);
-            }
-        }, "TakClient-Send").start();
+            });
+        } catch (RejectedExecutionException e) {
+            // stopClient() has shut the sender down; nothing more goes out on this client.
+            AppLog.w(TAG, "CoT DROPPED — the client is stopped (" + message.length() + " chars)");
+        }
     }
 
     public void stopClient() {
         mRun = false;
+        // No new sends. Anything already queued still runs, finds mBufferOut null once
+        // closeConnection has been through, and is logged as dropped rather than vanishing.
+        sendExecutor.shutdown();
         closeConnection();
     }
 
@@ -128,6 +175,21 @@ public class TakClient extends Thread {
                 byte[] buf = new byte[8192];
                 StringBuilder recvBuffer = new StringBuilder();
 
+                // R28: each read used to be decoded on its own with new String(buf,…,"UTF-8").
+                // A UTF-8 character is up to four bytes and a socket read ends wherever the
+                // network says, so any character straddling a chunk boundary was decoded as two
+                // separate malformed fragments and became U+FFFD twice — the bytes are
+                // DESTROYED at that point, so nothing downstream can repair it. It shows up as
+                // mojibake in non-ASCII callsigns and remarks (Chinese, already seen in the
+                // field). A decoder carried across reads keeps the split bytes pending until
+                // the rest of the character arrives. The <event> framing below is unchanged —
+                // it was already correct about partial and multiple events per read.
+                CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPLACE)
+                        .onUnmappableCharacter(CodingErrorAction.REPLACE);
+                ByteBuffer pending = ByteBuffer.allocate(buf.length * 2);
+                CharBuffer decoded = CharBuffer.allocate(buf.length + 16);
+
                 while (mRun) {
                     int bytesRead;
                     try {
@@ -142,8 +204,18 @@ public class TakClient extends Thread {
                         AppLog.w(TAG, "Server closed connection (EOF)");
                         break;
                     }
-                    String chunk = new String(buf, 0, bytesRead, "UTF-8");
-                    recvBuffer.append(chunk);
+                    // Decode with the carried-over decoder: any trailing bytes that do not yet
+                    // form a whole character stay in `pending` for the next read.
+                    pending.put(buf, 0, bytesRead);
+                    pending.flip();
+                    CoderResult cr;
+                    do {
+                        decoded.clear();
+                        cr = decoder.decode(pending, decoded, false);
+                        decoded.flip();
+                        recvBuffer.append(decoded);
+                    } while (cr.isOverflow());
+                    pending.compact();
                     AppLog.d(TAG, "Raw data received (" + bytesRead + " bytes)");
 
                     int endIdx;
@@ -218,7 +290,12 @@ public class TakClient extends Thread {
         sslSocket = (SSLSocket) factory.createSocket(addr, port);
         sslSocket.setSoTimeout(1000);
 
-        mBufferOut = new PrintWriter(new BufferedWriter(new OutputStreamWriter(sslSocket.getOutputStream())), true);
+        // UTF-8 pinned explicitly: CotBuilder writes encoding="UTF-8" into every event, so
+        // encoding the bytes with the platform default was declaring one thing and doing
+        // another. It happens to be UTF-8 on Android, but nothing guaranteed it, and this is
+        // the send-side twin of the R28 receive bug.
+        mBufferOut = new PrintWriter(new BufferedWriter(
+                new OutputStreamWriter(sslSocket.getOutputStream(), StandardCharsets.UTF_8)), true);
         mInputStream = sslSocket.getInputStream();
         AppLog.d(TAG, "Connected to " + serverAddress + ":" + port);
     }

@@ -89,6 +89,14 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
+**v1.2.3 IS BUILT — versionCode 10, 2026-09-14 — the `com.taklite` conformance pass, no UI
+change, not flown.** It is the first of the small updates that bring this tree up to the Autel
+flight-screen work (ledger D20, D22 to D25 still open; D24 draws nothing on a Mini 2). The next
+step is the D20 BASELINE: `dumpsys activity top` on the flight screen of THIS build before D22
+touches the column. Two device facts found on the way: the phone was still on v1.1.0
+(versionCode 5) until this build went on, and `am get-config` reports `w838dp-h387dp` outside
+immersive mode, not the 914x411 assumed above — the cutout inset in landscape is unmeasured.
+
 **v1.2.1 IS RELEASED — tag `v1.2.1`, versionCode 7, 2026-08-18 — AND IT HAS NEVER FLOWN.**
 It builds, it starts on a controller and the unit tests pass. Nothing in it has been in the
 air, and the release notes say so in their first line. The bench pass is the open work: the
@@ -128,8 +136,9 @@ Open items, in order of consequence:
 1. **The Autel tree has the read-back placement bug.** `com.taklite` is shared by contract;
    the operator ports this separately. (The `__video` shape is no longer part of this item:
    the ConnectionEntry fix went to the Autel tree on 2026-08-12 and is flight-verified there.
-   `CotParser.java` is now identical in both trees and `CotBuilder.java` differs only in the
-   three airframe-identity constants. Keep it that way.)
+   **Since v1.2.3 (2026-09-14) `com.taklite` is checked, not trusted:** run
+   `../../../../taklite-core/check-taklite.sh`; this tree CONFORMS with three pinned waivers.
+   Change the MASTER first, then sync — see `taklite-core/README.md`.)
 2. **Yaw is measured, not wired.** The aircraft reports heading-turning smoothness 20/4/84
    across the three switch positions (logged each connect). Cine is identifiable as the
    smoothest value — wire Precision's yaw from the aircraft's own numbers, never from a
