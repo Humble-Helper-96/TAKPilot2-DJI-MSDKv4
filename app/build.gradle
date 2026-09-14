@@ -79,10 +79,18 @@ android {
         //                 the type cannot tell it from ADS-B) — parsed and held on TakUser.uas,
         //                 NOT yet drawn: the 2525 air frame is Autel-only until the spec has it.
         //                 No UI change. Not flown.
+        //           1.2.4 an AR edge arrow reaches the picture's edge — ledger D23. The clamp
+        //                 subtracted the HUD column's width from the video's right edge; on this
+        //                 phone the column sits over the pillarbox strip and never covered the
+        //                 picture, so the right arrow stopped 150dp short (measured 2026-09-14,
+        //                 1530px against a picture ending at 1920). Now: intersect with the view
+        //                 (§4.1 MUST), exclude the toolbar band and the mini-map BY CORNER from
+        //                 its measured bounds, nothing else. The contacts log says where the
+        //                 last arrow landed. Nothing on the wire changed. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 10
-        versionName "1.2.3"
+        versionCode 11
+        versionName "1.2.4"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

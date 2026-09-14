@@ -89,13 +89,17 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.3 IS BUILT — versionCode 10, 2026-09-14 — the `com.taklite` conformance pass, no UI
-change, not flown.** It is the first of the small updates that bring this tree up to the Autel
+**v1.2.4 IS BUILT AND ON THE PHONE — versionCode 11, 2026-09-14 — D23, the AR edge-arrow clamp,
+measured: the right arrow reaches the picture's edge (1890 of 1920px). Not flown.** Before it,
+**v1.2.3 — versionCode 10 — the `com.taklite` conformance pass, no UI change, not flown.** It is the first of the small updates that bring this tree up to the Autel
 flight-screen work (ledger D20, D22 to D25 still open; D24 draws nothing on a Mini 2). The next
-step is the D20 BASELINE: `dumpsys activity top` on the flight screen of THIS build before D22
-touches the column. Two device facts found on the way: the phone was still on v1.1.0
-(versionCode 5) until this build went on, and `am get-config` reports `w838dp-h387dp` outside
-immersive mode, not the 914x411 assumed above — the cutout inset in landscape is unmeasured.
+D20 BASELINE IS MEASURED on this build (ledger D20, 2026-09-14): the column fits with 12px
+(4.6dp) in the spacer and the map on its bottom padding; the toolbar has 8dp to the right. ⚠ The
+flight window is `[74,0][2400,1080]` — **886x411dp, not 914x411**: the punch-hole cutout is a
+28dp black strip on the LEFT because nothing sets `layoutInDisplayCutoutMode`. Every width
+figure above and in `dimens.xml` that assumed 914 has 28dp less than it thinks. D23 is confirmed
+on the device: the right AR edge arrow stops ~150dp short of the video's edge. Measure the
+column AGAIN after D22 — it has 12px to give.
 
 **v1.2.1 IS RELEASED — tag `v1.2.1`, versionCode 7, 2026-08-18 — AND IT HAS NEVER FLOWN.**
 It builds, it starts on a controller and the unit tests pass. Nothing in it has been in the

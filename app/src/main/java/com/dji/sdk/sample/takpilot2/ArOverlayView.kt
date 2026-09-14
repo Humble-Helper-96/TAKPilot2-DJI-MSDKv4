@@ -90,25 +90,56 @@ class ArOverlayView @JvmOverloads constructor(
     }
 
     /**
-     * How much of the video the app's own chrome covers: the toolbar across the top, the HUD
-     * column (exposure/readouts/mini-map) down the right. Only [drawEdgeArrow] uses these —
-     * projected markers themselves stay pinned to their true position even if chrome partly
-     * covers them (moving a marker off its target would be worse than briefly hiding it), but an
-     * EDGE ARROW has no true position; it is purely a "look this way" cue, so one parked
-     * underneath the toolbar conveys nothing at all.
+     * How much of the video the app's own chrome REALLY covers. Only [drawEdgeArrow] uses
+     * these — projected markers stay pinned to their true position even if chrome partly covers
+     * them (moving a marker off its target would be worse than briefly hiding it), but an EDGE
+     * ARROW has no true position; it is purely a "look this way" cue, so one parked where it
+     * cannot be seen conveys nothing at all.
+     *
+     * ⚠ **OPAQUE CHROME ONLY — THE HUD COLUMN IS NOT CHROME ANY MORE** (specification §4.1,
+     * operator 2026-09-13; ledger D23). The right inset used to be the whole width of the HUD
+     * column, and that was correct when the readouts sat on translucent PANELS. Those went on
+     * 2026-09-12: the column is outlined text over live video and covers only the pixels around
+     * its glyphs, so an arrow behind it is perfectly visible.
+     *
+     * ⚠ **ON THIS TREE THE INSET WAS WORSE THAN A WASTE.** [FpvTextureView] pillarboxes the
+     * video (fit-left), and on the S20 Ultra the HUD column sits ENTIRELY over the blank strip
+     * to the right of the picture — it never covered a pixel of video. The inset was still
+     * subtracted from the video's right edge. Measured 2026-09-14 (ledger D20 screenshot): the
+     * 16:9 picture ends at 1920px and the right edge arrow stopped at about 1530px, 150dp short
+     * of the edge it was pointing at. In 4:3 stills the picture is narrower and the arrow would
+     * have landed near mid-screen.
+     *
+     * What remains genuinely opaque, and is still excluded:
+     *
+     *  - **the toolbar band** ([top]), whose two capsules are a 70 % black fill;
+     *  - **the mini-map** ([mapLeft], [mapTop]), which is a real map and hides anything under
+     *    it completely. It is excluded by CORNER rather than by inset: an arrow that would land
+     *    on it is lifted to just above it and keeps its place on the edge, so the cue still
+     *    points the right way instead of being pushed inboard.
      *
      * Fed from the flight screen's real measured view bounds rather than hardcoded dp, so this
-     * can't drift out of step with a toolbar or HUD layout change.
+     * cannot drift out of step with a toolbar or map-size change.
      */
-    fun setChromeInsets(top: Float, right: Float) {
-        if (chromeInsetTop == top && chromeInsetRight == right) return
+    fun setChromeInsets(top: Float, mapLeft: Float, mapTop: Float) {
+        if (chromeInsetTop == top && chromeMapLeft == mapLeft && chromeMapTop == mapTop) return
         chromeInsetTop = top
-        chromeInsetRight = right
+        chromeMapLeft = mapLeft
+        chromeMapTop = mapTop
+        // ⚠ SAID OUT LOUD, because these decide where an edge arrow may be drawn and a wrong
+        // value hides the arrow completely rather than misplacing it visibly. On the Autel
+        // sibling the arrows vanished after this method changed shape (2026-09-13) and nothing
+        // in the log said what it had been handed. Gated by the change guard above, so it
+        // writes once per real layout change and not per frame.
+        AppLog.i(TAG, "chrome insets: top=%.0f map=%.0f,%.0f".format(top, mapLeft, mapTop))
         invalidate()
     }
 
     private var chromeInsetTop = 0f
-    private var chromeInsetRight = 0f
+    /** Left and top of the mini-map in this view's coordinates; [Float.MAX_VALUE] = not known
+     *  yet, which excludes nothing. See [setChromeInsets]. */
+    private var chromeMapLeft = Float.MAX_VALUE
+    private var chromeMapTop = Float.MAX_VALUE
 
     fun start() {
         if (running) return
@@ -404,7 +435,15 @@ class ArOverlayView @JvmOverloads constructor(
         // A count for the rest: a busy TAK picture is a dozen-plus contacts, and tracing every
         // one at 1Hz would bury the per-pin detail that actually needs reading.
         if (logThisPass && users.isNotEmpty()) {
-            AppLog.d(TAG, "contacts: ${users.size} known, $drawn drawn, $offFrame off-frame, $skipped skipped")
+            AppLog.d(TAG, "contacts: ${users.size} known, $drawn drawn, $offFrame off-frame, " +
+                "$skipped skipped" +
+                // ⚠ WHERE THE ARROW ACTUALLY LANDED. An edge arrow that is clamped off the
+                // visible area is INVISIBLE rather than misplaced, which looks exactly like an
+                // arrow that was never drawn. The count alone cannot tell those apart; this can,
+                // and it is how D23 was measured on this phone.
+                if (offFrame > 0) " | last arrow %.0f,%.0f in %.0fx%.0f (video %.0f..%.0f)"
+                    .format(lastArrowX, lastArrowY, width.toFloat(), height.toFloat(),
+                        videoRect.left, videoRect.right) else "")
         }
     }
 
@@ -558,9 +597,10 @@ class ArOverlayView @JvmOverloads constructor(
      * left" is the cue that tells a pilot which way to yaw. Without it the overlay is silent
      * about everything it can't currently see, which reads as "there is nothing there".
      *
-     * Clamped into the video rect with a margin so an arrow never lands under the toolbar or
-     * outside the image, and drawn as a triangle pointing outward along the direction to the
-     * target rather than a plain dot, so the direction is readable at a glance.
+     * Clamped into the VISIBLE video with a margin so an arrow never lands under the toolbar,
+     * under the mini-map or outside the image, and drawn as a triangle pointing outward along
+     * the direction to the target rather than a plain dot, so the direction is readable at a
+     * glance.
      */
     /**
      * Normalise an off-axis angle to [-1, 1] in the same tangent space [project] uses, so an
@@ -576,6 +616,10 @@ class ArOverlayView @JvmOverloads constructor(
         return (tan(Math.toRadians(angleDeg)) / half).coerceIn(-1.0, 1.0)
     }
 
+    /** Where the last edge arrow was drawn, for the diagnostic line — see the contacts summary. */
+    private var lastArrowX = Float.NaN
+    private var lastArrowY = Float.NaN
+
     private fun drawEdgeArrow(canvas: Canvas, dBearingDeg: Double, dElevDeg: Double, color: Int) {
         // Normalised direction; clamped because a target directly behind produces a huge value
         // that would otherwise dominate the angle.
@@ -590,16 +634,37 @@ class ArOverlayView @JvmOverloads constructor(
         val margin = 16f * d
         val cx = videoRect.centerX()
         val cy = videoRect.centerY()
-        // Clamp into the VISIBLE part of the video, not the whole video rect. The toolbar is
-        // drawn on top of the video, and the HUD column (exposure, readouts, mini-map) sits over
-        // the right side — an arrow clamped to the raw rect lands underneath them and is simply
-        // invisible. Reported from the field 2026-07-27: air traffic directly overhead produced
-        // an above-frame arrow the pilot could never see, which is the one case the indicator
-        // matters most.
-        val x = (cx + nx.toFloat() * (videoRect.width() / 2f - margin))
-            .coerceIn(videoRect.left + margin, videoRect.right - chromeInsetRight - margin)
-        val y = (cy + ny.toFloat() * (videoRect.height() / 2f - margin))
-            .coerceIn(videoRect.top + chromeInsetTop + margin, videoRect.bottom - margin)
+        // ⚠ CLAMP TO THE VIEW FIRST, THEN THE CHROME (specification §4.1 MUST, 2026-09-13).
+        // videoRect is the whole video frame. On this tree FpvTextureView FITS the picture, so
+        // the rect never overflows the view — but the rule is a MUST because a fill-crop
+        // sibling's rect deliberately does overflow (341px off either side on the Autel
+        // controller), and an arrow clamped to that rect is clamped off-screen: an invisible
+        // arrow looks exactly like an arrow that was never drawn. Intersecting with the view
+        // costs nothing here and keeps this code correct if the aspect handling ever changes.
+        //
+        // Reported from the field 2026-07-27: air traffic directly overhead produced an
+        // above-frame arrow the pilot could never see, which is the one case the indicator
+        // matters most — that is what the toolbar inset is for.
+        val visLeft = maxOf(videoRect.left, 0f) + margin
+        val visRight = minOf(videoRect.right, width.toFloat()) - margin
+        val visTop = maxOf(videoRect.top, 0f) + chromeInsetTop + margin
+        val visBottom = minOf(videoRect.bottom, height.toFloat()) - margin
+        // A view too small to hold the margins would make coerceIn throw (min > max). Nothing
+        // useful can be drawn there anyway.
+        if (visRight <= visLeft || visBottom <= visTop) return
+        // ⚠ THE ARROW NOW GOES ALL THE WAY TO THE PICTURE'S RIGHT EDGE. The HUD column's width
+        // is no longer subtracted — see setChromeInsets for what that cost on this phone and
+        // what is still excluded.
+        val x = (cx + nx.toFloat() * (videoRect.width() / 2f - margin)).coerceIn(visLeft, visRight)
+        var y = (cy + ny.toFloat() * (videoRect.height() / 2f - margin)).coerceIn(visTop, visBottom)
+        // THE MINI-MAP IS THE ONE OPAQUE THING LEFT ON THIS EDGE. Lift the arrow to just above
+        // it rather than pushing it inboard: it keeps its place on the edge, where its direction
+        // still reads. On this phone the map sits over the pillarbox strip and the picture ends
+        // before it, so this rarely fires here — it is what keeps the rule right when the
+        // picture is wider (a 2.2:1 frame, or a map-size bucket that overlaps the video).
+        if (x > chromeMapLeft && y > chromeMapTop) y = chromeMapTop - margin
+        lastArrowX = x
+        lastArrowY = y
 
         val angle = atan2((y - cy).toDouble(), (x - cx).toDouble())
         val r = 7f * d

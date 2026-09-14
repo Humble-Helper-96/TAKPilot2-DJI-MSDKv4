@@ -193,18 +193,26 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
                 obstacles.setVideoRect(rect)
             }
         }
-        // Tell the AR overlay how much of the video our own chrome covers, so an off-frame edge
-        // arrow can't be parked underneath the toolbar or the HUD column where it's invisible —
-        // the exact case a pilot needs most (aircraft directly overhead). Measured from the real
-        // views after layout rather than hardcoded dp, so a toolbar/HUD change can't silently
-        // break it. Re-read on every layout pass: rotation, or the h440dp map-size override,
-        // both change these.
+        // Tell the AR overlay how much of the video our own OPAQUE chrome covers, so an
+        // off-frame edge arrow cannot be parked where it is invisible — the exact case a pilot
+        // needs most (aircraft directly overhead). Measured from the real views after layout
+        // rather than hardcoded dp, so a toolbar or map change cannot silently break it.
+        //
+        // ⚠ THE HUD COLUMN'S WIDTH USED TO BE THE RIGHT INSET AND IS NOT ANY MORE (ledger D23,
+        // 2026-09-14). It was right while the readouts sat on translucent panels; those are
+        // gone, and on this phone the column never covered the picture at all — it sits over
+        // the pillarbox strip — yet its width was still taken off the video's edge, and the
+        // right arrow stopped 150dp short. The MAP is still opaque, so its top-left corner goes
+        // across instead and the arrow is lifted above it. The map MOVES (the zoom toggle, the
+        // h440dp bucket), and this listener re-reads it on every layout pass.
         val toolbarView = findViewById<View>(R.id.flightToolbar)
-        val hudColumn = findViewById<View>(R.id.flightHudColumn)
         toolbarView.viewTreeObserver.addOnGlobalLayoutListener {
+            val mapOnScreen = IntArray(2).also { mapContainer.getLocationOnScreen(it) }
+            val arOnScreen = IntArray(2).also { arOverlay.getLocationOnScreen(it) }
             arOverlay.setChromeInsets(
                 top = toolbarView.height.toFloat(),
-                right = hudColumn.width.toFloat(),
+                mapLeft = (mapOnScreen[0] - arOnScreen[0]).toFloat(),
+                mapTop = (mapOnScreen[1] - arOnScreen[1]).toFloat(),
             )
         }
 
