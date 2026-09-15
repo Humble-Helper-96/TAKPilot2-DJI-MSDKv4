@@ -61,6 +61,34 @@ class FlightWarningsTest {
         assertTrue("IMU error" in d.text)
     }
 
+    // ---- The open banner (specification §4.8, ported 2026-09-14) ----
+
+    @Test
+    fun theOpenListHasTheAircraftsFaultsOneByOneWhileTheCollapsedTextJoinsThem() {
+        FlightWarnings.onDiagnostics(listOf("Compass error", "IMU error"))
+        val d = FlightWarnings.displayAt(1_000L)!!
+        assertEquals("Compass error · IMU error", d.text)
+        assertEquals(listOf("Compass error", "IMU error"), d.all)
+    }
+
+    @Test
+    fun theOpenListKeepsTheHeldLinesWhenTheLiveSetIsEmpty() {
+        FlightWarnings.onDiagnostics(listOf("Compass error"))
+        assertEquals(listOf("Compass error"), FlightWarnings.displayAt(0L)!!.all)
+        FlightWarnings.onDiagnostics(emptyList())
+        // Riding out the hold: the banner still shows it, so the open list must not go blank.
+        assertEquals(listOf("Compass error"), FlightWarnings.displayAt(1_000L)!!.all)
+    }
+
+    @Test
+    fun theOpenListFollowsTheLiveSetNotTheHeldOne() {
+        FlightWarnings.onDiagnostics(listOf("Compass error"))
+        assertEquals(listOf("Compass error"), FlightWarnings.displayAt(0L)!!.all)
+        FlightWarnings.onDiagnostics(listOf("IMU error"))
+        // The words changed under the same warning: the list says what stands NOW.
+        assertEquals(listOf("IMU error"), FlightWarnings.displayAt(500L)!!.all)
+    }
+
     @Test
     fun aClearedFaultHidesTheBannerOnceTheHoldExpires() {
         FlightWarnings.onDiagnostics(listOf("Compass error"))

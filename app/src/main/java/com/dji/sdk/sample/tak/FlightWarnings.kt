@@ -73,7 +73,13 @@ object FlightWarnings {
     }
 
     /** What the banner should show right now, or null for hidden. */
-    data class Display(val text: String, val red: Boolean)
+    /**
+     * @param all every active warning, worst first, for the OPEN banner — the aircraft's faults
+     *   one per line rather than joined, the app's own warnings by label. When the shown warning
+     *   is only riding out its hold and the live set is empty, this holds that one warning's
+     *   lines, so an open banner never goes blank. Specification §4.8, ported 2026-09-14.
+     */
+    data class Display(val text: String, val red: Boolean, val all: List<String> = emptyList())
 
     /** Minimum time a warning owns the banner once shown — long enough to read, short enough
      *  that a stack still cycles usefully. A WORSE warning preempts regardless. */
@@ -100,6 +106,9 @@ object FlightWarnings {
      * does not move under the reader, so the text it holds has to be the text it showed.
      */
     private var lastFaultText: String = ""
+    /** The fault list as lines, live and last non-empty — what [Display.all] lists one by one. */
+    private var faultItems: List<String> = emptyList()
+    private var lastFaultItems: List<String> = emptyList()
     private var shown: Warning? = null
     private var shownAtMs = 0L
 
@@ -122,7 +131,8 @@ object FlightWarnings {
             val text = items.joinToString(" · ")
             if (text == faultText) return
             faultText = text
-            if (text.isNotEmpty()) lastFaultText = text
+            faultItems = items
+            if (text.isNotEmpty()) { lastFaultText = text; lastFaultItems = items }
             val next = if (text.isEmpty()) active - Warning.AIRCRAFT_FAULT
                        else active + Warning.AIRCRAFT_FAULT
             logTransitions(next)
@@ -248,6 +258,13 @@ object FlightWarnings {
             faultText.ifEmpty { lastFaultText }.ifEmpty { "aircraft fault" }
         } else w.label
 
+    /** The open-banner lines for one warning: the aircraft's faults each on their own, the
+     *  app's own warnings by label. Same fallback as [labelOf] for a fault riding out its hold. */
+    private fun linesOf(w: Warning): List<String> =
+        if (w == Warning.AIRCRAFT_FAULT) {
+            faultItems.ifEmpty { lastFaultItems }.ifEmpty { listOf("aircraft fault") }
+        } else listOf(w.label)
+
     /** Polled from the flight screen's HUD tick. */
     fun display(): Display? = displayAt(System.currentTimeMillis())
 
@@ -271,7 +288,13 @@ object FlightWarnings {
             val others = active.count { it != show }
             val label = labelOf(show)
             val text = if (others > 0) "$label  +$others" else label
-            return Display(text, show.red)
+            // Every active warning, worst first, from the LIVE set — the same source as the
+            // count — with the aircraft's faults listed ONE BY ONE. When the shown warning only
+            // rides out its hold, the live set is empty: then the list is that one warning's
+            // lines, so an open banner never goes blank.
+            val live = active.sorted()
+            val all = (if (live.isEmpty()) listOf(show) else live).flatMap { linesOf(it) }
+            return Display(text, show.red, all)
         }
     }
 
@@ -292,6 +315,8 @@ object FlightWarnings {
             active = emptySet()
             faultText = ""
             lastFaultText = ""
+            faultItems = emptyList()
+            lastFaultItems = emptyList()
             shown = null
             shownAtMs = 0L
         }

@@ -128,4 +128,13 @@
          the ends. -->
     <dimen name="hud_pill_gap">8dp</dimen>
 
+    <!-- The warning banner, PER-DEVICE (specification §4.8): text size and maximum width. These
+         were literals in the layout until v1.2.13. Narrowing the banner makes it TALLER, not
+         smaller — reduce the text first. -->
+    <dimen name="flight_warning_text_size">15sp</dimen>
+    <dimen name="flight_warning_max_width">380dp</dimen>
+    <!-- The ✕ that closes the banner: the touch-target minimum, not the glyph. A 15sp ✕ is about
+         10dp across and not hittable with a thumb over live video. -->
+    <dimen name="flight_warning_close_size">34dp</dimen>
+
 </resources>

@@ -95,7 +95,15 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.12 IS BUILT AND ON THE PHONE — versionCode 21, 2026-09-14 — one text size and one gap
+**v1.2.16 IS BUILT — versionCode 25, 2026-09-14 — RTH says what was measured (ledger D29): nothing
+starts a return inside 20 m of home on either route; farther out `startGoHome` reached the aircraft 2
+in 7 while the RC-N1's button went 3 in 3, so a miss is retried once via KeyManager START_GO_HOME
+(unmeasured) and a second miss says "use the controller's RTH button". Fourth flight: 4 for 4 at
+22–35 m. ⚠ Every success today was at 22–45 m and every timeout at 47 m or more — test from 60 m+. v1.2.14/15 (verified RTH,
+mode log by value) flew. Cancel Return flew twice.** Before it, **v1.2.13 — versionCode 22 — the warning banner opens on a
+tap and closes on a ✕ (§4.8's two slots, from Autel v1.7.6): `FlightWarnings.Display.all`,
+`warningDismissedSignature`, the row above the crosshair. Verified in the air 2026-09-14 — tap, second tap, ✕,
+no marker dropped — on AT ALTITUDE LIMIT.** Before it, **v1.2.12 — versionCode 21 — one text size and one gap
 for the action pills; the RTH long-press is the Autel v2.1.4 MENU (Cancel Return / Cancel Landing
 only when they apply, Reset Home Point always), verified against `isGoingHome`/`isLanding` 1.5 s
 after the cancel. ⚠ The cancels have not been exercised against a real return. Not flown.**

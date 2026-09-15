@@ -133,10 +133,31 @@ android {
         //                 while landing, Reset Home Point always — ported from Autel v2.1.4, no
         //                 confirmation on the cancels, verified against the aircraft's state
         //                 1.5 s later. Not flown.
+        //           1.2.13 THE WARNING BANNER OPENS ON A TAP AND CLOSES ON A ✕ — the two §4.8
+        //                 slots, ported from the Autel tree (v1.7.6). Open: every warning on its
+        //                 own line, worst first, the aircraft's faults one by one. The ✕ hides
+        //                 ONE SET of faults, never the banner — a change to the live set brings
+        //                 it back. The banner row draws above the crosshair and takes the touch.
+        //                 Banner size moved to per-device dimens. Not flown.
+        //           1.2.14 startGoHome IS VERIFIED AGAINST THE AIRCRAFT. Hovering at the altitude
+        //                 limit 3 m from home, the call came back "timed out" and the aircraft
+        //                 never moved; the callback is the SDK's word, the aircraft's state is
+        //                 the truth, read 1.5 s later and told to the pilot both ways. The bridge
+        //                 logs every flight-mode / going-home change. Not flown.
+        //           1.2.15 the mode-change line compares VALUES: the SDK reuses one state object,
+        //                 so v1.2.14's line never fired. Logging only. Flight-tested 2026-09-14:
+        //                 RTH verified, Cancel Return verified, the banner in every §4.8 state;
+        //                 OPEN: startGoHome times out after a cancelGoHome in the same process.
+        //           1.2.16 RTH SAYS WHAT WAS MEASURED (ledger D29): inside 20 m of home nothing
+        //                 starts a return on either route, so the tap says so and does not send;
+        //                 farther out startGoHome reached the aircraft 2 times in 7 while the
+        //                 RC-N1's button went 3 in 3, so a miss is retried once through
+        //                 KeyManager START_GO_HOME and a second miss tells the pilot to use the
+        //                 controller's button. The "after a cancel" reading is withdrawn.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 21
-        versionName "1.2.12"
+        versionCode 25
+        versionName "1.2.16"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

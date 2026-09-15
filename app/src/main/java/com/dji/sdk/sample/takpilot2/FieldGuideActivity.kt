@@ -287,6 +287,10 @@ class FieldGuideActivity : AppCompatActivity() {
             "Return to Home",
             "Touch: sends the aircraft home. The app asks you to confirm. Touch the button " +
                 "again during the return to stop it and get control.\n\n" +
+                "Within 20 m of home the aircraft will not start a return, from the screen or " +
+                "from the controller: land it. Farther out, if the screen says the return did " +
+                "not start, use the controller's RTH button — it works when the app's request " +
+                "does not reach the aircraft.\n\n" +
                 "Touch and hold: opens a menu. Cancel Return is there while the aircraft is " +
                 "returning, and Cancel Landing while it is landing — the aircraft can start " +
                 "either by itself, and these stop it and give you the sticks. The app does not " +
@@ -442,7 +446,9 @@ class FieldGuideActivity : AppCompatActivity() {
                 "Most warnings come from the aircraft, in its own words. The app adds its own " +
                 "for the return to home, the battery levels, the limits, a missing home point " +
                 "and high wind. The box shows the most important one, with a count if there " +
-                "are more.",
+                "are more.\n\n" +
+                "Touch the box to read all of them. Touch it again to close the list.\n\n" +
+                "Touch the ✕ to remove the box. The box comes back when the warnings change.",
         )
 
         sub("The readout: right side")

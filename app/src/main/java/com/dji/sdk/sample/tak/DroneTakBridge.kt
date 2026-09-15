@@ -104,7 +104,20 @@ class DroneTakBridge(
     // instead of camera state, since these are FlightController settings, not camera ones.
     @Volatile private var limitsApplied = false
 
+    private var lastModeSeen: dji.common.flightcontroller.FlightMode? = null
+    private var lastGoingHomeSeen: Boolean? = null
     private val flightStateCallback = FlightControllerState.Callback {
+        // A flight-mode or going-home CHANGE is one line. On 2026-09-14 startGoHome came back
+        // "timed out" with the aircraft hovering, and nothing in the log said what the flight
+        // controller was doing with it — this does, from the aircraft's own state push.
+        // ⚠ COMPARE VALUES, NOT THE OBJECT. The SDK hands the SAME FlightControllerState instance
+        // to every callback and mutates it, so "before" and "after" were one object and the
+        // v1.2.14 line never fired through a whole return and its cancel.
+        val mode = it.flightMode; val going = it.isGoingHome
+        if (lastModeSeen != null && (lastModeSeen != mode || lastGoingHomeSeen != going)) {
+            AppLog.i(TAG, "flight mode: $lastModeSeen goingHome=$lastGoingHomeSeen -> $mode goingHome=$going")
+        }
+        lastModeSeen = mode; lastGoingHomeSeen = going
         lastState = it
         // Proof of life for the drone CoT — see the freshness gate in pushOnce().
         lastStateMs = android.os.SystemClock.elapsedRealtime()

@@ -121,6 +121,17 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private var homeLineLayer: LineLayer? = null
     private lateinit var fpvNotice: TextView
     private lateinit var flightDiagnostics: TextView
+    private lateinit var flightWarningRow: View
+    private lateinit var flightWarningClose: TextView
+    /** The banner is open to every warning. Closes by itself whenever the banner hides. */
+    private var warningExpanded = false
+    /**
+     * The exact set of warning lines the pilot closed with the ✕, or null. Compared on every
+     * repaint: the banner stays hidden while the live set is THIS set and comes back the instant
+     * it differs by one line, so a close hides one set of faults and never the banner — a pilot
+     * cannot close the banner and then miss the next thing the aircraft says (§4.8).
+     */
+    private var warningDismissedSignature: String? = null
     private lateinit var obstacles: ObstacleEdgeView
     // Edge-triggers the "Home Point Set" notice only on the false->true transition (not every
     // tick while it's already set), and only once per bridge session.
@@ -220,6 +231,23 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
         fpvNotice = findViewById(R.id.fpvNotice)
         flightDiagnostics = findViewById(R.id.flightDiagnostics)
+        flightWarningRow = findViewById(R.id.flightWarningRow)
+        flightWarningClose = findViewById(R.id.flightWarningClose)
+        // Tap the banner to open it and read every warning; tap again to close the list. The
+        // row is drawn above the crosshair (see the layout), thus it takes the touch and a tap
+        // on a warning can never fall through and drop a marker.
+        flightDiagnostics.setOnClickListener {
+            warningExpanded = !warningExpanded
+            renderWarning()
+        }
+        // The ✕ closes the set of warnings now on the banner. A separate view, not a second
+        // gesture on the text: the text's tap already means "open".
+        flightWarningClose.setOnClickListener {
+            warningDismissedSignature = FlightWarnings.display()?.all?.joinToString("\n")
+            warningExpanded = false
+            AppLog.i(TAG, "warning banner closed by pilot: $warningDismissedSignature")
+            renderWarning()
+        }
         obstacles = findViewById(R.id.flightObstacles)
         obstacles.update(DjiObstacleState.faces)
         DjiObstacleState.onChanged = { runOnUiThread { obstacles.update(DjiObstacleState.faces) } }
@@ -635,7 +663,7 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
             .setMessage("Send the aircraft home now?")
             .setPositiveButton("Return Home") { _, _ ->
                 AppLog.i(TAG, "RTH confirmed — sending startGoHome")
-                fc.startGoHome(toastResultCallback("Returning home", "RTH failed"))
+                startGoHomeVerified(fc)
             }
             .setNegativeButton("Cancel") { _, _ -> AppLog.i(TAG, "RTH cancelled at confirm dialog") }
             .show()
@@ -686,6 +714,69 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         b.setNeutralButton("Reset Home Point…") { _, _ -> confirmResetHome() }
         b.setNegativeButton("Close", null)
         b.show()
+    }
+
+    /**
+     * Sends the aircraft home and then CHECKS THE AIRCRAFT AGREED — safety rule 4 — and, when
+     * the SDK's first route fails, tries its second before telling the pilot what works.
+     *
+     * ⚠ **MEASURED 2026-09-14, nine attempts across three flights (ledger D29):**
+     *
+     *  - **Inside about 20 m of home NOTHING starts a return** — not `startGoHome`, not the
+     *    RC-N1's own RTH button (1, 3 and 14 m: no acknowledgement, no mode change). That is
+     *    the aircraft's rule, thus the app SAYS SO and does not send: a bare timeout there
+     *    taught the pilot to distrust the button.
+     *  - **Beyond that, `startGoHome` reached the flight controller 2 times in 7** (22 and 45 m
+     *    went; 47, 112 and 115 m timed out three times, five in all) while the controller's own
+     *    button went 3 in 3 from the same spots, and `cancelGoHome` 4 in 4 over the same link.
+     *    The command is lost somewhere in the SDK, not refused by the aircraft.
+     *
+     * So: the callback is only the SDK's word on whether the flight controller ANSWERED; the
+     * truth is `isGoingHome` on the state push the bridge already receives, read
+     * [RTH_CANCEL_CONFIRM_MS] later. If it did not go, the request is made ONCE MORE through
+     * the SDK's other route — `KeyManager.performAction(START_GO_HOME)` — and checked the same
+     * way. If that did not go either, the pilot is told the path that is measured to work.
+     * Two requests at most, never a timer, and never while the aircraft is already returning.
+     */
+    private fun startGoHomeVerified(fc: dji.sdk.flightcontroller.FlightController) {
+        val hud = TakBridgeHolder.hud()
+        if (hud != null && hud.hasFix && hud.homeSet) {
+            val dist = CameraSlantPoint.distanceMeters(hud.homeLat, hud.homeLon, hud.lat, hud.lon)
+            if (dist < RTH_NEAR_HOME_M) {
+                AppLog.w(TAG, "RTH not sent: %.0f m from home, inside the %.0f m band where nothing starts a return".format(dist, RTH_NEAR_HOME_M))
+                showNotice("Within ${RTH_NEAR_HOME_M.toInt()} m of home — the aircraft will not start a return. Land it.", refused = true)
+                return
+            }
+        }
+        showNotice("Sending the aircraft home")
+        fc.startGoHome { error ->
+            if (error == null) AppLog.i(TAG, "startGoHome: accepted")
+            else AppLog.w(TAG, "startGoHome callback: ${error.description} — the aircraft's state decides")
+        }
+        handler.postDelayed({
+            if (TakBridgeHolder.hud()?.isGoingHome == true) {
+                AppLog.i(TAG, "return confirmed — the aircraft is going home (startGoHome)")
+                showNotice("Returning home")
+                return@postDelayed
+            }
+            AppLog.w(TAG, "RETURN DID NOT START ${RTH_CANCEL_CONFIRM_MS}ms after startGoHome — trying the KeyManager route once")
+            try {
+                val key = dji.keysdk.FlightControllerKey.create(dji.keysdk.FlightControllerKey.START_GO_HOME)
+                dji.keysdk.KeyManager.getInstance().performAction(key, object : dji.keysdk.callback.ActionCallback {
+                    override fun onSuccess() { AppLog.i(TAG, "START_GO_HOME action: accepted") }
+                    override fun onFailure(error: dji.common.error.DJIError) { AppLog.w(TAG, "START_GO_HOME action: ${error.description}") }
+                })
+            } catch (t: Throwable) { AppLog.e(TAG, "START_GO_HOME action threw: ${t.message}") }
+            handler.postDelayed({
+                if (TakBridgeHolder.hud()?.isGoingHome == true) {
+                    AppLog.i(TAG, "return confirmed — the aircraft is going home (KeyManager route)")
+                    showNotice("Returning home")
+                } else {
+                    AppLog.e(TAG, "RETURN DID NOT START on either route — telling the pilot to use the controller's button")
+                    showNotice("The aircraft did not start the return. Use the controller's RTH button.", refused = true)
+                }
+            }, RTH_CANCEL_CONFIRM_MS)
+        }, RTH_CANCEL_CONFIRM_MS)
     }
 
     private fun cancelReturn(fc: dji.sdk.flightcontroller.FlightController) {
@@ -2018,20 +2109,38 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
     private fun renderWarning() {
         val d = FlightWarnings.display()
         if (d == null) {
-            flightDiagnostics.visibility = View.GONE
+            flightWarningRow.visibility = View.GONE
+            // Nothing stands, thus nothing stays open and nothing stays closed. The next set
+            // of warnings gets a fresh, collapsed banner — even one whose text repeats the
+            // last, because the pilot closed THAT occurrence, not the words.
+            warningExpanded = false
+            warningDismissedSignature = null
             return
         }
-        flightDiagnostics.text = d.text
+        val signature = d.all.joinToString("\n")
+        if (signature == warningDismissedSignature) {
+            flightWarningRow.visibility = View.GONE
+            return
+        }
+        warningDismissedSignature = null
+        // The arrow is the only sign that the banner opens, so it shows only when there is
+        // something behind the count.
+        val more = d.all.size > 1
+        flightDiagnostics.text = when {
+            warningExpanded -> d.all.joinToString("\n") + "\n▴"
+            more -> "${d.text}  ▾"
+            else -> d.text
+        }
         // Severity goes on the BACKGROUND and the text stays white — specification §4.8, and
         // the same shape as the Autel sibling. Tinting the text instead left a red-on-dark-red
         // message that was the hardest thing on the screen to read at the moment it mattered.
-        flightDiagnostics.background?.setTint(
+        flightWarningRow.background?.setTint(
             ContextCompat.getColor(
                 applicationContext,
                 if (d.red) R.color.tp_warn_banner_red else R.color.tp_warn_banner_amber,
             )
         )
-        flightDiagnostics.visibility = View.VISIBLE
+        flightWarningRow.visibility = View.VISIBLE
     }
 
     private fun recordResultCallback(successMsg: String, failurePrefix: String, op: String) =
@@ -2467,6 +2576,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
         private const val HOME_NOTICE_MS = 5000L
         /** How long after cancelGoHome/cancelLanding the aircraft's state is re-read. */
         private const val RTH_CANCEL_CONFIRM_MS = 1500L
+        /** Inside this distance of home nothing starts a return — measured at 1, 3 and 14 m on
+         *  the Mini 2, both routes, 2026-09-14; 22 m was the nearest that went. The aircraft's
+         *  documented land-in-place band. */
+        private const val RTH_NEAR_HOME_M = 20.0
 
         /** Minimum height above ground for a marker drop, feet. Below this the slant
          *  solve degenerates onto the aircraft's own position — see dropRefusalReason. */

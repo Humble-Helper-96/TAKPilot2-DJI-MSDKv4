@@ -79,25 +79,50 @@
          Moved from 88dp to 64dp and restyled 2026-08-14 (conformance D5) to match the Autel
          sibling: white 15sp bold on a background the activity tints by severity, instead of
          tinted text on a fixed dark-red backing. -->
-    <TextView
-        android:id="@+id/flightDiagnostics"
+    <!-- A ROW since v1.2.13 (specification §4.8's two slots, ported from the Autel tree
+         2026-09-14): the text opens to every warning on a tap and closes on the ✕. This row is a
+         later child than flightCrosshair, thus it draws above it and TAKES the touch — a tap on
+         a warning never falls through to the video and drops a marker. A close hides one SET of
+         warnings and never the banner: the activity remembers what was closed and a change to
+         the live set brings the banner back — see warningDismissedSignature. -->
+    <LinearLayout
+        android:id="@+id/flightWarningRow"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_marginTop="64dp"
         android:layout_marginStart="16dp"
         android:background="@drawable/bg_warning_banner"
-        android:letterSpacing="0.03"
-        android:maxWidth="380dp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="7dp"
-        android:paddingBottom="7dp"
-        android:text=""
-        android:textColor="@color/tp_text_primary"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/flightDiagnostics"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.03"
+            android:maxWidth="@dimen/flight_warning_max_width"
+            android:paddingStart="16dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:text=""
+            android:textColor="@color/tp_text_primary"
+            android:textSize="@dimen/flight_warning_text_size"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/flightWarningClose"
+            android:layout_width="@dimen/flight_warning_close_size"
+            android:layout_height="@dimen/flight_warning_close_size"
+            android:contentDescription="Close this warning"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="@color/tp_text_primary"
+            android:textSize="@dimen/flight_warning_text_size"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- DEBUG resource overlay: memory, CPU and the TAK contact count. Hidden unless switched
          on in the Debug screen, and off by default — it covers live video.
