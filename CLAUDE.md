@@ -95,7 +95,7 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v2.0.0 IS RELEASED — tag `v2.0.0`, versionCode 32, 2026-09-14, on GitHub with the signed APK.**
+**v2.0.0 IS RELEASED — tag `v2.0.0`, versionCode 32, 2026-09-14, on GitHub as source only — the signed APK stays in `signedReleases/`, never on GitHub.**
 It is the bench day's seventeen updates, 1.2.3 to 1.2.19, as one release; the reasoning for the
 major bump is on the version line in `app/build.gradle`. Before it, **v1.2.19 — versionCode 31 —
 Pre-Flight section 0 Memory
