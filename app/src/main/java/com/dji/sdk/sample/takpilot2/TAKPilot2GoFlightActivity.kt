@@ -2484,7 +2484,10 @@ class TAKPilot2GoFlightActivity : AppCompatActivity() {
 
     override fun onStop() {
         AppLog.v(TAG, "onStop")
-        TakBridgeHolder.stop()
+        // ⚠ THE BRIDGE IS NOT STOPPED HERE ANY MORE (2026-09-14). It is process-wide by design
+        // — TakBridgeHolder exists "so the bridge survives screen navigation" — and the home
+        // card and Pre-Flight's Memory Card section read it: stopping it on the way out is
+        // why they went amber a second after the pilot came back. STOP/QUIT stops it.
         // Leaving the flight screen (back to Home, or the app going to background/closing) —
         // don't keep pushing video nobody's watching the pilot fly against; also releases the
         // screen-capture projection so it doesn't linger as a background foreground service.

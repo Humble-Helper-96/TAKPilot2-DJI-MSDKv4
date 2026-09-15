@@ -11,6 +11,68 @@
         android:orientation="vertical"
         android:padding="24dp">
 
+        <!-- 0. Memory Card — ported from the Autel tree's v1.7.3 on 2026-09-14 (operator), styled
+             exactly like sections 1 to 5. Card state and free space as the CAMERA reports them,
+             off the storage-state push the bridge already owns, and a Format Card button that
+             is refused with a named reason while it should not be pressed. Unlike the Autel
+             SDK, this one reports the card's CAPACITY, so free is shown of total. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0. Memory Card"
+            android:textColor="@color/tp_text_primary"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp" />
+
+        <!-- gravity=bottom so the columns align on their BOTTOM edge: the Format button grows
+             upward through the space a third label would have taken, instead of hanging below
+             the readouts as a second line. -->
+        <LinearLayout style="@style/takFormRow" android:gravity="bottom">
+            <LinearLayout style="@style/takColumn">
+                <TextView style="@style/takLabelStyle" android:text="Card" />
+                <TextView
+                    android:id="@+id/sdCardState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/tp_text_primary"
+                    android:textSize="15sp" />
+            </LinearLayout>
+            <LinearLayout style="@style/takColumn">
+                <TextView style="@style/takLabelStyle" android:text="Free space" />
+                <TextView
+                    android:id="@+id/sdCardFree"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/tp_text_primary"
+                    android:textSize="15sp" />
+            </LinearLayout>
+            <LinearLayout style="@style/takColumn">
+                <Button
+                    android:id="@+id/sdCardFormatButton"
+                    style="@style/TakButton.Danger"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Format Card"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- GONE, not INVISIBLE: renderSdCard() shows it only when it has something to say. -->
+        <TextView
+            android:id="@+id/sdCardStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:textColor="@color/tp_text_caption"
+            android:textSize="12sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:background="@color/tp_border" />
+
         <!-- 1. Aircraft Settings — flight-safety limits, all optional (blank = leave the
              aircraft's own default alone). Feet in the UI, converted to meters for the SDK.
 

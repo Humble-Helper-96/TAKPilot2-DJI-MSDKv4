@@ -95,7 +95,11 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.17 IS BUILT AND ON THE PHONE — versionCode 29, 2026-09-14 — the home card is the pre-flight
+**v1.2.19 IS BUILT AND ON THE PHONE — versionCode 31, 2026-09-14 — Pre-Flight section 0 Memory
+Card (v1.2.18, ledger D31; no real format run yet); the bridge arms aircraft callbacks from its tick
+by identity and the flight screen no longer stops it on the way out, so the home card fills without
+a flight-screen visit; the battery lock locks the battery levels only. Measured. Not flown.**
+Before it, **v1.2.17 — versionCode 29 — the home card is the pre-flight
 check (ledger D30): four checks, the aircraft block with live charge, failsafe, sticks, control
 response, SD card, INITIALIZING; logo and subtitle gone, 12sp, home immersive. Measured. Not
 flown.** Before it, **v1.2.16 — versionCode 25 — RTH says what was measured (ledger D29): nothing

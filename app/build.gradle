@@ -161,10 +161,20 @@ android {
         //                 charge of aircraft and RC, signal-loss behaviour and control response
         //                 as the aircraft holds them, sticks, SD card, and a pulsing INITIALIZING
         //                 that refuses taps for 5 s after the aircraft appears. Not flown.
+        //           1.2.18 PRE-FLIGHT GAINS SECTION 0, MEMORY CARD (the Autel tree's v1.7.3): the
+        //                 card's state and free space of total as the camera reports them, and a
+        //                 Format Card button refused with a named reason (no aircraft, flying,
+        //                 recording, no card, write protected, formatting). The format result is
+        //                 the camera's answer; the card state says when it finished. A real
+        //                 format has NOT been run. Not flown.
+        //           1.2.19 THE BRIDGE ARMS ITS AIRCRAFT CALLBACKS WHEN THE AIRCRAFT ARRIVES, from
+        //                 the tick by object identity, and the flight screen no longer stops the
+        //                 process-wide bridge on the way out — the home card and Pre-Flight
+        //                 read it. The battery lock locks the battery levels only. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 29
-        versionName "1.2.17"
+        versionCode 31
+        versionName "1.2.19"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

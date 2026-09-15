@@ -345,7 +345,7 @@ class DroneTakBridge(
     private val tick = object : Runnable {
         override fun run() {
             try {
-                armRemoteControllerIfNeeded()
+                armAircraftCallbacksIfNeeded()
                 pushOnce()
             } catch (t: Throwable) {
                 AppLog.w(TAG, "telemetry push failed: ${t.message}")
@@ -354,18 +354,26 @@ class DroneTakBridge(
         }
     }
 
-    fun start() {
-        if (running) return
-        running = true
-
-        // New session = new flight = a new takeoff point, so the latched terrain reference from
-        // the last one must not carry over (see TerrainAgl).
-        TerrainAgl.reset()
-
+    /**
+     * Arms every aircraft callback on the aircraft object that EXISTS NOW, once per object.
+     *
+     * ⚠ THIS USED TO HAPPEN ONLY IN start(), AND start() USUALLY RUNS BEFORE THE AIRCRAFT
+     * EXISTS. TakAutoConnect starts the bridge at app launch — "no aircraft connected yet,
+     * telemetry will be empty until it is" — and nothing asked again, so the home card and
+     * Pre-Flight read a bridge with no callbacks until the flight screen restarted it
+     * (operator, 2026-09-14: "amber with a dash until I enter the flight screen"). Same shape
+     * and same fix as the RC callback: the object's identity is tracked, and the tick re-arms
+     * whenever the SDK's current aircraft is not the one that was armed.
+     */
+    private var armedAircraft: dji.sdk.products.Aircraft? = null
+    private fun armAircraftCallbacksIfNeeded() {
         val aircraft = DJISampleApplication.getAircraftInstance()
         if (aircraft == null) {
-            AppLog.w(TAG, "start(): no aircraft connected yet, telemetry will be empty until it is")
-        } else {
+            if (armedAircraft != null) AppLog.i(TAG, "aircraft gone — callbacks will re-arm when one appears")
+            armedAircraft = null
+            return
+        }
+        if (aircraft === armedAircraft) { armRemoteControllerIfNeeded(); return }
             aircraft.flightController?.setStateCallback(flightStateCallback)
             aircraft.gimbals?.firstOrNull()?.setStateCallback(gimbalStateCallback)
             aircraft.battery?.setStateCallback(batteryStateCallback)
@@ -387,11 +395,23 @@ class DroneTakBridge(
             aircraft.camera?.setExposureSettingsCallback(exposureSettingsCallback)
             try { aircraft.camera?.setStorageStateCallBack(storageStateCallback) } catch (t: Throwable) { AppLog.w(TAG, "storage-state callback unavailable: ${t.message}") }
             try { aircraft.camera?.setMediaFileCallback(mediaFileCallback) } catch (t: Throwable) { AppLog.w(TAG, "media-file callback unavailable: ${t.message}") }
-            armRemoteControllerIfNeeded()
-            // TODO: resolve the real aircraft serial (BaseProduct.getSerialNumber) as a
-            // stable per-aircraft uid, matching V5's approach. Deferred — droneUid falls
-            // back to the caller-provided session uid, which is enough for a live PLI.
-        }
+        armedAircraft = aircraft
+        AppLog.i(TAG, "aircraft callbacks armed on $aircraft")
+        armRemoteControllerIfNeeded()
+    }
+
+    fun start() {
+        if (running) return
+        running = true
+
+        // New session = new flight = a new takeoff point, so the latched terrain reference from
+        // the last one must not carry over (see TerrainAgl).
+        TerrainAgl.reset()
+
+        // Callbacks are armed by armAircraftCallbacksIfNeeded, here and again from every tick:
+        // an aircraft that arrives AFTER start() is picked up, and one the SDK replaces is
+        // re-armed. See that function.
+        armAircraftCallbacksIfNeeded()
 
         // The CONTROLLER's own position, for the operator marker. Idempotent, and it must be a
         // real requestLocationUpdates — see OperatorLocation for why the cache alone is empty.
@@ -780,6 +800,9 @@ class DroneTakBridge(
          *  (setChargeRemainingCallback on the RC the SDK hands out), so with no aircraft bound it
          *  is unknown and not low. */
         val rcBatteryPct: Int? = null,
+        /** The aircraft reports it is in the air — the same test the PLI and the flight record
+         *  use. Pre-Flight refuses to format the card while this is true. */
+        val isFlying: Boolean = false,
     )
 
     /**
@@ -844,6 +867,7 @@ class DroneTakBridge(
             lastCameraState?.mode,
             state?.flightMode == dji.common.flightcontroller.FlightMode.AUTO_LANDING,
             lastRcBatteryPct,
+            state?.isFlying == true,
         )
     }
 

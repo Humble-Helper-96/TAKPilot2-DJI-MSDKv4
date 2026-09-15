@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.View
 import android.widget.Button
+import com.dji.sdk.sample.internal.controller.DJISampleApplication
+import android.app.AlertDialog
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioGroup
@@ -62,6 +64,7 @@ class TakConnectActivity : AppCompatActivity() {
         AppLog.v(TAG, "onCreate")
 
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        setupSdCardSection()
         setupDroneSettings(prefs)
         setupMapDisplay()
         setupDtedSection()
@@ -442,18 +445,20 @@ class TakConnectActivity : AppCompatActivity() {
      *  must still be pushable to a freshly connected aircraft; needing to re-send it is exactly
      *  when a pilot must not be fighting a lock. (Apply was in this list until 2026-08-12, which
      *  made the two apps behave differently for the same pilot.) */
+    // ⚠ THE BATTERY LEVELS ONLY (operator, 2026-09-14; specification §5.5 names this lock
+    // "aircraft (battery levels)"). Until v1.2.19 it also greyed the stick mode and the
+    // signal-loss choice, which the pilot changes between flights and which sit under their own
+    // labels, nowhere near the checkbox that locked them.
     private val aircraftLockedFields = listOf(
         R.id.limitLowBattery, R.id.limitCriticalBattery,
-        R.id.stickMode1, R.id.stickMode2, R.id.stickMode3,
-        R.id.failsafeGoHome, R.id.failsafeHover, R.id.failsafeLand,
     )
 
     private fun setupConfigLocks() {
         setupOneLock(
             R.id.limitBatteryLock, KEY_AIRCRAFT_LOCKED, aircraftLockedFields,
             "Unlock battery levels?",
-            "These decide when the aircraft returns and lands on its own, and what the control " +
-                "sticks do. A wrong value can force a landing away from the pilot.",
+            "These decide when the aircraft returns and lands on its own. A wrong value can " +
+                "force a landing away from the pilot.",
         )
         setupOneLock(
             R.id.takLockConfig, KEY_TAK_LOCKED, takLockedFields,
@@ -687,6 +692,114 @@ class TakConnectActivity : AppCompatActivity() {
      *  (any file; DTED extensions aren't a registered MIME type so we don't filter by type),
      *  list imported regions (one row each — never individual tiles, see DtedStore/TerrainDatabase),
      *  allow deleting a whole region. */
+
+    // ---- 0. Memory Card (ported from the Autel tree's v1.7.3, 2026-09-14) ----
+
+    private val sdHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /** The card state arrives on the camera's push; this repaints it once a second while the
+     *  screen is up, so "Formatting" turns into "Ready" without the pilot leaving and coming back. */
+    private val sdTick = object : Runnable {
+        override fun run() { renderSdCard(); sdHandler.postDelayed(this, 1000) }
+    }
+
+    private fun setupSdCardSection() {
+        findViewById<Button>(R.id.sdCardFormatButton).setOnClickListener { confirmFormatSdCard() }
+        renderSdCard()
+    }
+
+    /** Human text for the card state. Every state the SDK can report is named: an unnamed one
+     *  would read as a fault when several are normal. */
+    private fun sdStateText(s: dji.common.camera.StorageState?): String = when {
+        s == null -> "Not known"
+        !s.isInserted -> "No card"
+        s.isFormatting -> "Formatting"
+        s.isInitializing -> "Initializing"
+        s.isReadOnly -> "Write protected"
+        s.isInvalidFormat -> "Invalid format"
+        s.hasError() -> "Error"
+        s.isFull -> "Full"
+        s.isVerified -> "Ready"
+        else -> "Not verified"
+    }
+
+    private fun sdFreeText(s: dji.common.camera.StorageState?): String {
+        if (s == null || !s.isInserted) return "\u2014"
+        val free = s.remainingSpaceInMB / 1024.0; val total = s.totalSpaceInMB / 1024.0
+        return if (total > 0) "%.1f of %.1f GB".format(free, total) else "%.1f GB".format(free)
+    }
+
+    /** Why the Format button is not available, or null when it is. Separate strings, because
+     *  the pilot needs to know WHICH one applies — a disabled button with no reason is a fault. */
+    private fun formatBlockedReason(): String? {
+        val hud = TakBridgeHolder.hud()
+        val s = TakBridgeHolder.storage()
+        return when {
+            DJISampleApplication.getAircraftInstance()?.camera == null -> "No aircraft"
+            hud?.isFlying == true -> "Not while the aircraft is flying"
+            hud?.isRecording == true -> "Not while recording"
+            s == null -> "Waiting for the camera"
+            !s.isInserted -> "No card"
+            s.isReadOnly -> "Card is write protected"
+            s.isFormatting -> "Formatting"
+            else -> null
+        }
+    }
+
+    private fun renderSdCard() {
+        val stateView = findViewById<TextView>(R.id.sdCardState) ?: return
+        val s = TakBridgeHolder.storage()
+        stateView.text = sdStateText(s)
+        findViewById<TextView>(R.id.sdCardFree).text = sdFreeText(s)
+        val button = findViewById<Button>(R.id.sdCardFormatButton)
+        val status = findViewById<TextView>(R.id.sdCardStatus)
+        val blocked = formatBlockedReason()
+        button.isEnabled = blocked == null
+        button.alpha = if (blocked == null) 1.0f else 0.45f
+        if (blocked != null) { status.text = blocked; status.visibility = View.VISIBLE }
+        else if (!sdStatusHeld) status.visibility = View.GONE
+    }
+    /** True while the status line carries the format result rather than a blocked reason. */
+    private var sdStatusHeld = false
+
+    /**
+     * ⚠ IRREVERSIBLE, AND ON A PUBLIC-SAFETY AIRFRAME THE FILES MAY BE EVIDENCE. The free space is
+     * quoted so the pilot can see whether the card holds anything, and the positive button says
+     * what it does. The result reports what the CAMERA did — rule 4.
+     */
+    private fun confirmFormatSdCard() {
+        val cam = DJISampleApplication.getAircraftInstance()?.camera ?: return
+        AlertDialog.Builder(this, R.style.TakDialogTheme_Destructive)
+            .setTitle("Format the memory card?")
+            .setMessage("This erases everything on the SD card in the aircraft. Photographs and " +
+                "video cannot be recovered.\n\nFree space now: ${sdFreeText(TakBridgeHolder.storage())}")
+            .setPositiveButton("Format") { _, _ -> doFormatSdCard(cam) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun doFormatSdCard(cam: dji.sdk.camera.Camera) {
+        val button = findViewById<Button>(R.id.sdCardFormatButton)
+        val status = findViewById<TextView>(R.id.sdCardStatus)
+        button.isEnabled = false; button.alpha = 0.45f
+        sdStatusHeld = true
+        status.text = "Formatting\u2026"; status.visibility = View.VISIBLE
+        AppLog.i(TAG, "format SD card requested")
+        cam.formatSDCard { error ->
+            runOnUiThread {
+                if (error == null) {
+                    AppLog.i(TAG, "format SD card accepted by the camera")
+                    // NOT "done": the camera took the request; the CARD STATE says when it has
+                    // finished, and the tick reads that.
+                    status.text = "The camera accepted the request."
+                } else {
+                    AppLog.w(TAG, "format SD card refused: ${error.description}")
+                    status.text = "The aircraft did not format the card: ${error.description}"
+                }
+                sdHandler.postDelayed({ sdStatusHeld = false }, 8000)
+            }
+        }
+    }
+
     private fun setupDtedSection() {
         findViewById<Button>(R.id.dtedUploadButton).setOnClickListener {
             AppLog.v(TAG, "tap: Import Region")
@@ -998,8 +1111,15 @@ class TakConnectActivity : AppCompatActivity() {
      * summary line describing the configuration as it was BEFORE they edited it — which is
      * worse than no summary, because it reads as authoritative.
      */
+    override fun onPause() {
+        super.onPause()
+        sdHandler.removeCallbacks(sdTick)
+    }
+
     override fun onResume() {
         super.onResume()
+        sdHandler.removeCallbacks(sdTick)
+        sdHandler.post(sdTick)
         val p = getSharedPreferences("takpilot2_tak", MODE_PRIVATE)
         paintVideoSummary(p)
         mirrorActiveSlot(p)
