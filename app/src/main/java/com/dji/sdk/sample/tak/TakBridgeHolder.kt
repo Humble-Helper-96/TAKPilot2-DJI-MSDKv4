@@ -108,6 +108,9 @@ object TakBridgeHolder {
     /** Latest telemetry snapshot for the on-screen HUD, or null if the bridge isn't running. */
     fun hud(): DroneTakBridge.Hud? = bridge?.hud()
 
+    /** The SD card as the camera last reported it, for the home card. Null before it has. */
+    fun storage(): dji.common.camera.StorageState? = bridge?.lastStorage
+
     /** See [DroneTakBridge.photoInProgress]. False when the bridge isn't running — with no camera
      *  state to consult, a caller waiting on this must proceed rather than block forever. */
     fun photoInProgress(): Boolean = bridge?.photoInProgress() ?: false

@@ -14,6 +14,10 @@ import androidx.appcompat.app.AppCompatActivity
 import com.dji.sdk.sample.BuildConfig
 import com.dji.sdk.sample.R
 import com.dji.sdk.sample.tak.NetworkStatus
+import com.dji.sdk.sample.tak.AppPermissions
+import com.dji.sdk.sample.tak.MediaServerProbe
+import com.dji.sdk.sample.tak.VideoTransport
+import com.dji.sdk.sample.tak.ControlResponse
 import com.dji.sdk.sample.DataSyncActivity
 import com.dji.sdk.sample.internal.controller.DJISampleApplication
 import com.dji.sdk.sample.tak.DebugActivity
@@ -52,6 +56,15 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
     private lateinit var takDot: android.view.View
     private lateinit var network: TextView
     private lateinit var networkDot: android.view.View
+    private lateinit var permissionsStatus: TextView
+    private lateinit var permissionsDot: android.view.View
+    private lateinit var mediaStatus: TextView
+    private lateinit var mediaDot: android.view.View
+    private lateinit var signalLoss: TextView
+    private lateinit var stickMode: TextView
+    private lateinit var controlResponse: TextView
+    private lateinit var storage: TextView
+    private lateinit var initializing: TextView
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -67,6 +80,10 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         visitedThisProcess = true
         setContentView(R.layout.activity_takpilot2go_home)
         AppLog.v(TAG, "onCreate")
+        // Full screen, like the flight screen (operator, 2026-09-14): the status bar and the
+        // navigation strip were taking 63px and 126px from a card that is measured to the
+        // pixel. Same flags, same re-apply on focus, as TAKPilot2GoFlightActivity.
+        applyImmersive()
 
         aircraft = findViewById(R.id.homeAircraft)
         sdk = findViewById(R.id.homeSdk)
@@ -75,6 +92,17 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         takDot = findViewById(R.id.homeTakDot)
         network = findViewById(R.id.homeNetwork)
         networkDot = findViewById(R.id.homeNetworkDot)
+        permissionsStatus = findViewById(R.id.homePermissionsStatus)
+        permissionsDot = findViewById(R.id.homePermissionsDot)
+        mediaStatus = findViewById(R.id.homeMediaStatus)
+        mediaDot = findViewById(R.id.homeMediaDot)
+        signalLoss = findViewById(R.id.homeSignalLoss)
+        stickMode = findViewById(R.id.homeStickMode)
+        controlResponse = findViewById(R.id.homeControlResponse)
+        storage = findViewById(R.id.homeStorage)
+        initializing = findViewById(R.id.homeInitializing)
+        // The permissions line asks when it is red — see askForPermissions.
+        findViewById<android.view.View>(R.id.homePermissionsRow).setOnClickListener { askForPermissions() }
 
         // Fixed at build time, not runtime state — set once, never touched in updateStatus().
         // BuildConfig.VERSION_NAME rather than the PackageManager: same string, no IPC, and it
@@ -96,6 +124,12 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         TakAutoConnect.attemptOnAppLaunch(applicationContext)
 
         findViewById<android.view.View>(R.id.homeEnterFlight).setOnClickListener {
+            if (initializingUntilMs > System.currentTimeMillis()) {
+                AppLog.v(TAG, "Enter Flight tapped during initialise — ignored")
+                android.widget.Toast.makeText(this, "Wait. The app is setting up the aircraft.",
+                    android.widget.Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             AppLog.v(TAG, "tap: Enter Flight")
             startActivity(Intent(this, TAKPilot2GoFlightActivity::class.java))
         }
@@ -183,72 +217,241 @@ class TAKPilot2GoHomeActivity : AppCompatActivity() {
         handler.removeCallbacks(refresh)
     }
 
+    @Suppress("DEPRECATION")
+    private fun applyImmersive() {
+        window.decorView.systemUiVisibility = (
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Immersive-sticky flags are cleared by system dialogs and shade swipes; re-apply on
+        // focus so the bars do not creep back.
+        if (hasFocus) applyImmersive()
+    }
+
     private fun updateStatus() {
         val product = DJISampleApplication.getProductInstance()
+        val hud = TakBridgeHolder.hud()
         aircraft.text = product?.model?.displayName ?: "Not connected"
         sdk.text = "MSDK 4.18"
 
-        // Battery levels, straight from the AIRCRAFT — never the saved preference. If Apply
-        // did not take, this is where it shows, so falling back to what the pilot typed would
-        // hide the one failure this line exists to catch. Blank before a product is connected
-        // and a dash until the aircraft answers: unknown must not look like a value.
+        // The hold starts when the aircraft first appears — that is when the connect-time
+        // pushes (limits, exposure, stick mode, control response) are scheduled, so that is
+        // when there is something to wait for.
+        if (product != null && !sawProduct) { sawProduct = true; startInitializing() }
+        else if (product == null) sawProduct = false
+
+        // BATTERY, LIVE — the aircraft's charge and the RC's, from the bridge's snapshot. Zero
+        // and null both mean "not reported yet": batteryPct starts at 0 before the first
+        // battery frame, and a 0 drawn in red would send a pilot to change a full pack.
+        // Coloured by the thresholds the aircraft HOLDS (20/10 on a Mini 2, rule 11).
+        val air = hud?.batteryPct?.takeIf { it > 0 }
+        val rc = hud?.rcBatteryPct
         val warn = FlightLimitsController.aircraftWarningPct
         val crit = FlightLimitsController.aircraftCriticalPct
-        batteryLevels.text = when {
+        batteryLevels.text = if (product == null && air == null && rc == null) "" else
+            "BATTERY: AIRCRAFT ${air?.let { "$it%" } ?: "\u2014"}  \u00b7  RC ${rc?.let { "$it%" } ?: "\u2014"}"
+        batteryLevels.setTextColor(color(when {
+            air == null -> R.color.tp_state_unknown
+            crit != null && air <= crit -> R.color.tp_state_danger
+            warn != null && air <= warn -> R.color.tp_state_caution
+            else -> R.color.tp_state_go
+        }))
+
+        // SIGNAL LOSS — what the AIRCRAFT holds, read back after the connect-time push. Green
+        // for a return, caution for hover or land (the aircraft will not come back by itself),
+        // amber until it has answered.
+        val fs = FlightLimitsController.aircraftFailsafe
+        signalLoss.text = when {
             product == null -> ""
-            warn != null && crit != null -> "BATTERY: WARN $warn% \u00b7 CRIT $crit%"
-            else -> "BATTERY: \u2014"
+            fs == dji.common.flightcontroller.ConnectionFailSafeBehavior.GO_HOME -> "SIGNAL LOSS: RETURNS HOME"
+            fs == dji.common.flightcontroller.ConnectionFailSafeBehavior.HOVER -> "SIGNAL LOSS: HOVERS"
+            fs == dji.common.flightcontroller.ConnectionFailSafeBehavior.LANDING -> "SIGNAL LOSS: LANDS"
+            else -> "SIGNAL LOSS: \u2014"
         }
-        batteryLevels.setTextColor(
-            ContextCompat.getColor(
-                applicationContext,
-                if (product != null && (warn == null || crit == null)) R.color.tp_state_unknown
-                else R.color.tp_text_secondary,
-            )
-        )
+        signalLoss.setTextColor(color(when (fs) {
+            dji.common.flightcontroller.ConnectionFailSafeBehavior.GO_HOME -> R.color.tp_state_go
+            dji.common.flightcontroller.ConnectionFailSafeBehavior.HOVER,
+            dji.common.flightcontroller.ConnectionFailSafeBehavior.LANDING -> R.color.tp_state_caution
+            else -> R.color.tp_state_unknown
+        }))
+
+        // STICKS — the mode Pre-Flight pushes at connect; the SDK has no read-back for it.
+        stickMode.text = if (product == null) "" else
+            "STICKS: ${FlightLimitsController.savedStickMode(this).label.uppercase()}"
+        stickMode.setTextColor(color(R.color.tp_text_secondary))
+
+        // CONTROL RESPONSE — the saved mode, amber until the aircraft's pitch-speed read-back
+        // says the push landed (ControlResponse.aircraftPitchSpeed).
+        controlResponse.text = if (product == null) "" else
+            "CONTROL RESPONSE: ${ControlResponse.saved(this).label.uppercase()}"
+        controlResponse.setTextColor(color(
+            if (ControlResponse.aircraftPitchSpeed != null) R.color.tp_text_secondary else R.color.tp_state_unknown))
+
+        // SD CARD — where the footage goes and whether there is room. Red is "you will get no
+        // recording"; amber is "the camera has not said".
+        val sd = TakBridgeHolder.storage()
+        storage.text = when {
+            product == null -> ""
+            sd == null -> "SD CARD: \u2014"
+            !sd.isInserted -> "SD CARD: NOT INSERTED"
+            sd.hasError() || sd.isInvalidFormat || sd.isReadOnly -> "SD CARD: ERROR"
+            sd.isFull -> "SD CARD: FULL"
+            else -> "SD CARD \u00b7 %.1f GB FREE".format(sd.remainingSpaceInMB / 1024.0)
+        }
+        storage.setTextColor(color(when {
+            sd == null -> R.color.tp_state_unknown
+            !sd.isInserted || sd.hasError() || sd.isInvalidFormat || sd.isReadOnly || sd.isFull -> R.color.tp_state_danger
+            else -> R.color.tp_state_go
+        }))
+
+        // ---- the four checks ----
+        val permsOk = AppPermissions.allGranted(this)
+        permissionsStatus.text = if (permsOk) "APP PERMISSIONS: Granted" else "APP PERMISSIONS: Denied"
+        dot(permissionsStatus, permissionsDot, color(if (permsOk) R.color.tp_state_go else R.color.tp_state_danger))
 
         val connected = TakManager.getInstance().isConnected
-        val color = if (connected) ContextCompat.getColor(applicationContext, R.color.tp_state_go) else ContextCompat.getColor(applicationContext, R.color.tp_state_danger)
         takStatus.text = if (connected) "TAK: Connected" else "TAK: Disconnected"
-        takStatus.setTextColor(color)
-        (takDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
-            ?: takDot.background?.setTint(color)
+        dot(takStatus, takDot, color(if (connected) R.color.tp_state_go else R.color.tp_state_danger))
 
         updateNetwork()
+        renderMediaServer()
+    }
+
+    private fun color(res: Int) = ContextCompat.getColor(applicationContext, res)
+
+    private fun dot(text: TextView, d: android.view.View, c: Int) {
+        text.setTextColor(c)
+        (d.background as? android.graphics.drawable.GradientDrawable)?.setColor(c) ?: d.background?.setTint(c)
     }
 
     /**
-     * The network line. Green only when the system has CONFIRMED reachability — an attached
+     * The Wi-Fi line. Green only when the system has CONFIRMED reachability — an attached
      * network that goes nowhere reads amber, which is the case that otherwise looks like a
-     * broken TAK server. See [NetworkStatus].
+     * broken TAK server. See [NetworkStatus]. The SSID needs location; without it the line
+     * still says connected.
      */
     private fun updateNetwork() {
         val net = NetworkStatus.read(this)
         val bars = net.bars()
         val suffix = if (bars.isEmpty()) "" else "  $bars"
         network.text = when (net.state) {
-            NetworkStatus.State.CONNECTED -> "Network: ${net.label}$suffix"
-            NetworkStatus.State.NO_INTERNET -> "Network: ${net.label} — no internet$suffix"
-            NetworkStatus.State.OFF -> "Network: none"
+            NetworkStatus.State.CONNECTED -> "WIFI: ${net.label}$suffix"
+            NetworkStatus.State.NO_INTERNET -> "WIFI: ${net.label} \u2014 NO INTERNET$suffix"
+            NetworkStatus.State.OFF -> "WIFI: NOT CONNECTED"
         }
-        val color = ContextCompat.getColor(
-            applicationContext,
-            when (net.state) {
-                NetworkStatus.State.CONNECTED -> R.color.tp_state_go
-                // We KNOW there is no route out — that is caution, not unknown. §6.1.
-                NetworkStatus.State.NO_INTERNET -> R.color.tp_state_caution
-                NetworkStatus.State.OFF -> R.color.tp_state_danger
-            }
-        )
-        network.setTextColor(color)
-        // Same dot treatment as the TAK line it sits under, so the two read as one status block
-        // rather than a status and a caption.
-        (networkDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
-            ?: networkDot.background?.setTint(color)
+        dot(network, networkDot, color(when (net.state) {
+            NetworkStatus.State.CONNECTED -> R.color.tp_state_go
+            NetworkStatus.State.NO_INTERNET -> R.color.tp_state_caution
+            NetworkStatus.State.OFF -> R.color.tp_state_danger
+        }))
     }
+
+    /**
+     * The media-server line, and the probe behind it, re-asked every [MEDIA_PROBE_PERIOD_MS] off
+     * the UI thread. ⚠ GREEN MEANS THE SERVER IS UP, NOT THAT IT WILL TAKE THE STREAM — see
+     * [MediaServerProbe]. The LIVE pill on the flight screen stays the authority on that.
+     */
+    private fun renderMediaServer() {
+        val p = getSharedPreferences(VIDEO_PREFS, MODE_PRIVATE)
+        val host = p.getString("video_host", "") ?: ""
+        val port = p.getInt("video_rtsp_port", VideoTransport.RTSP.defaultPort)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!mediaProbeRunning && now - mediaProbeAtMs > MEDIA_PROBE_PERIOD_MS) {
+            mediaProbeRunning = true
+            Thread {
+                val r = MediaServerProbe.probe(host, port)
+                mediaProbe = r
+                mediaProbeAtMs = android.os.SystemClock.elapsedRealtime()
+                mediaProbeRunning = false
+                runOnUiThread { if (!isFinishing) renderMediaServer() }
+            }.apply { isDaemon = true; name = "media-probe" }.start()
+        }
+        mediaStatus.text = when (mediaProbe) {
+            MediaServerProbe.Result.REACHABLE -> "MEDIA SERVER: Reachable"
+            MediaServerProbe.Result.UNREACHABLE -> "MEDIA SERVER: Unreachable"
+            MediaServerProbe.Result.NOT_CONFIGURED -> "MEDIA SERVER: Not set"
+            null -> "MEDIA SERVER: \u2014"
+        }
+        dot(mediaStatus, mediaDot, color(when (mediaProbe) {
+            MediaServerProbe.Result.REACHABLE -> R.color.tp_state_go
+            MediaServerProbe.Result.UNREACHABLE -> R.color.tp_state_danger
+            else -> R.color.tp_state_unknown
+        }))
+    }
+    @Volatile private var mediaProbe: MediaServerProbe.Result? = null
+    @Volatile private var mediaProbeRunning = false
+    private var mediaProbeAtMs = -MEDIA_PROBE_PERIOD_MS
+
+    /**
+     * Asks for every permission still missing, and falls back to the settings page when Android
+     * will not ask again. shouldShowRequestPermissionRationale reads false BOTH before the first
+     * ask and after a permanent denial; what separates them is whether we have asked before.
+     */
+    private fun askForPermissions() {
+        val missing = AppPermissions.missing(this)
+        if (missing.isEmpty()) return
+        val prefs = getSharedPreferences(VIDEO_PREFS, MODE_PRIVATE)
+        val askedBefore = prefs.getBoolean(KEY_ASKED_PERMISSIONS, false)
+        val canAsk = missing.any { androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this, it) }
+        if (!askedBefore || canAsk) {
+            AppLog.i(TAG, "asking for permissions: $missing")
+            prefs.edit().putBoolean(KEY_ASKED_PERMISSIONS, true).apply()
+            androidx.core.app.ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_CODE_PERMISSIONS)
+        } else {
+            AppLog.i(TAG, "Android will not ask again — opening the app's settings page")
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", packageName, null)))
+        }
+    }
+
+    /**
+     * Holds the card for [INITIALIZING_MS] after the aircraft first appears: a pilot who taps
+     * straight through lands on the flight screen mid-push and cannot know what was applied.
+     * The word PULSES on purpose — a frozen label on a screen that refuses taps reads as a crash.
+     */
+    private fun startInitializing() {
+        initializingUntilMs = System.currentTimeMillis() + INITIALIZING_MS
+        initializing.visibility = android.view.View.VISIBLE
+        initializing.alpha = 1f
+        initializing.animate().cancel()
+        pulseInitializing()
+        handler.removeCallbacks(endInitializing)
+        handler.postDelayed(endInitializing, INITIALIZING_MS)
+    }
+    private fun pulseInitializing() {
+        if (initializingUntilMs <= System.currentTimeMillis()) return
+        initializing.animate().alpha(0.25f).setDuration(700L).withEndAction {
+            if (initializingUntilMs <= System.currentTimeMillis()) return@withEndAction
+            initializing.animate().alpha(1f).setDuration(700L).withEndAction { pulseInitializing() }.start()
+        }.start()
+    }
+    private val endInitializing = Runnable {
+        initializingUntilMs = 0L
+        initializing.animate().cancel()
+        initializing.visibility = android.view.View.GONE
+        AppLog.v(TAG, "initialise hold released")
+    }
+    private var initializingUntilMs = 0L
+    private var sawProduct = false
 
     companion object {
         private const val TAG = "TAKPilot2GoHome"
+        private const val VIDEO_PREFS = "takpilot2_tak"
+        private const val REQUEST_CODE_PERMISSIONS = 4301
+        private const val KEY_ASKED_PERMISSIONS = "asked_app_permissions"
+        /** Long enough for the connect-time pushes AND for the pilot to read the card. */
+        private const val INITIALIZING_MS = 5000L
+        /** The home screen repaints every 1.5 s and a probe is a network round trip; probing per
+         *  paint would be a port scan of the operator's own server. */
+        private const val MEDIA_PROBE_PERIOD_MS = 10_000L
 
         /**
          * True once this PROCESS has passed through Home, which is the only place the DJI SDK is

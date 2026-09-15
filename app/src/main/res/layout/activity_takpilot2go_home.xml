@@ -163,107 +163,128 @@
 
         <View android:layout_width="0dp" android:layout_height="0dp" />
 
-        <ImageView
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:src="@drawable/takpilot2_logo"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="8dp" />
+        <!-- THE LOGO IS GONE FROM THIS CARD (operator, 2026-09-14): the same mark is in the
+             screen's top-left corner, so the card showed it twice and spent 84dp of its best
+             vertical space doing it. That space now carries the four checks a pilot reads
+             before they fly. Same change as the Autel tree's v2.1.3. -->
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="ENTER FLIGHT"
             android:textColor="@color/tp_text_primary"
-            android:textSize="26sp"
+            android:textSize="24sp"
             android:textStyle="bold"
             android:letterSpacing="0.05" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Live FPV · Telemetry · TAK"
-            android:textColor="@color/tp_accent"
-            android:textSize="15sp"
-            android:layout_marginTop="6dp" />
+        <!-- The "Live FPV · Telemetry · TAK" subtitle is gone (2026-09-14): MEASURED, the card
+             with the checks and the aircraft block was one line over its height budget and the
+             SD-card line measured 10px tall — the §3.4 sliver. The subtitle described the
+             screen behind the card; the checks describe whether the pilot can fly. -->
 
-        <!-- TAK connection status — moved here from under the app name. This card is what a
-             pilot taps to fly, so the one thing that decides whether the team will see them
-             belongs where they are about to act on it, not on the screen's other side. -->
+        <!-- THE FOUR CHECKS, in the operator's order (2026-09-14): APP PERMISSIONS, WIFI, TAK,
+             MEDIA SERVER. Each is a dot and a line; green is a confirmed fact, red a confirmed
+             fault, amber unknown (§6.1).
+
+             ⚠ PERMISSIONS FIRST, AND THE ROW IS TAPPABLE WHEN DENIED. A controller on the Autel
+             fleet flew a 12.5-hour mission with location denied and nobody knew: Android denies
+             silently, the aircraft flies, the video streams, and only the PILOT is missing from
+             the team's map. A red line a pilot cannot clear is half a fix — the tap asks. -->
         <LinearLayout
+            android:id="@+id/homePermissionsRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="10dp">
-            <View
-                android:id="@+id/homeTakDot"
-                android:layout_width="10dp"
-                android:layout_height="10dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tak_status_dot" />
-            <TextView
-                android:id="@+id/homeTakStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TAK: Disconnected"
-                android:textColor="@color/tp_text_secondary"
-                android:textSize="13sp" />
+            android:layout_marginTop="10dp"
+            android:clickable="true"
+            android:focusable="true">
+            <View android:id="@+id/homePermissionsDot" android:layout_width="10dp" android:layout_height="10dp"
+                android:layout_marginEnd="6dp" android:background="@drawable/tak_status_dot" />
+            <TextView android:id="@+id/homePermissionsStatus" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="APP PERMISSIONS: —"
+                android:textColor="@color/tp_text_secondary" android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Network state, directly under the TAK line it explains. The TAK dot alone cannot
-             separate "server down" from "this phone has no network", and that ambiguity is what
-             had pilots chasing enrollment failures on the sibling. Green means reachability was
-             CONFIRMED, not merely that something is attached. -->
+        <!-- Wi-Fi: state from NetworkCapabilities (no permission needed), the SSID and bars from
+             WifiInfo, which needs location — without it the line still says CONNECTED. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:layout_marginTop="4dp">
-            <View
-                android:id="@+id/homeNetworkDot"
-                android:layout_width="10dp"
-                android:layout_height="10dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tak_status_dot" />
-            <TextView
-                android:id="@+id/homeNetwork"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Network: —"
-                android:textColor="@color/tp_text_secondary"
-                android:textSize="13sp" />
+            <View android:id="@+id/homeNetworkDot" android:layout_width="10dp" android:layout_height="10dp"
+                android:layout_marginEnd="6dp" android:background="@drawable/tak_status_dot" />
+            <TextView android:id="@+id/homeNetwork" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="WIFI: —"
+                android:textColor="@color/tp_text_secondary" android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Aircraft info, centered under the title -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+            <View android:id="@+id/homeTakDot" android:layout_width="10dp" android:layout_height="10dp"
+                android:layout_marginEnd="6dp" android:background="@drawable/tak_status_dot" />
+            <TextView android:id="@+id/homeTakStatus" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="TAK: Disconnected"
+                android:textColor="@color/tp_text_secondary" android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- MEDIA SERVER says REACHABLE, never "will take my stream" — see MediaServerProbe. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+            <View android:id="@+id/homeMediaDot" android:layout_width="10dp" android:layout_height="10dp"
+                android:layout_marginEnd="6dp" android:background="@drawable/tak_status_dot" />
+            <TextView android:id="@+id/homeMediaStatus" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="MEDIA SERVER: —"
+                android:textColor="@color/tp_text_secondary" android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- THE AIRCRAFT BLOCK, in the operator's reading order (2026-09-14): what it IS, what it
+             HAS, what it will DO by itself, how it ANSWERS the sticks, where the footage GOES.
+             Every line but the model reads back from the aircraft or the bridge — never the
+             saved preference — and is amber until it has. ⚠ §3.1's "battery levels" line (the
+             warn/land thresholds) is gone from this phone at the operator's call: the Mini 2
+             cannot change them (20/10, CLAUDE.md rule 11) and the LIVE charge is what decides
+             the flight. Recorded on the ledger. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center_horizontal"
-            android:layout_marginTop="12dp">
+            android:layout_marginTop="10dp">
             <TextView style="@style/homeCardTitle" android:text="Aircraft"
                 android:layout_gravity="center_horizontal" />
             <TextView android:id="@+id/homeAircraft" style="@style/homeCardValue"
                 android:text="—" android:layout_gravity="center_horizontal" />
             <TextView android:id="@+id/homeSdk" style="@style/homeCardSub"
                 android:text="MSDK —" android:layout_gravity="center_horizontal" />
-            <!-- The two battery levels READ BACK FROM THE AIRCRAFT, not the saved
-                 preference. They decide how long this flight can last, which is a pre-flight
-                 decision, and reading the aircraft's own values is the only way to catch an
-                 Apply that silently did not take. On the Mini 2 they cannot be changed at all
-                 — it warns at 20% and lands at 10% whatever Pre-Flight says — so this line is
-                 the pilot's only statement of what will actually happen.
-
-                 THIS IS THE ONE STATUS FIELD THE PHONE KEEPS beyond the first five
-                 (specification §3.1). The other five — avoidance, signal loss, stick mode,
-                 control response, storage — do not fit this card on a 411dp screen and are
-                 static configuration a pilot sets once. Do not add them here without
-                 re-checking the card's height budget; there is about 16dp of slack left. -->
             <TextView android:id="@+id/homeBatteryLevels" style="@style/homeCardSub"
                 android:text="" android:layout_gravity="center_horizontal"
                 android:layout_marginTop="2dp" android:textStyle="bold" />
+            <TextView android:id="@+id/homeSignalLoss" style="@style/homeCardSub"
+                android:text="" android:layout_gravity="center_horizontal" />
+            <TextView android:id="@+id/homeStickMode" style="@style/homeCardSub"
+                android:text="" android:layout_gravity="center_horizontal" />
+            <TextView android:id="@+id/homeControlResponse" style="@style/homeCardSub"
+                android:text="" android:layout_gravity="center_horizontal" />
+            <TextView android:id="@+id/homeStorage" style="@style/homeCardSub"
+                android:text="" android:layout_gravity="center_horizontal" />
+            <!-- Shown while the connect-time pushes are still landing. The card refuses taps
+                 until it clears, so a pilot cannot reach the flight screen before the aircraft
+                 has actually been configured — see TAKPilot2GoHomeActivity.startInitializing. -->
+            <TextView android:id="@+id/homeInitializing" style="@style/homeCardSub"
+                android:text="INITIALIZING" android:layout_gravity="center_horizontal"
+                android:layout_marginTop="6dp" android:textStyle="bold"
+                android:letterSpacing="0.15" android:visibility="gone" />
         </LinearLayout>
 
         <!-- Spacer pushes the tap hint to the bottom -->

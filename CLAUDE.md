@@ -95,7 +95,10 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.16 IS BUILT — versionCode 25, 2026-09-14 — RTH says what was measured (ledger D29): nothing
+**v1.2.17 IS BUILT AND ON THE PHONE — versionCode 29, 2026-09-14 — the home card is the pre-flight
+check (ledger D30): four checks, the aircraft block with live charge, failsafe, sticks, control
+response, SD card, INITIALIZING; logo and subtitle gone, 12sp, home immersive. Measured. Not
+flown.** Before it, **v1.2.16 — versionCode 25 — RTH says what was measured (ledger D29): nothing
 starts a return inside 20 m of home on either route; farther out `startGoHome` reached the aircraft 2
 in 7 while the RC-N1's button went 3 in 3, so a miss is retried once via KeyManager START_GO_HOME
 (unmeasured) and a second miss says "use the controller's RTH button". Fourth flight: 4 for 4 at

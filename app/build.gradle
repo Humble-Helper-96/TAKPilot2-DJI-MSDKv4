@@ -154,10 +154,17 @@ android {
         //                 RC-N1's button went 3 in 3, so a miss is retried once through
         //                 KeyManager START_GO_HOME and a second miss tells the pilot to use the
         //                 controller's button. The "after a cancel" reading is withdrawn.
+        //           1.2.17 THE HOME CARD IS THE PRE-FLIGHT CHECK (operator, 2026-09-14; the Autel
+        //                 tree's v2.1.1 to v2.1.5). The logo leaves the card; four checks — APP
+        //                 PERMISSIONS (tappable when denied), WIFI, TAK, MEDIA SERVER (an RTSP
+        //                 OPTIONS probe every 10 s) — then the aircraft: model, SDK, the LIVE
+        //                 charge of aircraft and RC, signal-loss behaviour and control response
+        //                 as the aircraft holds them, sticks, SD card, and a pulsing INITIALIZING
+        //                 that refuses taps for 5 s after the aircraft appears. Not flown.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 25
-        versionName "1.2.16"
+        versionCode 29
+        versionName "1.2.17"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

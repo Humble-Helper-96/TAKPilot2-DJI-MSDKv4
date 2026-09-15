@@ -319,6 +319,10 @@ class DroneTakBridge(
      * every 2 s tick whenever the SDK's current RC is not the one that was armed. The Autel
      * sibling's v2.0.2 is the same lesson with one fewer twist: ask again, always.
      */
+    @Volatile private var lastRcBatteryPct: Int? = null
+    private val rcChargeCallback = dji.common.remotecontroller.BatteryState.Callback { st ->
+        lastRcBatteryPct = st?.remainingChargeInPercent?.takeIf { it > 0 }
+    }
     private var armedRc: dji.sdk.remotecontroller.RemoteController? = null
     private var rcArmWarned = false
     private fun armRemoteControllerIfNeeded() {
@@ -331,6 +335,8 @@ class DroneTakBridge(
         if (rc === armedRc) return
         try {
             rc.setHardwareStateCallback(hardwareStateCallback)
+            // The RC's charge for the home card, on the same object and with the same re-arm.
+            try { rc.setChargeRemainingCallback(rcChargeCallback) } catch (t: Throwable) { AppLog.w(TAG, "RC charge callback unavailable: ${t.message}") }
             AppLog.i(TAG, "RC hardware-state callback armed on $rc" + (if (armedRc != null) " (replaced $armedRc)" else ""))
             armedRc = rc
         } catch (t: Throwable) { AppLog.w(TAG, "RC hardware-state callback unavailable: ${t.message}") }
@@ -770,6 +776,10 @@ class DroneTakBridge(
         /** The aircraft is in its automatic landing phase — the RTH menu's Cancel Landing reads
          *  and verifies against this. Off the same state push as [isGoingHome]. */
         val isLanding: Boolean = false,
+        /** The RC-N1's own charge, or null before it reports. Arrives over the aircraft link
+         *  (setChargeRemainingCallback on the RC the SDK hands out), so with no aircraft bound it
+         *  is unknown and not low. */
+        val rcBatteryPct: Int? = null,
     )
 
     /**
@@ -833,6 +843,7 @@ class DroneTakBridge(
             lastCameraState?.flatMode,
             lastCameraState?.mode,
             state?.flightMode == dji.common.flightcontroller.FlightMode.AUTO_LANDING,
+            lastRcBatteryPct,
         )
     }
 
