@@ -171,10 +171,23 @@ android {
         //                 the tick by object identity, and the flight screen no longer stops the
         //                 process-wide bridge on the way out — the home card and Pre-Flight
         //                 read it. The battery lock locks the battery levels only. Not flown.
+        //           2.0.0 RELEASED (operator, 2026-09-14). The seventeen small updates of the
+        //                 bench day, 1.2.3 to 1.2.19, drawn into one release. A MAJOR bump and
+        //                 not an eighteenth patch: the flight screen changed shape (the capsule
+        //                 toolbar at 45dp, six pills, the media-mode readout, the record pill as
+        //                 a shutter, the AR arrows to the picture's edge, the widened column and
+        //                 map), the home card became the pre-flight check, Pre-Flight gained the
+        //                 memory card, and the RC-N1's record and RTH buttons do what they say.
+        //                 versionName is what a TAK server's Connected Users panel shows, and
+        //                 1.2.x -> 2.0.0 says the application changed, where 1.2.19 says a bug
+        //                 was fixed. The detail is in the 1.2.x blocks above and is not repeated.
+        //                 Flown on 2026-09-14 across five short flights: the warning banner,
+        //                 RTH and Cancel Return, the media-mode readout and the record pill, the
+        //                 RC-N1 record button. NOT flown: the KeyManager RTH retry, a card format.
         // The Autel sibling has its own number line. Do not chase it — they are different apps
         // with different feature sets and one operator who has to tell them apart.
-        versionCode 31
-        versionName "1.2.19"
+        versionCode 32
+        versionName "2.0.0"
         // Stamped at configure time so any sideloaded APK can be identified exactly. This matters
         // in a debugging session where a dozen builds go on the same phone in an afternoon.
         buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""

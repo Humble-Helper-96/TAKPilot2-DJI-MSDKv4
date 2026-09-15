@@ -95,7 +95,10 @@ A UI change lands in all three applications, or it lands in none.
 
 ## Current work
 
-**v1.2.19 IS BUILT AND ON THE PHONE — versionCode 31, 2026-09-14 — Pre-Flight section 0 Memory
+**v2.0.0 IS RELEASED — tag `v2.0.0`, versionCode 32, 2026-09-14, on GitHub with the signed APK.**
+It is the bench day's seventeen updates, 1.2.3 to 1.2.19, as one release; the reasoning for the
+major bump is on the version line in `app/build.gradle`. Before it, **v1.2.19 — versionCode 31 —
+Pre-Flight section 0 Memory
 Card (v1.2.18, ledger D31; no real format run yet); the bridge arms aircraft callbacks from its tick
 by identity and the flight screen no longer stops it on the way out, so the home card fills without
 a flight-screen visit; the battery lock locks the battery levels only. Measured. Not flown.**
